@@ -13,8 +13,8 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   taskId: z.string().min(1),
   answer: z.string().max(4000),
-  /** これまでに受け取ったヒント数（= 誤答回数） */
-  hintCount: z.number().int().min(0).max(MAX_HINTS),
+  /** クライアントの表示用。スコアの根拠には使わない（サーバの TaskAttempt が正本） */
+  hintCount: z.number().int().min(0).max(MAX_HINTS).optional(),
   /** 回答開始からの経過ms（任意） */
   latencyMs: z.number().int().min(0).optional(),
   /** ギブアップ（失敗として記録し解説を見る） */
@@ -31,10 +31,16 @@ export async function POST(req: Request) {
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid body" }, { status: 400 });
-  const { taskId, answer, hintCount, latencyMs, giveUp } = parsed.data;
+  const { taskId, answer, latencyMs, giveUp } = parsed.data;
 
   const task = getTask(taskId);
   if (!task) return NextResponse.json({ error: "unknown task" }, { status: 404 });
+
+  // ヒント回数はサーバが持つ TaskAttempt が正本（クライアントの申告は信用しない）。
+  // 6時間以上放置された挑戦は新しい挑戦として扱う。
+  const attempt = await prisma.taskAttempt.findUnique({ where: { userId_taskId: { userId, taskId } } });
+  const stale = attempt ? Date.now() - attempt.updatedAt.getTime() > 6 * 60 * 60 * 1000 : false;
+  const hintCount = attempt && !stale ? Math.min(attempt.hintCount, MAX_HINTS) : 0;
 
   const profile = await prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain: task.domain } } });
   const recent = await prisma.learningEvent.findMany({
@@ -114,6 +120,11 @@ export async function POST(req: Request) {
   }
 
   const nextHintCount = hintCount + 1;
+  await prisma.taskAttempt.upsert({
+    where: { userId_taskId: { userId, taskId } },
+    update: { hintCount: nextHintCount },
+    create: { userId, taskId, hintCount: nextHintCount },
+  });
   if (nextHintCount >= MAX_HINTS + 1) {
     const event = await record(userId, task.domain, task.id, task.difficulty, answer, false, hintCount, latencyMs, skillTags);
     const after = await finalize(userId, task.domain);
@@ -137,6 +148,11 @@ export async function POST(req: Request) {
   });
 }
 
+/** 決着した挑戦の進行状態を削除する */
+async function clearAttempt(userId: string, taskId: string) {
+  await prisma.taskAttempt.deleteMany({ where: { userId, taskId } });
+}
+
 async function record(
   userId: string,
   domain: DomainKey,
@@ -148,9 +164,11 @@ async function record(
   latencyMs: number | undefined,
   skillTags: string[],
 ) {
-  return prisma.learningEvent.create({
+  const event = await prisma.learningEvent.create({
     data: { userId, domain, taskId, difficulty, answer: answer.slice(0, 4000), success, hintCount, latencyMs, skillTags },
   });
+  await clearAttempt(userId, taskId);
+  return event;
 }
 
 async function finalize(userId: string, domain: DomainKey) {
