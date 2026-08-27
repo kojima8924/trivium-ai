@@ -171,3 +171,73 @@ test("toPublic: answerKey / hints / explanation / rubric を落とす", () => {
   assert.equal(p.prompt, t.prompt);
   assert.equal(p.passage, t.passage);
 });
+
+// ---- コンテンツ拡充後の網羅性チェック ----
+
+test("各 domain に 10 問以上（実用に耐える量）", () => {
+  for (const d of DOMAINS) {
+    assert.ok(tasksFor(d).length >= 10, `${d}: ${tasksFor(d).length} 問`);
+  }
+});
+
+test("全 subskill が 2 問以上でカバーされている", () => {
+  for (const d of DOMAINS) {
+    for (const skill of SUBSKILLS[d]) {
+      const n = tasksFor(d).filter((t) => t.skillTags.includes(skill)).length;
+      assert.ok(n >= 2, `${d}/${skill}: ${n} 問しかない`);
+    }
+  }
+});
+
+test("各 domain に difficulty 1 と 5 が存在する（幅がある）", () => {
+  for (const d of DOMAINS) {
+    const ds = new Set(tasksFor(d).map((t) => t.difficulty));
+    assert.ok(ds.has(1), `${d}: difficulty 1 が無い`);
+    assert.ok(ds.has(5), `${d}: difficulty 5 が無い`);
+  }
+});
+
+test("全タスク: hints はちょうど 3 段（一段ずつ出すため）", () => {
+  for (const t of ALL_TASKS) {
+    assert.equal(t.hints.length, 3, `${t.id}: hints ${t.hints.length} 個`);
+    for (const h of t.hints) assert.ok(h.trim().length > 0, `${t.id}: 空のヒント`);
+  }
+});
+
+test("全タスク: 表示文にバッククォートを使わない（UI で生表示されるため）", () => {
+  for (const t of ALL_TASKS) {
+    assert.ok(!t.explanation.includes("`"), `${t.id}: explanation にバッククォート`);
+    assert.ok(!t.prompt.includes("`"), `${t.id}: prompt にバッククォート`);
+    for (const h of t.hints) assert.ok(!h.includes("`"), `${t.id}: hint にバッククォート`);
+  }
+});
+
+test("free タスク: rubric に mustInclude と字数の目安がある", () => {
+  for (const t of ALL_TASKS.filter((t) => t.kind === "free")) {
+    assert.ok(t.rubric?.mustInclude && t.rubric.mustInclude.length >= 1, `${t.id}: mustInclude`);
+    assert.ok(t.rubric?.minLength && t.rubric.minLength > 0, `${t.id}: minLength`);
+  }
+});
+
+test("kind は3種すべてが使われている（採点経路の網羅）", () => {
+  for (const kind of ["choice", "short", "free"] as const) {
+    assert.ok(ALL_TASKS.some((t) => t.kind === kind), `${kind} のタスクが無い`);
+  }
+});
+
+test("追加した short タスクの正解が checkDeterministic を通る（表記ゆれ込み）", () => {
+  const cases: [string, string[]][] = [
+    ["read-005", ["700", "700杯", " 700 "]],
+    ["code-009", ["3", " 3 "]],
+    ["code-010", ["['a', 'b']", "[a,b]", "[a, b]", '["a", "b"]']],
+    ["code-011", ["9"]],
+    ["code-013", ["4 fox", "4  fox", "4 FOX"]],
+  ];
+  for (const [id, answers] of cases) {
+    const t = getTask(id)!;
+    assert.ok(t, `${id} が見つからない`);
+    for (const a of answers) assert.equal(checkDeterministic(t, a), true, `${id}: ${a}`);
+  }
+  assert.equal(checkDeterministic(getTask("code-009")!, "3.5"), false);
+  assert.equal(checkDeterministic(getTask("code-013")!, "4 the"), false);
+});
