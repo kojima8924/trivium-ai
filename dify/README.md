@@ -1,7 +1,7 @@
 # dify/ — Dify Workflow DSL（OpenAI 版・3 本）
 
 Trivium の AI レイヤーを Dify で動かすための Workflow アプリ定義（DSL）。
-Dify Cloud / self-hosted の **Studio → Import DSL file** でそのまま取り込めます。LLM はすべて **OpenAI**（`langgenius/openai/openai`、既定モデル `gpt-5.4-mini`。アプリ側の直接呼び出し `OPENAI_MODEL` と同じ）。
+Dify Cloud / self-hosted の **Studio → Import DSL file** でそのまま取り込めます。LLM はすべて **OpenAI**（`langgenius/openai/openai`、既定モデル `gpt-5.4-mini`。アプリ側の直接呼び出しは `src/config/trivium.config.ts` の `MODELS` で役割ごとに決まる）。
 
 | ファイル | アプリ名 | 役割 | 対応する環境変数 |
 |---|---|---|---|

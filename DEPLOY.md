@@ -7,14 +7,18 @@
 - GitHub の private repository `trivium-ai` にこのコードが push 済み
 - ドメイン（例: `trivium.example.com`）の A レコードが VPS の IP を向いている
 
-構成はシンプルです。**Coolify の中に PostgreSQL と Next.js アプリの 2 リソース**を作り、DB は内部ネットワークだけで繋ぎます。
+構成はシンプルです。**Coolify の中に PostgreSQL と Next.js アプリの 2 リソース**を作り、DB は内部ネットワークだけで繋ぎます。アプリのイメージは GitHub Actions がビルドして GHCR に置き、Coolify はそれを pull するだけです（2.5 章。VPS 上ではビルドしない）。
 
 ```
-Internet ──HTTPS──▶ Coolify(Traefik) ──▶ trivium (Next.js, Dockerfile)
+GitHub main ──push──▶ Actions（typecheck / test / Docker 実ビルド＋起動スモーク）──▶ ghcr.io/kojima8924/trivium-ai:latest
+                                                                                        │ pull（Coolify API または UI の Redeploy）
+Internet ──HTTPS──▶ Coolify(Traefik) ──▶ trivium (Next.js, Docker Image) ◀────────────┘
                                               │ 内部ネットワーク
                                               ▼
                                         PostgreSQL 16（5432 は非公開）
 ```
+
+現在の本番: `https://trivium.153.126.213.251.sslip.io`（さくら VPS の IP を sslip.io で名前解決。DNS 設定不要）。
 
 ---
 
@@ -70,10 +74,31 @@ Coolify の Health Check 設定は Dockerfile 内の `HEALTHCHECK`（`/api/healt
    - Port: `3000`、Domains: `https://trivium.<VPS IP>.sslip.io`
    - 環境変数は 3 章と同じ（**Build Variable は不要**。`APP_URL` を必ず入れる）
    - 既存の「GitHub から Dockerfile ビルド」のリソースは **削除するか Stop** する（2 本同時に動かさない）
-4. 更新するとき: main に push → Actions 完了（約 4〜8 分）→ Coolify で **Redeploy**（pull だけなので数十秒）
+4. 更新するとき: main に push → Actions 完了（約 4〜8 分）→ Coolify で **Redeploy**（pull だけなので数十秒）。UI を開かずに API で行う手順は 2.6 章
 
 イメージに焼き込まれる `NEXT_PUBLIC_APP_URL` は GitHub の repo Variables（`NEXT_PUBLIC_APP_URL`）から取る。
 未設定でもサーバ側は実行時の `APP_URL` を優先するので、OAuth / LINE のリンクは正しく動く。
+
+## 2.6 Coolify API でデプロイする（スマホからの指示だけで回す）
+
+Coolify → **Keys & Tokens → API tokens** で read/write のトークンを作り、ローカルの `.env` に `COOLIFY_BASE_URL` / `COOLIFY_API_TOKEN` として置く（**値はコミットしない**。`.env` は gitignore 済み）。
+
+```bash
+# アプリ一覧（uuid を控える）
+curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/applications" | jq '.[] | {uuid, name, fqdn, status}'
+
+# 環境変数の一覧（キー名だけ見る）
+curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/applications/<uuid>/envs" | jq '[.[].key]'
+
+# 最新イメージを pull して再デプロイ（POST。GET は "changed to POST" と返る）
+curl -s -X POST -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/deploy?uuid=<uuid>&force=true"
+# → {"deployments":[{"message":"... deployment queued.","deployment_uuid":"..."}]}
+
+# 進捗
+curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/deployments/<deployment_uuid>" | jq '.status'
+```
+
+流れ: main に push → Actions の `Docker` workflow が success（`gh run watch`）→ 上の deploy を叩く → `/api/health` が `db:ok` → `npm run preflight -- <公開URL>`。
 
 ### VPS が固まったとき
 - さくらの VPS コントロールパネルから **再起動**（Coolify・DB は docker volume に永続化されているので消えない）
@@ -98,10 +123,10 @@ Coolify の Health Check 設定は Dockerfile 内の `HEALTHCHECK`（`/api/healt
 | `AUTH_GOOGLE_ID` | ○ | Google OAuth クライアント ID | 不要 |
 | `AUTH_GOOGLE_SECRET` | ○ | Google OAuth クライアントシークレット | 不要 |
 | `DEMO_LOGIN_ENABLED` | | デモ用フォールバックログイン。本番は `false` 推奨（Google が使えない緊急時のみ `true`） | 不要 |
-| `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」ボタン。デモ当日は `true` | 不要 |
+| `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」「初期状態に戻す」と `/api/demo/warm`（講評キャッシュ生成）。デモ当日は `true` | 不要 |
 | `AI_PROVIDER` | | `openai`（既定・推奨）/ `dify` / `anthropic` / `mock`。キー未設定なら自動で mock | 不要 |
 | `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・Leader・作問をすべて OpenAI Responses API で行う） | 不要 |
-| `OPENAI_MODEL` | | 既定 `gpt-5.4-mini`（応答速度優先。品質を上げるなら `gpt-5.5` 等） | 不要 |
+| `OPENAI_MODEL` | | 役割指定の無い呼び出しの予備（既定 `gpt-5.4-mini`）。**実際に使うモデルは `src/config/trivium.config.ts` の `MODELS`**（採点・寸評・会話 `gpt-5.4-mini`、作問 `gpt-5.5`）で決まる | 不要 |
 | `OPENAI_TIMEOUT_MS` | | 既定 25000 | 不要 |
 | `DIFY_API_BASE` | | `https://api.dify.ai/v1`（`AI_PROVIDER=dify` のとき） | 不要 |
 | `DIFY_DOMAIN_API_KEY` | | `trivium-domain` workflow の API key（回答評価・寸評） | 不要 |
@@ -201,7 +226,7 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
 | `request` | 学習者の依頼文（LINE の自由文や Web の入力欄） |
 | `domain` | `READ` / `WRITE` / `CODE`（アプリ側が依頼文から決定論で推定。LLM に決めさせない） |
 | `kind` | `choice` / `short` / `free` |
-| `difficulty` | 1〜5 |
+| `difficulty` | 1〜10（系統ごとの難易度） |
 | `allowed_skill_tags` | その domain の subskill 名（カンマ区切り。skill_tags はここから選ぶ） |
 | `recent_titles` | 直近の生成課題タイトル（改行区切り。同じ題材を避ける） |
 | `use_search` | `true` のとき Web 検索を挟む（依頼文に「ニュース / 時事 / 最近の / 話題 / 最新」等があるときだけアプリ側が `true` にする） |
@@ -301,9 +326,9 @@ Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock:
    ```bash
    npm run line:richmenu
    ```
-   - 2行×3列: 上段 `READ | WRITE | CODE`（Webへ）、下段 `今日の学習 | 履歴 | PROFILE`（postback）
-   - 見た目を整えるなら `public/line/richmenu.png`（2500×1686）を置いてから再実行（無ければ単色画像を自動生成）
-6. LINE user ID と Google アカウントは独立（`LineUser.userId` は将来の連携用で未使用）。LINE 側は「入口」に徹し、課題は Web で解く
+   - 2行×3列: 上段 `READ | WRITE | LOGIC`（Web の `/learn/*` へ）、下段 `今日の学習 | 履歴 | PROFILE`（postback。今日の学習＝LINE 上で選択式を出題、PROFILE＝Flex カード）
+   - 画像は `public/line/richmenu.png`（`npx tsx scripts/line-richmenu-image.ts` で再生成）。本番に反映するときは `APP_URL=<公開URL> NEXT_PUBLIC_APP_URL=<公開URL> npm run line:richmenu`（新しいメニューを作って既定にする。古いものは LINE API で削除）
+6. LINE と Google アカウントは「連携」で紐づく（`LineUser.userId`。ワンタイム URL・単回・15 分）。未連携でも会話と Web への誘導は動くが、**出題・記録・人格の記憶は連携が必要**
 
 ### 6.1 ローカルで Webhook を検証する
 
@@ -326,7 +351,8 @@ curl -s -w ' %{http_code}
 2. トップページ → Google でログイン → Dashboard が表示される（別ブラウザ/端末で同じ Google アカウントでログインしても同じプロフィールが出る）
 3. Dashboard の **デモデータを投入**（`DEMO_SEED_ENABLED=true` のとき）で三角形が埋まる
    - CLI から入れる場合はコンテナ内で `npm run seed:demo -- --email <ログインしたメール>`（Coolify の Terminal 機能）。ただし standalone イメージには `tsx` が無いので、基本は Dashboard のボタンを使う
-4. CODE を 1 問解いて、learning event → profile → Leader 寸評が更新されることを確認
+4. LOGIC（`/learn/logic`）を 1 問解いて、learning event → 到達レベル・XP → LEADER 寸評が更新されることを確認
+5. LINE で「連携」→ 連携後に Rich Menu「今日の学習」で選択式が届き、答えると記録が付くことを確認
 
 ## 8. ロールバックとよくある失敗
 
@@ -338,7 +364,8 @@ curl -s -w ' %{http_code}
 | Google ログインで `access_denied`（アプリ未確認） | OAuth 同意画面が「テスト」のとき、テストユーザーに追加していないアカウント |
 | ログインは通るが Dashboard が 500 | `AUTH_SECRET` 未設定、または DB 接続断。`/api/health` の `db` を見る |
 | リンクが `http://localhost:3000` を向く | `NEXT_PUBLIC_APP_URL` を Build Variable にして**再ビルド**（実行時に変えても反映されない） |
-| AI の返答が固定文っぽい | Mock provider にフォールバックしている。ログの `[ai]` 行と 5.5 章を確認 |
+| AI の返答が固定文っぽい／数秒で返る | Mock provider にフォールバックしている。`/api/health` の `ai.lastUsed` と `ai.lastError`（鍵は伏字）を見る。環境変数を直したら **Restart** しないと反映されない |
+| Google の redirect_uri が `https://0.0.0.0:3000/...` になる | `AUTH_URL`（または `APP_URL`）が未設定。公開 URL を入れて Restart |
 
 **ロールバック**: Coolify のアプリ画面 → **Deployments** から直前の成功デプロイを選んで **Redeploy**。DB の migration は前方互換（追加のみ）で作っているので、アプリだけ戻しても動きます。破壊的 migration を入れた場合は事前に Coolify の DB バックアップ機能でスナップショットを取ってください。
 

@@ -35,5 +35,5 @@ npx tsx scripts/line-richmenu-image.ts # LINE Rich Menu の画像
 - **マーク（アイコン類）は不透明**にしています。マーク内部の本・ペン先が白で描かれているため、白を透明化すると穴が空くからです。背景は `--bg`（`#fafaf7`）で塗っています。
 - **横組みロゴは透過**です。原本の背景がオフホワイト（`#f7f7f5` 前後）で `sharp` の `unflatten`（純白のみ透過）では抜けないため、明度からアルファを作る処理を `scripts/brand-assets.ts` の `transparentLogo()` に実装しています。
 - **OGP は静的 PNG** です。`ImageResponse`（`@vercel/og`）を使うと standalone Docker に実行時依存が増えるため、ビルド前に生成した画像をコミットする方式にしています。
-- **Rich Menu の絵柄はタップ領域と一致**させています。領域は `scripts/line-richmenu.ts` が幅 3 等分・高さ 2 等分で定義しているので、画像側のカードもその 6 セルの内側に描いています（上段 READ / WRITE / CODE、下段 今日の学習 / 履歴 / PROFILE）。並びを変えるときは両方を直してください。
-- Rich Menu 画像は LINE の制限（1MB 以下）に収まっています（現在 56KB）。
+- **Rich Menu の絵柄はタップ領域と一致**させています。領域は `scripts/line-richmenu.ts` が幅 3 等分・高さ 2 等分で定義しているので、画像側のカードもその 6 セルの内側に描いています（上段 READ / WRITE / LOGIC、下段 今日の学習 / 履歴 / PROFILE）。並びを変えるときは両方を直してください。
+- Rich Menu 画像は LINE の制限（1MB 以下）に収まっています（現在 約 57KB）。
