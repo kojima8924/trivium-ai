@@ -99,16 +99,20 @@ Coolify の Health Check 設定は Dockerfile 内の `HEALTHCHECK`（`/api/healt
 | `AUTH_GOOGLE_SECRET` | ○ | Google OAuth クライアントシークレット | 不要 |
 | `DEMO_LOGIN_ENABLED` | | デモ用フォールバックログイン。本番は `false` 推奨（Google が使えない緊急時のみ `true`） | 不要 |
 | `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」ボタン。デモ当日は `true` | 不要 |
-| `AI_PROVIDER` | | `dify` または `mock`。未設定は `dify`（キー未設定なら自動で mock） | 不要 |
-| `DIFY_API_BASE` | | `https://api.dify.ai/v1` | 不要 |
-| `DIFY_DOMAIN_API_KEY` | | Domain workflow の API key | 不要 |
-| `DIFY_LEADER_API_KEY` | | Leader workflow の API key | 不要 |
-| `DIFY_TIMEOUT_MS` | | 既定 20000 | 不要 |
+| `AI_PROVIDER` | | `openai`（既定・推奨）/ `dify` / `anthropic` / `mock`。キー未設定なら自動で mock | 不要 |
+| `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・Leader・作問をすべて OpenAI Responses API で行う） | 不要 |
+| `OPENAI_MODEL` | | 既定 `gpt-5.4-mini`（応答速度優先。品質を上げるなら `gpt-5.5` 等） | 不要 |
+| `OPENAI_TIMEOUT_MS` | | 既定 25000 | 不要 |
+| `DIFY_API_BASE` | | `https://api.dify.ai/v1`（`AI_PROVIDER=dify` のとき） | 不要 |
+| `DIFY_DOMAIN_API_KEY` | | `trivium-domain` workflow の API key（回答評価・寸評） | 不要 |
+| `DIFY_LEADER_API_KEY` | | `trivium-leader` workflow の API key（総合寸評） | 不要 |
+| `DIFY_GENERATE_API_KEY` | | `trivium-generate` workflow の API key（作問。無ければ作問だけ定型問題にフォールバック） | 不要 |
+| `DIFY_TIMEOUT_MS` | | 既定 20000（Web 検索を挟む作問は 10 秒以上かかるので 30000 推奨） | 不要 |
 | `LINE_CHANNEL_SECRET` | | LINE Messaging API のチャネルシークレット（署名検証に必須） | 不要 |
 | `LINE_CHANNEL_ACCESS_TOKEN` | | 長期チャネルアクセストークン | 不要 |
 | `NODE_ENV` | | Coolify が `production` を自動で入れる。手動設定不要 | — |
 
-Coolify の環境変数画面では各行に **「Build Variable」** のチェックがあります。**チェックが必要なのは `NEXT_PUBLIC_APP_URL` だけ**です。秘密情報（`AUTH_*`, `DIFY_*`, `LINE_*`, `DATABASE_URL`）は Build Variable にしないでください（ビルドログ・イメージレイヤーに残る危険を避ける）。
+Coolify の環境変数画面では各行に **「Build Variable」** のチェックがあります。**チェックが必要なのは `NEXT_PUBLIC_APP_URL` だけ**です。秘密情報（`AUTH_*`, `OPENAI_*`, `DIFY_*`, `LINE_*`, `DATABASE_URL`）は Build Variable にしないでください（ビルドログ・イメージレイヤーに残る危険を避ける）。
 
 ## 4. Google OAuth の設定
 
@@ -124,39 +128,47 @@ Coolify の環境変数画面では各行に **「Build Variable」** のチェ�
 
 ## 5. Dify Cloud（Sandbox）の設定
 
-アプリは Dify を **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。API key はブラウザに渡りません。Dify へ送る user 識別子は内部 ID（`learnerRef`）で、メールや氏名は送りません。
+アプリの AI レイヤーは `AI_PROVIDER` で切り替えます。既定は **`openai`**（`src/lib/ai/openai.ts` が OpenAI Responses API を直接呼ぶ。設定は `OPENAI_API_KEY` だけ）。Dify を使うのは「プロンプトを Dify の UI で調整したい」「Web 検索などのノードを足したい」場合で、**LLM は Dify 側も OpenAI に統一**しています。
 
-**Dify が未設定・障害のときは自動で Mock provider にフォールバック**するので、Dify 無しでもアプリ全体は動きます（`AI_PROVIDER=mock` で明示的に Mock 固定も可。`AI_PROVIDER=anthropic` なら Dify を介さず Claude API を直接呼びます）。
+Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。API key はブラウザに渡りません。Dify へ送る user 識別子は内部 ID（`learnerRef`）で、メールや氏名は送りません。**Dify が未設定・障害のときは自動で Mock provider にフォールバック**するので、Dify 無しでもアプリ全体は動きます。
 
-### 5.1 DSL をインポートする（推奨・5 分）
+### 5.1 DSL をインポートする（推奨・10 分）
 
-リポジトリの `dify/` に、そのまま取り込める Workflow アプリ定義が 2 本あります。
+リポジトリの `dify/` に、そのまま取り込める Workflow アプリ定義が **3 本**あります（`dify/build_dsl.py` から生成。詳細は `dify/README.md`）。
 
-| ファイル | アプリ名 | 用途 | API key の環境変数 |
-|---|---|---|---|
-| `dify/trivium-domain.yml` | `trivium-domain` | READ/WRITE/CODE の回答評価＋一段ヒント（`workflow=domain`）と domain 寸評（`workflow=interpret`）。IF/ELSE で分岐 | `DIFY_DOMAIN_API_KEY` |
-| `dify/trivium-leader.yml` | `trivium-leader` | 3 domain の要約から総合寸評・次のおすすめ | `DIFY_LEADER_API_KEY` |
+| ファイル | アプリ名 | 用途 | ノード構成 | API key の環境変数 |
+|---|---|---|---|---|
+| `dify/trivium-domain.yml` | `trivium-domain` | 回答評価＋一段ヒント（`workflow=domain`）／domain 寸評（`workflow=interpret`） | Start → IF/ELSE → LLM×2 → End | `DIFY_DOMAIN_API_KEY` |
+| `dify/trivium-leader.yml` | `trivium-leader` | 3 domain の要約から総合寸評・次のおすすめ | Start → **現在日時**（組み込み time ツール, Asia/Tokyo）→ LLM → End | `DIFY_LEADER_API_KEY` |
+| `dify/trivium-generate.yml` | `trivium-generate` | 依頼文（「論理パズルを 1 問」等）から課題を作る | Start → IF/ELSE(`use_search`) → [true] code → **HTTP（OpenAI Responses + web_search）** → code → LLM → End ／ [false] LLM → End | `DIFY_GENERATE_API_KEY` |
 
 手順:
 
-1. Dify → **Studio → Import DSL file** → `dify/trivium-domain.yml` を選ぶ。同様に `dify/trivium-leader.yml` も取り込む
-2. **モデルを差し替える** — DSL の既定は Anthropic（`langgenius/anthropic/anthropic` / `claude-sonnet-4-5`）です。ワークスペースで有効なプロバイダ・モデルに合わせて、各 LLM ノード（domain は「回答評価」「寸評生成」の 2 つ、leader は 1 つ）のモデルを選び直す。Anthropic プラグインが無ければインポート時に警告が出るので Marketplace から追加するか、OpenAI 等に変更する。温度 0.3 / max_tokens 1024 は据え置きでよい
-3. 右上 **Publish** → **API Access** → **API Key** を発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`（self-hosted なら自前 URL）。`AI_PROVIDER=dify` にして再デプロイ
-4. Dify の「実行」で試す: `workflow=domain`（`task` に JSON、`learner_answer` に誤答、`deterministic_result=incorrect`、`hint_level=0`）と `workflow=interpret`（`stats` と `recent_events` に JSON）の両方で、`result` に**コードフェンス無しの JSON** が入ることを確認
+1. Dify → **設定 → モデルプロバイダー** で **OpenAI** を有効化し API キーを登録（LLM ノードはすべて `langgenius/openai/openai`）
+2. **Studio → Import DSL file** で 3 本を順に取り込む。各 LLM ノードのモデル既定は `gpt-5.4-mini`（アプリ側の `OPENAI_MODEL` と同じ）。ワークスペースで選べなければ使えるモデルに差し替える
+3. `trivium-generate` を開き、**環境変数 `OPENAI_API_KEY`（secret）** を実際のキーに差し替える（Web 検索の HTTP ノードが `Authorization: Bearer` に使う。DSL には `sk-REPLACE_ME` が入っている）
+4. `trivium-leader` の「現在日時」ノードは Dify 組み込みの `time` ツール（認証不要）。インポート時に警告が出たらノードを開いて保存し直す
+5. 右上 **Publish** → **API Access** → **API Key** を 3 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`。`AI_PROVIDER=dify` にして Restart
+6. Dify の「実行」で試す:
+   - domain: `workflow=domain`、`task` に JSON、`learner_answer` に誤答、`deterministic_result=incorrect`、`hint_level=0` → `result` に `status: "retry"` の JSON
+   - leader: `workflow=leader`、`domains` に JSON 配列、`total_events=23` → `summary` に「今日/今週」の言葉が入る
+   - generate: `workflow=generate`、`request=論理パズルを1問`、`domain=CODE`、`kind=choice`、`difficulty=3`、`allowed_skill_tags=tracing,debugging,algorithms,design`、`use_search=false` → 4 択の JSON。`use_search=true`＋`request=最近のニュースで読解を1問`、`domain=READ` で検索経由も確認
+   いずれも `result` に**コードフェンス無しの JSON** が入ること
 
-DSL は `dify/build_dsl.py` から生成され、`python dify/validate.py` で **Start 変数名が `src/lib/ai/dify.ts` の inputs と完全一致すること・End 出力が `result` であること・プロンプトの変数参照が存在すること**を検査しています（詳細は `dify/README.md`）。`dify.ts` の inputs や出力 schema を変えたら、生成スクリプトを直して再生成してください。
+`python dify/validate.py` が **Start 変数名 = `src/lib/ai/dify.ts` の inputs キー（完全一致）・End 出力が `result`・LLM が OpenAI・環境変数の宣言・code ノードの入出力**を検査しています。`dify.ts` の inputs や出力 schema を変えたら、`dify/build_dsl.py` を直して再生成してください。
 
 ### 5.2 入力変数（参考: DSL に含まれている内容）
 
-変数名はコード側（`src/lib/ai/dify.ts` の `run()` に渡す `inputs`）と**完全に一致**しています。`hint_level` と `total_events` は `Number`、それ以外は `String`（長文は Paragraph、max length 48000）です。
+変数名はコード側（`src/lib/ai/dify.ts` の `run()` に渡す `inputs`）と**完全に一致**しています。`hint_level` / `total_events` / `difficulty` は `Number`、それ以外は `String`（長文は Paragraph、max length 48000）。3 本とも共通で `policy`（システムポリシー 7 箇条）と `persona`（AI の人格 JSON。空なら既定の口調）を受け取ります。
 
 **trivium-domain**（`workflow` の値で IF/ELSE 分岐。`domain` → 回答評価、それ以外 → 寸評生成）
 
 | 変数 | 内容 |
 |---|---|
 | `workflow` | `domain`（回答評価）または `interpret`（寸評生成） |
-| `mode` | `read` / `write` / `code` |
-| `policy` | システムポリシー 7 箇条（下記）。LLM ノードの System 先頭に展開 |
+| `mode` | `read` / `write` / `code`（code の表示名は LOGIC） |
+| `policy` | システムポリシー 7 箇条。LLM ノードの System 先頭に展開 |
+| `persona` | `{name, tone, firstPerson, extra}` の JSON（無ければ空文字） |
 | `task` | 課題の JSON（id, title, passage, prompt, kind, choices, difficulty, criteria, hints） |
 | `learner_answer` | 学習者の回答 |
 | `deterministic_result` | `correct` / `incorrect` / `unknown`（決定論採点の結果。`unknown` は自由記述） |
@@ -172,15 +184,31 @@ DSL は `dify/build_dsl.py` から生成され、`python dify/validate.py` で *
 | 変数 | 内容 |
 |---|---|
 | `workflow` | 常に `leader` |
-| `policy` | システムポリシー 7 箇条 |
+| `policy` / `persona` | 上と同じ（persona は LEADER の人格） |
 | `domains` | 3 domain の要約 JSON 配列（domain, score, subskills, confidence, evidenceCount, summary, observations, recommendedNext, eventsLast7Days） |
 | `total_events` | 学習記録の総数 |
 | `last_event` | 直近の学習イベント JSON（domain, taskTitle, difficulty, success, hintCount, minutesAgo）。無ければ空文字 |
 | `context` | 「10分だけ」などの文脈（無ければ空文字） |
 
+現在日時は Start ではなく、ワークフロー内の `time` ツールノード（`{{#now.text#}}`）から LLM に渡ります。
+
+**trivium-generate**
+
+| 変数 | 内容 |
+|---|---|
+| `workflow` | 常に `generate` |
+| `policy` / `persona` | 上と同じ（persona はその domain の人格） |
+| `request` | 学習者の依頼文（LINE の自由文や Web の入力欄） |
+| `domain` | `READ` / `WRITE` / `CODE`（アプリ側が依頼文から決定論で推定。LLM に決めさせない） |
+| `kind` | `choice` / `short` / `free` |
+| `difficulty` | 1〜5 |
+| `allowed_skill_tags` | その domain の subskill 名（カンマ区切り。skill_tags はここから選ぶ） |
+| `recent_titles` | 直近の生成課題タイトル（改行区切り。同じ題材を避ける） |
+| `use_search` | `true` のとき Web 検索を挟む（依頼文に「ニュース / 時事 / 最近の / 話題 / 最新」等があるときだけアプリ側が `true` にする） |
+
 ### 5.3 出力（End ノード）
 
-End ノードの出力変数名は **`result`** で、LLM の出力（JSON 文字列）をそのまま入れています。コード側は ```` ```json ```` のフェンスも剥がして解釈し、`result` / `output` / `text` / `json` のいずれか、または outputs 直下にフィールドが並ぶ形も受け付けます。
+End ノードの出力変数名は **`result`** で、LLM の出力（JSON 文字列）をそのまま入れています。コード側は ````json` のフェンスも剥がして解釈し、`result` / `output` / `text` / `json` のいずれか、または outputs 直下にフィールドが並ぶ形も受け付けます。
 
 期待する JSON（`src/lib/ai/dify.ts` の zod schema と対応。DSL の System プロンプトにも同じキーを明記済み）:
 
@@ -218,6 +246,26 @@ End ノードの出力変数名は **`result`** で、LLM の出力（JSON 文�
 }
 ```
 
+`workflow = generate`（13 キーすべて必須。該当しない項目は空配列・空文字・-1・0）
+```json
+{
+  "title": "推論: 条件から順番を決める",
+  "passage": "本文・状況・コード（無ければ空）",
+  "prompt": "設問",
+  "choices": ["A", "B", "C", "D"],
+  "answer_index": 1,
+  "short_answers": [],
+  "rubric_must_include": [],
+  "rubric_criteria": [],
+  "rubric_min_length": 0,
+  "rubric_max_length": 0,
+  "hints": ["問い返し", "一段目", "二段目（答えは書かない）"],
+  "explanation": "解説（答えを含んでよい）",
+  "skill_tags": ["tracing"]
+}
+```
+※ `kind=choice` なのに `choices` が 4 件でない／`answer_index` が 0〜3 でない場合、コード側は例外にして Mock の定型問題へフォールバックします。
+
 ### 5.4 システムポリシー
 
 `policy` 変数として毎回渡しています（`src/lib/ai/types.ts` の `AI_SYSTEM_POLICY`）。DSL 側にコピーは持たず、`{{#start.policy#}}` として System の先頭に展開します。
@@ -234,11 +282,11 @@ End ノードの出力変数名は **`result`** で、LLM の出力（JSON 文�
 
 ### 5.5 DSL が使えない場合（手作り）
 
-Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作り、IF/ELSE（`workflow` is `domain`）→ LLM 2 つ → End（出力変数 `result` に LLM の `text`）と繋ぎます。LLM の System には `{{#start.policy#}}` と「出力は JSON のみ・コードフェンス無し・キーは 5.3 のとおり」を明記し、User に各入力変数を見出し付きで並べてください。可能なら Dify の **JSON Schema 出力**を有効にします。
+Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作り、domain は IF/ELSE（`workflow` is `domain`）→ LLM 2 つ → End（出力変数 `result` に LLM の `text`）、leader は `time` ツール → LLM → End、generate は IF/ELSE（`use_search` is `true`）→（code → HTTP → code →）LLM → End と繋ぎます。LLM の System には `{{#start.policy#}}` と「出力は JSON のみ・コードフェンス無し・キーは 5.3 のとおり」を明記し、User に各入力変数を見出し付きで並べてください。可能なら Dify の **JSON Schema 出力**を有効にします。
 
 ### 5.6 動作確認
 
-Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock: ...` が出ていれば Dify 側の設定（変数名・key・出力形式・モデル）を見直してください。`/api/health` の `ai.lastUsed` が `dify` なら直近の呼び出しが Dify で成功しています。
+Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock: ...` が出ていれば Dify 側の設定（変数名・key・出力形式・モデル）を見直してください。`/api/health` の `ai.lastUsed` が `dify` なら直近の呼び出しが Dify で成功しています。`ai.lastError` に直近の失敗理由（鍵は伏字）が出ます。
 
 ## 6. LINE 公式アカウント
 

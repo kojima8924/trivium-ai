@@ -1,6 +1,12 @@
 // Dify provider: Dify Workflow API (POST /workflows/run, blocking) を server-side から呼ぶ。
 // API key は環境変数のみ。PII は渡さない（learnerRef は内部UUID）。
 // 失敗時は例外を投げ、呼び出し側（LearningAIService）が Mock にフォールバックする。
+//
+// 対応する Workflow（dify/*.yml。dify/build_dsl.py から生成）:
+//   trivium-domain   … evaluate / interpretDomain（DIFY_DOMAIN_API_KEY）
+//   trivium-leader   … leader（DIFY_LEADER_API_KEY）
+//   trivium-generate … generateTask（DIFY_GENERATE_API_KEY）
+// inputs のキー名は DSL の Start 変数と完全一致させる（dify/validate.py が検査する）。
 
 import "server-only";
 import { z } from "zod";
@@ -16,6 +22,7 @@ import type {
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
+  PersonaPrompt,
 } from "./types";
 import { AI_SYSTEM_POLICY } from "./types";
 import { DOMAINS, type DomainKey } from "../domain";
@@ -44,12 +51,40 @@ const leaderSchema = z.object({
   recommended_domain: z.string().optional(),
 });
 
+// src/lib/ai/openai.ts の generateSchema と同じキー（DSL の System にも同じ 13 キーを明記）
+const generateSchema = z.object({
+  title: z.string().min(1),
+  passage: z.string().default(""),
+  prompt: z.string().min(1),
+  choices: z.array(z.string()).default([]),
+  answer_index: z.coerce.number().int().min(-1).max(3).default(-1),
+  short_answers: z.array(z.string()).default([]),
+  rubric_must_include: z.array(z.string()).default([]),
+  rubric_criteria: z.array(z.string()).default([]),
+  rubric_min_length: z.coerce.number().int().default(0),
+  rubric_max_length: z.coerce.number().int().default(0),
+  hints: z.array(z.string()).default([]),
+  explanation: z.string().default(""),
+  skill_tags: z.array(z.string()).default([]),
+});
+
 type DifyRunResponse = {
   data?: { status?: string; outputs?: Record<string, unknown>; error?: string | null };
   message?: string;
 };
 
 export class DifyError extends Error {}
+
+/** 人格は JSON 文字列で渡す（無ければ空文字。DSL 側は空なら既定の口調） */
+function personaInput(p?: PersonaPrompt): string {
+  if (!p) return "";
+  return JSON.stringify({ name: p.name, tone: p.tone, firstPerson: p.firstPerson, extra: p.extra });
+}
+
+/** 時事ネタの依頼だけ Web 検索を挟む（決定論。検索は遅く高価なので既定は使わない） */
+export function wantsSearch(request: string): boolean {
+  return /(ニュース|時事|最近の|今日の|今週の|今月の|話題|最新)/.test(request);
+}
 
 export class DifyProvider implements LearningAIProvider {
   readonly name = "dify";
@@ -101,6 +136,7 @@ export class DifyProvider implements LearningAIProvider {
         workflow: "domain",
         mode: input.mode,
         policy: AI_SYSTEM_POLICY.join("\n"),
+        persona: personaInput(input.persona),
         task: JSON.stringify(input.task),
         learner_answer: input.learnerAnswer,
         deterministic_result:
@@ -137,6 +173,7 @@ export class DifyProvider implements LearningAIProvider {
         workflow: "interpret",
         mode: input.mode,
         policy: AI_SYSTEM_POLICY.join("\n"),
+        persona: personaInput(input.persona),
         stats: JSON.stringify(input.stats),
         recent_events: JSON.stringify(input.recentEvents),
       },
@@ -158,6 +195,7 @@ export class DifyProvider implements LearningAIProvider {
       {
         workflow: "leader",
         policy: AI_SYSTEM_POLICY.join("\n"),
+        persona: personaInput(input.persona),
         domains: JSON.stringify(input.domains),
         total_events: input.totalEvents,
         last_event: input.lastEvent ? JSON.stringify(input.lastEvent) : "",
@@ -181,8 +219,83 @@ export class DifyProvider implements LearningAIProvider {
     };
   }
 
-  /** 作問は OpenAI provider の担当。この provider では定型問題（Mock）に委譲する */
+  /**
+   * 作問（trivium-generate）。DIFY_GENERATE_API_KEY が無ければ Mock の定型問題に委譲する。
+   * ※ env.ts に difyGenerateApiKey を足すのが本筋だが、env.ts は他担当の管理なので、ここでは直接読む。
+   */
   async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
-    return this.fallback.generateTask(input);
+    const apiKey = (env.ai as { difyGenerateApiKey?: string }).difyGenerateApiKey ?? process.env.DIFY_GENERATE_API_KEY ?? "";
+    if (!apiKey) return this.fallback.generateTask(input);
+
+    const outputs = await this.run(
+      apiKey,
+      {
+        workflow: "generate",
+        policy: AI_SYSTEM_POLICY.join("\n"),
+        persona: personaInput(input.persona),
+        request: input.request,
+        domain: input.domain,
+        kind: input.kind,
+        difficulty: input.difficulty,
+        allowed_skill_tags: input.allowedSkillTags.join(","),
+        recent_titles: input.recentTitles.join("\n"),
+        use_search: wantsSearch(input.request) ? "true" : "false",
+      },
+      input.learnerRef,
+    );
+    const parsed = generateSchema.safeParse(this.extract(outputs));
+    if (!parsed.success) throw new DifyError("Dify generate output schema mismatch");
+    const out = parsed.data;
+
+    const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
+    const skillTags = out.skill_tags.filter((t) => input.allowedSkillTags.includes(t));
+    const tags = skillTags.length ? skillTags : [input.allowedSkillTags[0]];
+
+    if (input.kind === "choice") {
+      if (out.choices.length !== 4 || out.answer_index < 0 || out.answer_index > 3) {
+        throw new DifyError("Dify generated choice task is malformed");
+      }
+      return {
+        title: out.title,
+        passage: out.passage,
+        prompt: out.prompt,
+        choices: out.choices,
+        answerKey: [String(out.answer_index)],
+        rubric: null,
+        hints,
+        explanation: out.explanation,
+        skillTags: tags,
+      };
+    }
+    if (input.kind === "short") {
+      if (out.short_answers.length === 0) throw new DifyError("Dify generated short task has no answer");
+      return {
+        title: out.title,
+        passage: out.passage,
+        prompt: out.prompt,
+        choices: [],
+        answerKey: out.short_answers,
+        rubric: null,
+        hints,
+        explanation: out.explanation,
+        skillTags: tags,
+      };
+    }
+    return {
+      title: out.title,
+      passage: out.passage,
+      prompt: out.prompt,
+      choices: [],
+      answerKey: [],
+      rubric: {
+        mustInclude: out.rubric_must_include,
+        minLength: out.rubric_min_length || 40,
+        maxLength: out.rubric_max_length || 400,
+        criteria: out.rubric_criteria.length ? out.rubric_criteria : ["設問の要求に答えているか"],
+      },
+      hints,
+      explanation: out.explanation,
+      skillTags: tags,
+    };
   }
 }

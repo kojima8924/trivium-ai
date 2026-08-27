@@ -1,0 +1,620 @@
+# このファイルは dify/build_dsl.py から生成される。手で編集せず、スクリプトを直して再生成すること。
+version: 0.6.0
+kind: app
+app:
+  name: trivium-generate
+  description: 'Trivium: 依頼文から READ/WRITE/LOGIC の課題を 1 問作る。use_search=true なら Web 検索（OpenAI web_search）で題材を集める。出力は result（JSON 文字列）。'
+  mode: workflow
+  icon: ✏️
+  icon_type: emoji
+  icon_background: '#EFF1F5'
+  use_icon_as_answer_icon: false
+dependencies:
+- type: marketplace
+  current_identifier: null
+  value:
+    marketplace_plugin_unique_identifier: langgenius/openai:1.0.1@b513bf843af4619450bdc15f32e995f90ebdeee143b1cccef442a867099b3397
+    version: null
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - id: trivium-env-openai-api-key
+    name: OPENAI_API_KEY
+    value: sk-REPLACE_ME
+    value_type: secret
+    selector:
+    - env
+    - OPENAI_API_KEY
+    description: Web 検索（OpenAI Responses API）用。インポート後に実際のキーへ差し替えること
+  rag_pipeline_variables: []
+  features:
+    file_upload:
+      enabled: false
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      number_limits: 0
+      image:
+        enabled: false
+        number_limits: 0
+        transfer_methods: []
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    nodes:
+    - id: start
+      type: custom
+      data:
+        title: 開始
+        type: start
+        variables:
+        - variable: workflow
+          label: 常に generate
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: policy
+          label: システムポリシー 7 箇条
+          type: paragraph
+          required: true
+          options: []
+          max_length: 48000
+        - variable: persona
+          label: その domain の人格 JSON（無ければ空）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: request
+          label: '学習者の依頼文（例: 論理パズルを1問）'
+          type: paragraph
+          required: true
+          options: []
+          max_length: 48000
+        - variable: domain
+          label: READ / WRITE / CODE（CODE の表示名は LOGIC）
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: kind
+          label: choice / short / free
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: difficulty
+          label: 1〜5
+          type: number
+          required: true
+          options: []
+        - variable: allowed_skill_tags
+          label: この domain の subskill 名（カンマ区切り）
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: recent_titles
+          label: 直近の課題タイトル（改行区切り。同じ題材を避ける）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: use_search
+          label: 時事ネタを使うなら true（Web 検索を挟む）
+          type: text-input
+          required: false
+          options: []
+          max_length: 256
+        selected: false
+      position:
+        x: 80
+        y: 260
+      positionAbsolute:
+        x: 80
+        y: 260
+      width: 244
+      height: 314
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: branch
+      type: custom
+      data:
+        title: use_search で分岐
+        type: if-else
+        desc: start.use_search が true なら true 側
+        selected: false
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - id: branch-cond-1
+            variable_selector:
+            - start
+            - use_search
+            varType: string
+            comparison_operator: is
+            value: 'true'
+      position:
+        x: 420
+        y: 320
+      positionAbsolute:
+        x: 420
+        y: 320
+      width: 244
+      height: 126
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: build_search
+      type: custom
+      data:
+        title: 検索リクエスト組立
+        type: code
+        desc: 依頼文から OpenAI Responses API（web_search）の本文を作る
+        selected: false
+        code_language: python3
+        code: |
+          import json
+
+          def main(request: str, domain: str) -> dict:
+              """OpenAI Responses API + web_search で、依頼に合う一般向けの最近の話題を集めるリクエスト本文を組み立てる。"""
+              q = (request or "").strip()[:200]
+              ask = (
+                  "次の依頼に合う、最近の一般向けニュース・話題を日本語で 3 件、各 2 文で要約してください。"
+                  "各件の末尾に出典 URL を 1 つ付けてください。医療・法律・宗教・個人に関する内容、"
+                  "未確認の噂は避け、学習教材の題材として使える事実だけにしてください。"
+                  f"\n依頼: {q}\n領域: {domain}"
+              )
+              body = {
+                  "model": "gpt-5.4-mini",
+                  "tools": [{"type": "web_search"}],
+                  "input": ask,
+              }
+              return {"body": json.dumps(body, ensure_ascii=False)}
+        variables:
+        - variable: request
+          value_selector:
+          - start
+          - request
+        - variable: domain
+          value_selector:
+          - start
+          - domain
+        outputs:
+          body:
+            type: string
+            children: null
+      position:
+        x: 760
+        y: 120
+      positionAbsolute:
+        x: 760
+        y: 120
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: search
+      type: custom
+      data:
+        title: Web 検索（OpenAI Responses）
+        type: http-request
+        desc: OpenAI Responses API を web_search ツール付きで呼ぶ。API キーは環境変数 OPENAI_API_KEY（secret）
+        selected: false
+        method: post
+        url: https://api.openai.com/v1/responses
+        authorization:
+          type: no-auth
+          config: null
+        headers: |-
+          Authorization: Bearer {{#env.OPENAI_API_KEY#}}
+          Content-Type: application/json
+        params: ''
+        body:
+          type: json
+          data:
+          - id: search-body
+            key: ''
+            type: text
+            value: '{{#build_search.body#}}'
+        variables: []
+        ssl_verify: true
+        timeout:
+          connect: 10
+          read: 90
+          write: 30
+          max_connect_timeout: 300
+          max_read_timeout: 600
+          max_write_timeout: 600
+        retry_config:
+          retry_enabled: true
+          max_retries: 2
+          retry_interval: 1000
+      position:
+        x: 1100
+        y: 120
+      positionAbsolute:
+        x: 1100
+        y: 120
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: parse_search
+      type: custom
+      data:
+        title: 検索結果の要約抽出
+        type: code
+        desc: output_text と url_citation を research 文字列にまとめる（失敗時は空）
+        selected: false
+        code_language: python3
+        code: |
+          import json
+
+          def main(body: str, status_code: int) -> dict:
+              """Responses API の応答から本文と引用 URL を取り出し、作問 LLM に渡す research 文字列にする。"""
+              try:
+                  data = json.loads(body) if isinstance(body, str) else (body or {})
+              except Exception:
+                  return {"research": ""}
+              try:
+                  if int(status_code) != 200:
+                      return {"research": ""}
+              except Exception:
+                  return {"research": ""}
+              texts = []
+              urls = []
+              for item in data.get("output", []) or []:
+                  if item.get("type") != "message":
+                      continue
+                  for c in item.get("content", []) or []:
+                      if c.get("type") == "output_text":
+                          texts.append(c.get("text", "") or "")
+                          for a in c.get("annotations", []) or []:
+                              if a.get("type") == "url_citation" and a.get("url"):
+                                  urls.append(a["url"])
+              research = "\n".join(t for t in texts if t).strip()
+              if urls:
+                  uniq = list(dict.fromkeys(urls))[:3]
+                  research = research + "\n出典: " + " ".join(uniq)
+              return {"research": research[:6000]}
+        variables:
+        - variable: body
+          value_selector:
+          - search
+          - body
+        - variable: status_code
+          value_selector:
+          - search
+          - status_code
+        outputs:
+          research:
+            type: string
+            children: null
+      position:
+        x: 1440
+        y: 120
+      positionAbsolute:
+        x: 1440
+        y: 120
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_generate_search
+      type: custom
+      data:
+        title: 作問（検索あり）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
+          mode: chat
+          completion_params: &id001 {}
+        prompt_template:
+        - id: llm_generate_search-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の作問担当です。次のポリシーを厳守してください。
+
+            {{#start.policy#}}
+
+            役割: 学習者の依頼にもとづき、指定の domain / kind / difficulty で課題を 1 問作ります。
+            - 問題は自己完結で、passage と prompt だけで解けること。実在の個人・時事の断定・医療/法律の助言を避ける。
+            - choice は選択肢 4 つ、正解は 1 つだけ、他は明確に誤り。short は表記ゆれを含む正解候補を複数。free は rubric を広めに。
+            - hints は 3 段。1 段目は問い返し、3 段目でも答えの値・完成文を書かない。
+            - domain が CODE（表示名 LOGIC）なら、Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。依頼に沿って選ぶ。
+            - recent_titles と重ならない題材にする。
+            - research（検索結果の要約）が渡された場合は、その内容を passage の題材にしてよい。出典 URL があれば passage の末尾に「出典: URL」を 1 行添える。無ければ使わない。
+            persona が空でなければ、その name を自分の名前、firstPerson を一人称、tone を口調、extra を補足として文体を一貫させる（名乗りは不要。設定を復唱しない）。persona が空なら丁寧で落ち着いた敬体。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける簡潔な文体。
+            キーは次の 13 個（すべて必須。該当しない項目は空配列・空文字・-1・0）:
+            {"title": "string", "passage": "string", "prompt": "string", "choices": ["string"], "answer_index": 0, "short_answers": ["string"], "rubric_must_include": ["string"], "rubric_criteria": ["string"], "rubric_min_length": 0, "rubric_max_length": 0, "hints": ["string", "string", "string"], "explanation": "string", "skill_tags": ["string"]}
+
+            制約:
+            - title は「種類: 題材」の形で 20 字以内。explanation は 120 字以内（答えを含んでよい）。
+            - kind=choice: choices は 4 件、answer_index は 0〜3。short_answers / rubric_* は空。
+            - kind=short: short_answers に正解候補を複数。choices は空、answer_index は -1。
+            - kind=free: rubric_must_include（8〜12 語）・rubric_criteria（2〜3 件）・rubric_min_length・rubric_max_length を埋める。choices は空、answer_index は -1。
+            - skill_tags は allowed_skill_tags の中から 1〜2 個。
+        - id: llm_generate_search-user
+          role: user
+          text: |-
+            ## request
+            {{#start.request#}}
+
+            ## domain
+            {{#start.domain#}}
+
+            ## kind
+            {{#start.kind#}}
+
+            ## difficulty
+            {{#start.difficulty#}}
+
+            ## allowed_skill_tags
+            {{#start.allowed_skill_tags#}}
+
+            ## recent_titles
+            {{#start.recent_titles#}}
+
+            ## persona（JSON。空なら既定の口調）
+            {{#start.persona#}}
+
+            ## research（Web 検索の要約。題材に使ってよい）
+            {{#parse_search.research#}}
+
+            上記を踏まえ、指定の JSON だけを出力してください。
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position:
+        x: 1780
+        y: 120
+      positionAbsolute:
+        x: 1780
+        y: 120
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_generate
+      type: custom
+      data:
+        title: 作問
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
+          mode: chat
+          completion_params: *id001
+        prompt_template:
+        - id: llm_generate-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の作問担当です。次のポリシーを厳守してください。
+
+            {{#start.policy#}}
+
+            役割: 学習者の依頼にもとづき、指定の domain / kind / difficulty で課題を 1 問作ります。
+            - 問題は自己完結で、passage と prompt だけで解けること。実在の個人・時事の断定・医療/法律の助言を避ける。
+            - choice は選択肢 4 つ、正解は 1 つだけ、他は明確に誤り。short は表記ゆれを含む正解候補を複数。free は rubric を広めに。
+            - hints は 3 段。1 段目は問い返し、3 段目でも答えの値・完成文を書かない。
+            - domain が CODE（表示名 LOGIC）なら、Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。依頼に沿って選ぶ。
+            - recent_titles と重ならない題材にする。
+            - research（検索結果の要約）が渡された場合は、その内容を passage の題材にしてよい。出典 URL があれば passage の末尾に「出典: URL」を 1 行添える。無ければ使わない。
+            persona が空でなければ、その name を自分の名前、firstPerson を一人称、tone を口調、extra を補足として文体を一貫させる（名乗りは不要。設定を復唱しない）。persona が空なら丁寧で落ち着いた敬体。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける簡潔な文体。
+            キーは次の 13 個（すべて必須。該当しない項目は空配列・空文字・-1・0）:
+            {"title": "string", "passage": "string", "prompt": "string", "choices": ["string"], "answer_index": 0, "short_answers": ["string"], "rubric_must_include": ["string"], "rubric_criteria": ["string"], "rubric_min_length": 0, "rubric_max_length": 0, "hints": ["string", "string", "string"], "explanation": "string", "skill_tags": ["string"]}
+
+            制約:
+            - title は「種類: 題材」の形で 20 字以内。explanation は 120 字以内（答えを含んでよい）。
+            - kind=choice: choices は 4 件、answer_index は 0〜3。short_answers / rubric_* は空。
+            - kind=short: short_answers に正解候補を複数。choices は空、answer_index は -1。
+            - kind=free: rubric_must_include（8〜12 語）・rubric_criteria（2〜3 件）・rubric_min_length・rubric_max_length を埋める。choices は空、answer_index は -1。
+            - skill_tags は allowed_skill_tags の中から 1〜2 個。
+        - id: llm_generate-user
+          role: user
+          text: |-
+            ## request
+            {{#start.request#}}
+
+            ## domain
+            {{#start.domain#}}
+
+            ## kind
+            {{#start.kind#}}
+
+            ## difficulty
+            {{#start.difficulty#}}
+
+            ## allowed_skill_tags
+            {{#start.allowed_skill_tags#}}
+
+            ## recent_titles
+            {{#start.recent_titles#}}
+
+            ## persona（JSON。空なら既定の口調）
+            {{#start.persona#}}
+
+            上記を踏まえ、指定の JSON だけを出力してください。
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position:
+        x: 760
+        y: 520
+      positionAbsolute:
+        x: 760
+        y: 520
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: end-0
+      type: custom
+      data:
+        title: 終了 (llm_generate_search)
+        type: end
+        selected: false
+        outputs:
+        - variable: result
+          value_selector:
+          - llm_generate_search
+          - text
+      position:
+        x: 2120
+        y: 120
+      positionAbsolute:
+        x: 2120
+        y: 120
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: end-1
+      type: custom
+      data:
+        title: 終了 (llm_generate)
+        type: end
+        selected: false
+        outputs:
+        - variable: result
+          value_selector:
+          - llm_generate
+          - text
+      position:
+        x: 2120
+        y: 280
+      positionAbsolute:
+        x: 2120
+        y: 280
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    edges:
+    - id: start-source-branch
+      type: custom
+      source: start
+      sourceHandle: source
+      target: branch
+      targetHandle: target
+      data:
+        sourceType: start
+        targetType: if-else
+        isInIteration: false
+      zIndex: 0
+    - id: branch-true-build_search
+      type: custom
+      source: branch
+      sourceHandle: 'true'
+      target: build_search
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: build_search-source-search
+      type: custom
+      source: build_search
+      sourceHandle: source
+      target: search
+      targetHandle: target
+      data:
+        sourceType: code
+        targetType: http-request
+        isInIteration: false
+      zIndex: 0
+    - id: search-source-parse_search
+      type: custom
+      source: search
+      sourceHandle: source
+      target: parse_search
+      targetHandle: target
+      data:
+        sourceType: http-request
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: parse_search-source-llm_generate_search
+      type: custom
+      source: parse_search
+      sourceHandle: source
+      target: llm_generate_search
+      targetHandle: target
+      data:
+        sourceType: code
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_generate_search-source-end-0
+      type: custom
+      source: llm_generate_search
+      sourceHandle: source
+      target: end-0
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: end
+        isInIteration: false
+      zIndex: 0
+    - id: branch-false-llm_generate
+      type: custom
+      source: branch
+      sourceHandle: 'false'
+      target: llm_generate
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_generate-source-end-1
+      type: custom
+      source: llm_generate
+      sourceHandle: source
+      target: end-1
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: end
+        isInIteration: false
+      zIndex: 0
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.8

@@ -3,7 +3,7 @@ version: 0.6.0
 kind: app
 app:
   name: trivium-leader
-  description: 'Trivium: 3 domain の要約から総合寸評と次のおすすめを出す LEADER。出力は result（JSON 文字列）。'
+  description: 'Trivium: 3 domain の要約と現在日時から総合寸評と次のおすすめを出す LEADER。出力は result（JSON 文字列）。'
   mode: workflow
   icon: 🧭
   icon_type: emoji
@@ -13,7 +13,7 @@ dependencies:
 - type: marketplace
   current_identifier: null
   value:
-    marketplace_plugin_unique_identifier: langgenius/anthropic:0.0.14@anthropic
+    marketplace_plugin_unique_identifier: langgenius/openai:1.0.1@b513bf843af4619450bdc15f32e995f90ebdeee143b1cccef442a867099b3397
     version: null
 workflow:
   conversation_variables: []
@@ -64,6 +64,12 @@ workflow:
           required: true
           options: []
           max_length: 48000
+        - variable: persona
+          label: LEADER の人格 JSON（無ければ空）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
         - variable: domains
           label: 3 domain の要約 JSON 配列
           type: paragraph
@@ -95,7 +101,84 @@ workflow:
         x: 80
         y: 200
       width: 244
-      height: 210
+      height: 236
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: now
+      type: custom
+      data:
+        title: 現在日時（Asia/Tokyo）
+        type: tool
+        selected: false
+        provider_id: time
+        provider_name: time
+        provider_type: builtin
+        plugin_id: null
+        plugin_unique_identifier: ''
+        tool_name: current_time
+        tool_label: Current Time
+        is_team_authorization: true
+        tool_configurations:
+          format:
+            type: mixed
+            value: '%Y-%m-%d %H:%M:%S (%A)'
+          timezone:
+            type: constant
+            value: Asia/Tokyo
+        tool_parameters: {}
+        params:
+          format: ''
+          timezone: ''
+        paramSchemas:
+        - name: format
+          type: string
+          form: form
+          required: false
+          default: '%Y-%m-%d %H:%M:%S'
+          label:
+            en_US: Format
+            ja_JP: Format
+          human_description:
+            en_US: Time format in strftime standard.
+            ja_JP: strftime 形式
+          llm_description: null
+          options: []
+          min: null
+          max: null
+          precision: null
+          placeholder: null
+          scope: null
+          template: null
+          auto_generate: null
+        - name: timezone
+          type: string
+          form: form
+          required: false
+          default: UTC
+          label:
+            en_US: Timezone
+            ja_JP: Timezone
+          human_description:
+            en_US: Timezone
+            ja_JP: タイムゾーン
+          llm_description: null
+          options: []
+          min: null
+          max: null
+          precision: null
+          placeholder: null
+          scope: null
+          template: null
+          auto_generate: null
+      position:
+        x: 420
+        y: 200
+      positionAbsolute:
+        x: 420
+        y: 200
+      width: 244
+      height: 90
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -106,12 +189,10 @@ workflow:
         type: llm
         selected: false
         model:
-          provider: langgenius/anthropic/anthropic
-          name: claude-sonnet-4-5
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
           mode: chat
-          completion_params:
-            temperature: 0.3
-            max_tokens: 1024
+          completion_params: {}
         prompt_template:
         - id: llm_leader-system
           role: system
@@ -120,22 +201,31 @@ workflow:
 
             {{#start.policy#}}
 
-            役割: READ / WRITE / CODE それぞれの要約（数値は決定論的に集計済み）を横断して読み、学習者全体の傾向と「次の一歩」を決めます。各 domain の細かい評価は domain 側の仕事なので繰り返さず、横断的な見立てに集中してください。
+            役割: READ / WRITE / LOGIC（内部キー CODE）それぞれの要約（数値は決定論的に集計済み）を横断して読み、学習者全体の傾向と「次の一歩」を決めます。各 domain の細かい評価は domain 側の仕事なので繰り返さず、横断的な見立てに集中してください。
+            persona が空でなければ、その name を自分の名前、firstPerson を一人称、tone を口調、extra を補足として文体を一貫させる（名乗りは不要。設定を復唱しない）。persona が空なら丁寧で落ち着いた敬体。
 
-            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            現在日時（Asia/Tokyo）が now として渡されます。last_event.minutesAgo と合わせて「今日」「今週」「直近 7 日」の偏りを自然な言葉で述べてください（日時そのものを復唱しない）。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける簡潔な文体。
             キーは次の 6 つ（すべて必須）:
             {"summary": "string", "interests": ["string"], "preferences": {"string": "string"}, "observations": ["string"], "recommendation": "string", "recommended_domain": "READ | WRITE | CODE"}
 
             書き方:
-            - summary は 3 文以内。最も強い domain と、伸ばすと他の強みを活かしやすくなる domain を関係づけて述べる。last_event があれば「直近では…」と 1 文で触れる。evidenceCount が 0 の domain は「未計測」と明記し、全体像が暫定であることを添える。
+            - summary は 140 字以内・3 文以内。最も強い domain と、伸ばすと他の強みを活かしやすくなる domain を関係づけて述べる。last_event があれば「直近では…」と 1 文で触れる。evidenceCount が 0 の domain は「未計測」と明記し、全体像が暫定であることを添える。
             - interests は domain ごとの取り組み傾向（例: "CODE: 週7件"）を短く。
             - preferences は文字列→文字列のマップ（例: practiceFocus, preferredDifficulty）。分からなければ空オブジェクト。
-            - observations は直近 7 日の偏り・取り組みの空白など、行動の事実だけを 1〜3 件。
-            - recommendation は次に取り組む 1 課題を「DOMAIN: 内容」の形で 1 文。context（例: 「10分だけ」）があれば時間に合う提案にする。
-            - recommended_domain は recommendation と同じ domain を READ / WRITE / CODE のいずれかで返す。未計測の domain があればそれを優先する。
+            - observations は直近 7 日の偏り・取り組みの空白など、行動の事実だけを 1〜3 件・各 40 字以内。
+            - recommendation は次に取り組む 1 課題を「DOMAIN: 内容」の形で 60 字以内。context（例: 「10分だけ」）があれば時間に合う提案にする。
+            - recommended_domain は recommendation と同じ domain を READ / WRITE / CODE のいずれかで返す（LOGIC は CODE と書く）。未計測の domain があればそれを優先する。
         - id: llm_leader-user
           role: user
           text: |-
+            ## now（現在日時 Asia/Tokyo）
+            {{#now.text#}}
+
+            ## persona（JSON。空なら既定の口調）
+            {{#start.persona#}}
+
             ## domains（JSON 配列: domain, score, subskills, confidence, evidenceCount, summary, observations, recommendedNext, eventsLast7Days）
             {{#start.domains#}}
 
@@ -155,10 +245,10 @@ workflow:
         vision:
           enabled: false
       position:
-        x: 420
+        x: 760
         y: 200
       positionAbsolute:
-        x: 420
+        x: 760
         y: 200
       width: 244
       height: 98
@@ -177,10 +267,10 @@ workflow:
           - llm_leader
           - text
       position:
-        x: 760
+        x: 1100
         y: 200
       positionAbsolute:
-        x: 760
+        x: 1100
         y: 200
       width: 244
       height: 90
@@ -188,14 +278,25 @@ workflow:
       sourcePosition: right
       targetPosition: left
     edges:
-    - id: start-source-llm_leader
+    - id: start-source-now
       type: custom
       source: start
+      sourceHandle: source
+      target: now
+      targetHandle: target
+      data:
+        sourceType: start
+        targetType: tool
+        isInIteration: false
+      zIndex: 0
+    - id: now-source-llm_leader
+      type: custom
+      source: now
       sourceHandle: source
       target: llm_leader
       targetHandle: target
       data:
-        sourceType: start
+        sourceType: tool
         targetType: llm
         isInIteration: false
       zIndex: 0

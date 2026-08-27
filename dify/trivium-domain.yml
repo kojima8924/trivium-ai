@@ -3,7 +3,7 @@ version: 0.6.0
 kind: app
 app:
   name: trivium-domain
-  description: 'Trivium: READ/WRITE/CODE の回答評価（一段ヒント）と domain 寸評。workflow=domain|interpret で分岐。出力は result（JSON 文字列）。'
+  description: 'Trivium: READ/WRITE/LOGIC の回答評価（一段ヒント）と domain 寸評。workflow=domain|interpret で分岐。出力は result（JSON 文字列）。'
   mode: workflow
   icon: 📐
   icon_type: emoji
@@ -13,7 +13,7 @@ dependencies:
 - type: marketplace
   current_identifier: null
   value:
-    marketplace_plugin_unique_identifier: langgenius/anthropic:0.0.14@anthropic
+    marketplace_plugin_unique_identifier: langgenius/openai:1.0.1@b513bf843af4619450bdc15f32e995f90ebdeee143b1cccef442a867099b3397
     version: null
 workflow:
   conversation_variables: []
@@ -68,6 +68,12 @@ workflow:
           label: システムポリシー 7 箇条
           type: paragraph
           required: true
+          options: []
+          max_length: 48000
+        - variable: persona
+          label: AI の人格 JSON（name, tone, firstPerson, extra。無ければ空）
+          type: paragraph
+          required: false
           options: []
           max_length: 48000
         - variable: task
@@ -131,7 +137,7 @@ workflow:
         x: 80
         y: 200
       width: 244
-      height: 366
+      height: 392
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -172,23 +178,22 @@ workflow:
         type: llm
         selected: false
         model:
-          provider: langgenius/anthropic/anthropic
-          name: claude-sonnet-4-5
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
           mode: chat
-          completion_params: &id001
-            temperature: 0.3
-            max_tokens: 1024
+          completion_params: &id001 {}
         prompt_template:
         - id: llm_eval-system
           role: system
           text: |-
-            あなたは学習サービス Trivium の READ / WRITE / CODE の指導役です。次のポリシーを厳守してください。
+            あなたは学習サービス Trivium の READ / WRITE / LOGIC（内部キー CODE）の指導役です。次のポリシーを厳守してください。
 
             {{#start.policy#}}
 
             役割: 学習者の回答を評価し、必要なら「一段だけ」のヒントを返します。完成した答え・完成コード・書き直した完成文章を渡してはいけません。
+            persona が空でなければ、その name を自分の名前、firstPerson を一人称、tone を口調、extra を補足として文体を一貫させる（名乗りは不要。設定を復唱しない）。persona が空なら丁寧で落ち着いた敬体。
 
-            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける簡潔な文体。
             キーは次の 6 つ（順不同・すべて必須）:
             {"status": "success | retry | needs_more", "feedback": "string", "hint": "string", "observations": ["string"], "skill_tags": ["string"], "recommended_next_difficulty": 1}
 
@@ -196,8 +201,8 @@ workflow:
             - deterministic_result が correct なら status は必ず "success"、hint は空文字。
             - deterministic_result が incorrect なら status は "retry"。hint は task.hints 配列の hint_level 番目（0 始まり。範囲外なら最後）を選び、必要なら学習者の誤答に合わせて一言だけ言い換える。hints に無い新しい答えの手がかりを足さない。
             - deterministic_result が unknown（自由記述）のときだけ内容を評価する。heuristic_result は参考情報で、最終判断は task.criteria に照らして行う。観点を満たしていれば "success"、足りなければ "needs_more" にして hint を一段だけ返す。
-            - feedback は 2 文以内。答えを書かない。問い返しを優先する。
-            - observations は「学習行動」についてだけ（性格・能力の断定はしない）。証拠が足りなければ「まだ判断できない」と書く。
+            - feedback は 100 字以内・2 文以内。答えを書かない。問い返しを優先する。
+            - observations は「学習行動」についてだけ、各 40 字以内で最大 3 件（性格・能力の断定はしない）。証拠が足りなければ「まだ判断できない」と書く。
             - skill_tags は task に関係する観点名だけ（英語の識別子。例: tracing, debugging, structure, inference）。分からなければ空配列。
             - recommended_next_difficulty は 1〜5 の整数。ヒントなしで成功なら task.difficulty + 1、ヒント 2 回以上や未達なら据え置きか -1。
         - id: llm_eval-user
@@ -205,6 +210,9 @@ workflow:
           text: |-
             ## mode
             {{#start.mode#}}
+
+            ## persona（JSON。空なら既定の口調）
+            {{#start.persona#}}
 
             ## task（JSON）
             {{#start.task#}}
@@ -251,33 +259,37 @@ workflow:
         type: llm
         selected: false
         model:
-          provider: langgenius/anthropic/anthropic
-          name: claude-sonnet-4-5
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
           mode: chat
           completion_params: *id001
         prompt_template:
         - id: llm_interpret-system
           role: system
           text: |-
-            あなたは学習サービス Trivium の READ / WRITE / CODE の指導役です。次のポリシーを厳守してください。
+            あなたは学習サービス Trivium の READ / WRITE / LOGIC（内部キー CODE）の指導役です。次のポリシーを厳守してください。
 
             {{#start.policy#}}
 
             役割: 1 つの domain（mode）の集計値と直近の学習イベントを読み、学習者向けの短い寸評を書きます。数値は既に決定論的に集計済みです。あなたの仕事は「解釈」であり、数値を作り直したり上書きしたりしないでください。
+            persona が空でなければ、その name を自分の名前、firstPerson を一人称、tone を口調、extra を補足として文体を一貫させる（名乗りは不要。設定を復唱しない）。persona が空なら丁寧で落ち着いた敬体。
 
-            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける簡潔な文体。
             キーは次の 3 つ（すべて必須）:
             {"summary": "string", "observations": ["string"], "recommended_next": "string"}
 
             書き方:
-            - summary は 2〜3 文。subskills の高い観点・低い観点・未計測の観点に触れる。confidence が low なら「記録が少ないため暫定的」と必ず明記する。
-            - observations は行動の事実（ヒント回数・成功率・直近の失敗など）から言えることだけを 1〜3 件。性格の断定はしない。
-            - recommended_next は次に取り組む課題を 1 文で（未計測や低い観点を含む課題、または難易度を 1 段上げる提案）。
+            - summary は 140 字以内・2〜3 文。subskills の高い観点・低い観点・未計測の観点に触れる。confidence が low なら「記録が少ないため暫定的」と必ず明記する。
+            - observations は行動の事実（ヒント回数・成功率・直近の失敗など）から言えることだけを 1〜3 件・各 40 字以内。性格の断定はしない。
+            - recommended_next は次に取り組む課題を 60 字以内で（未計測や低い観点を含む課題、または難易度を 1 段上げる提案）。
         - id: llm_interpret-user
           role: user
           text: |-
             ## mode
             {{#start.mode#}}
+
+            ## persona（JSON。空なら既定の口調）
+            {{#start.persona#}}
 
             ## stats（JSON: score, subskills, confidence, evidenceCount, successRate, avgHints, avgDifficulty）
             {{#start.stats#}}
