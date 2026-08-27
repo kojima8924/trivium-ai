@@ -31,6 +31,16 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
 - **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイムURLが届き、Google ログイン後に紐づく。以降 LINE の Leader が実際の学習記録にもとづいて答える（「連携解除」でいつでも解除）
 - **Demo Seed** — 架空の 10 日分の学習履歴をワンクリックで投入（自分のアカウントにのみ）
 
+## 画面
+
+| ホーム | 学習（一段ヒント） | 結果とプロフィール更新 |
+|---|---|---|
+| <img src="docs/screenshots/home.png" width="240" alt="ホーム画面。ロゴと READ / WRITE / CODE のカード" /> | <img src="docs/screenshots/learn-code-hint.png" width="240" alt="CODE の課題。誤答に対して hint 1 だけが提示されている" /> | <img src="docs/screenshots/learn-code-done.png" width="240" alt="正解後の解説とスコア変化、Leader の寸評" /> |
+
+| Dashboard（ライト） | Dashboard（ダーク） |
+|---|---|
+| <img src="docs/screenshots/dashboard-mobile.png" width="300" alt="能力プロフィールの三角形、次の一歩、domain 寸評" /> | <img src="docs/screenshots/dashboard-mobile-dark.png" width="300" alt="ダークモードの Dashboard" /> |
+
 ## 数値 = evidence、文章 = AI interpretation
 
 能力スコアは LLM が決めません。`learning_events` から `src/lib/scoring.ts` が決定論的に集計します。
