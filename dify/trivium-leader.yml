@@ -1,0 +1,216 @@
+# このファイルは dify/build_dsl.py から生成される。手で編集せず、スクリプトを直して再生成すること。
+version: 0.6.0
+kind: app
+app:
+  name: trivium-leader
+  description: 'Trivium: 3 domain の要約から総合寸評と次のおすすめを出す LEADER。出力は result（JSON 文字列）。'
+  mode: workflow
+  icon: 🧭
+  icon_type: emoji
+  icon_background: '#EFF1F5'
+  use_icon_as_answer_icon: false
+dependencies:
+- type: marketplace
+  current_identifier: null
+  value:
+    marketplace_plugin_unique_identifier: langgenius/anthropic:0.0.14@anthropic
+    version: null
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  rag_pipeline_variables: []
+  features:
+    file_upload:
+      enabled: false
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      number_limits: 0
+      image:
+        enabled: false
+        number_limits: 0
+        transfer_methods: []
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    nodes:
+    - id: start
+      type: custom
+      data:
+        title: 開始
+        type: start
+        variables:
+        - variable: workflow
+          label: 常に leader
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: policy
+          label: システムポリシー 7 箇条
+          type: paragraph
+          required: true
+          options: []
+          max_length: 48000
+        - variable: domains
+          label: 3 domain の要約 JSON 配列
+          type: paragraph
+          required: true
+          options: []
+          max_length: 48000
+        - variable: total_events
+          label: 学習記録の総数
+          type: number
+          required: true
+          options: []
+        - variable: last_event
+          label: 直近の学習イベント JSON（無ければ空）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: context
+          label: 「10分だけ」などの文脈（無ければ空）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        selected: false
+      position:
+        x: 80
+        y: 200
+      positionAbsolute:
+        x: 80
+        y: 200
+      width: 244
+      height: 210
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_leader
+      type: custom
+      data:
+        title: 総合寸評（leader）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/anthropic/anthropic
+          name: claude-sonnet-4-5
+          mode: chat
+          completion_params:
+            temperature: 0.3
+            max_tokens: 1024
+        prompt_template:
+        - id: llm_leader-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の LEADER（global learner model）です。次のポリシーを厳守してください。
+
+            {{#start.policy#}}
+
+            役割: READ / WRITE / CODE それぞれの要約（数値は決定論的に集計済み）を横断して読み、学習者全体の傾向と「次の一歩」を決めます。各 domain の細かい評価は domain 側の仕事なので繰り返さず、横断的な見立てに集中してください。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            キーは次の 6 つ（すべて必須）:
+            {"summary": "string", "interests": ["string"], "preferences": {"string": "string"}, "observations": ["string"], "recommendation": "string", "recommended_domain": "READ | WRITE | CODE"}
+
+            書き方:
+            - summary は 3 文以内。最も強い domain と、伸ばすと他の強みを活かしやすくなる domain を関係づけて述べる。last_event があれば「直近では…」と 1 文で触れる。evidenceCount が 0 の domain は「未計測」と明記し、全体像が暫定であることを添える。
+            - interests は domain ごとの取り組み傾向（例: "CODE: 週7件"）を短く。
+            - preferences は文字列→文字列のマップ（例: practiceFocus, preferredDifficulty）。分からなければ空オブジェクト。
+            - observations は直近 7 日の偏り・取り組みの空白など、行動の事実だけを 1〜3 件。
+            - recommendation は次に取り組む 1 課題を「DOMAIN: 内容」の形で 1 文。context（例: 「10分だけ」）があれば時間に合う提案にする。
+            - recommended_domain は recommendation と同じ domain を READ / WRITE / CODE のいずれかで返す。未計測の domain があればそれを優先する。
+        - id: llm_leader-user
+          role: user
+          text: |-
+            ## domains（JSON 配列: domain, score, subskills, confidence, evidenceCount, summary, observations, recommendedNext, eventsLast7Days）
+            {{#start.domains#}}
+
+            ## total_events
+            {{#start.total_events#}}
+
+            ## last_event（JSON。無ければ空）
+            {{#start.last_event#}}
+
+            ## context（無ければ空）
+            {{#start.context#}}
+
+            上記を踏まえ、指定の JSON だけを出力してください。
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position:
+        x: 420
+        y: 200
+      positionAbsolute:
+        x: 420
+        y: 200
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: end
+      type: custom
+      data:
+        title: 終了
+        type: end
+        selected: false
+        outputs:
+        - variable: result
+          value_selector:
+          - llm_leader
+          - text
+      position:
+        x: 760
+        y: 200
+      positionAbsolute:
+        x: 760
+        y: 200
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    edges:
+    - id: start-source-llm_leader
+      type: custom
+      source: start
+      sourceHandle: source
+      target: llm_leader
+      targetHandle: target
+      data:
+        sourceType: start
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_leader-source-end
+      type: custom
+      source: llm_leader
+      sourceHandle: source
+      target: end
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: end
+        isInIteration: false
+      zIndex: 0
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.8

@@ -79,6 +79,18 @@ POST /api/learn/submit             … { taskId, answer, hintCount }
 
 ## AI レイヤーの抽象化
 
+`LearningAIService`（`src/lib/ai/index.ts`）が provider を束ね、primary が失敗したら `MockProvider` に落とす。
+
+| provider | ファイル | 備考 |
+|---|---|---|
+| `AnthropicProvider` | `src/lib/ai/anthropic.ts` | Claude API を直接呼ぶ。zod structured outputs で JSON を固定。system prompt にポリシー 7 か条。`cache_control` で system を前置キャッシュ |
+| `DifyProvider` | `src/lib/ai/dify.ts` | Dify Workflow API。`dify/*.yml` が対応する DSL |
+| `MockProvider` | `src/lib/ai/mock.ts` | ルールベース。常にフォールバック先 |
+
+正答後は domain 寸評（interpretDomain）と Leader を **並列** に生成する（Leader の数値は events から決定論的に再計算するので domain profile の保存順に依存しない）。
+
+### （旧）
+
 ```
 LearningAIService（src/lib/ai/index.ts）
    ├─ primary : DifyProvider（src/lib/ai/dify.ts）  … Dify Workflow API を server-side から呼ぶ

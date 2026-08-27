@@ -1,0 +1,408 @@
+# このファイルは dify/build_dsl.py から生成される。手で編集せず、スクリプトを直して再生成すること。
+version: 0.6.0
+kind: app
+app:
+  name: trivium-domain
+  description: 'Trivium: READ/WRITE/CODE の回答評価（一段ヒント）と domain 寸評。workflow=domain|interpret で分岐。出力は result（JSON 文字列）。'
+  mode: workflow
+  icon: 📐
+  icon_type: emoji
+  icon_background: '#EFF1F5'
+  use_icon_as_answer_icon: false
+dependencies:
+- type: marketplace
+  current_identifier: null
+  value:
+    marketplace_plugin_unique_identifier: langgenius/anthropic:0.0.14@anthropic
+    version: null
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  rag_pipeline_variables: []
+  features:
+    file_upload:
+      enabled: false
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      number_limits: 0
+      image:
+        enabled: false
+        number_limits: 0
+        transfer_methods: []
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    nodes:
+    - id: start
+      type: custom
+      data:
+        title: 開始
+        type: start
+        variables:
+        - variable: workflow
+          label: 呼び出し種別（domain / interpret）
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: mode
+          label: read / write / code
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: policy
+          label: システムポリシー 7 箇条
+          type: paragraph
+          required: true
+          options: []
+          max_length: 48000
+        - variable: task
+          label: 課題 JSON（domain 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: learner_answer
+          label: 学習者の回答（domain 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: deterministic_result
+          label: correct / incorrect / unknown（domain 用）
+          type: text-input
+          required: false
+          options: []
+          max_length: 256
+        - variable: heuristic_result
+          label: meets_rubric / below_rubric / n/a（domain 用）
+          type: text-input
+          required: false
+          options: []
+          max_length: 256
+        - variable: hint_level
+          label: これまでに出したヒント数（domain 用）
+          type: number
+          required: false
+          options: []
+        - variable: current_domain_profile
+          label: domain profile JSON（domain 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: recent_behavior
+          label: 直近の学習行動（改行区切り、domain 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: stats
+          label: 集計値 JSON（interpret 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        - variable: recent_events
+          label: 直近イベント JSON（interpret 用）
+          type: paragraph
+          required: false
+          options: []
+          max_length: 48000
+        selected: false
+      position:
+        x: 80
+        y: 200
+      positionAbsolute:
+        x: 80
+        y: 200
+      width: 244
+      height: 366
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: branch
+      type: custom
+      data:
+        title: workflow で分岐
+        type: if-else
+        desc: start.workflow が domain なら true 側
+        selected: false
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - id: branch-cond-1
+            variable_selector:
+            - start
+            - workflow
+            varType: string
+            comparison_operator: is
+            value: domain
+      position:
+        x: 420
+        y: 260
+      positionAbsolute:
+        x: 420
+        y: 260
+      width: 244
+      height: 126
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_eval
+      type: custom
+      data:
+        title: 回答評価（domain）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/anthropic/anthropic
+          name: claude-sonnet-4-5
+          mode: chat
+          completion_params: &id001
+            temperature: 0.3
+            max_tokens: 1024
+        prompt_template:
+        - id: llm_eval-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の READ / WRITE / CODE の指導役です。次のポリシーを厳守してください。
+
+            {{#start.policy#}}
+
+            役割: 学習者の回答を評価し、必要なら「一段だけ」のヒントを返します。完成した答え・完成コード・書き直した完成文章を渡してはいけません。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            キーは次の 6 つ（順不同・すべて必須）:
+            {"status": "success | retry | needs_more", "feedback": "string", "hint": "string", "observations": ["string"], "skill_tags": ["string"], "recommended_next_difficulty": 1}
+
+            判定ルール:
+            - deterministic_result が correct なら status は必ず "success"、hint は空文字。
+            - deterministic_result が incorrect なら status は "retry"。hint は task.hints 配列の hint_level 番目（0 始まり。範囲外なら最後）を選び、必要なら学習者の誤答に合わせて一言だけ言い換える。hints に無い新しい答えの手がかりを足さない。
+            - deterministic_result が unknown（自由記述）のときだけ内容を評価する。heuristic_result は参考情報で、最終判断は task.criteria に照らして行う。観点を満たしていれば "success"、足りなければ "needs_more" にして hint を一段だけ返す。
+            - feedback は 2 文以内。答えを書かない。問い返しを優先する。
+            - observations は「学習行動」についてだけ（性格・能力の断定はしない）。証拠が足りなければ「まだ判断できない」と書く。
+            - skill_tags は task に関係する観点名だけ（英語の識別子。例: tracing, debugging, structure, inference）。分からなければ空配列。
+            - recommended_next_difficulty は 1〜5 の整数。ヒントなしで成功なら task.difficulty + 1、ヒント 2 回以上や未達なら据え置きか -1。
+        - id: llm_eval-user
+          role: user
+          text: |-
+            ## mode
+            {{#start.mode#}}
+
+            ## task（JSON）
+            {{#start.task#}}
+
+            ## learner_answer
+            {{#start.learner_answer#}}
+
+            ## deterministic_result
+            {{#start.deterministic_result#}}
+
+            ## heuristic_result
+            {{#start.heuristic_result#}}
+
+            ## hint_level
+            {{#start.hint_level#}}
+
+            ## current_domain_profile（JSON）
+            {{#start.current_domain_profile#}}
+
+            ## recent_behavior
+            {{#start.recent_behavior#}}
+
+            上記を踏まえ、指定の JSON だけを出力してください。
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position:
+        x: 760
+        y: 120
+      positionAbsolute:
+        x: 760
+        y: 120
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_interpret
+      type: custom
+      data:
+        title: 寸評生成（interpret）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/anthropic/anthropic
+          name: claude-sonnet-4-5
+          mode: chat
+          completion_params: *id001
+        prompt_template:
+        - id: llm_interpret-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の READ / WRITE / CODE の指導役です。次のポリシーを厳守してください。
+
+            {{#start.policy#}}
+
+            役割: 1 つの domain（mode）の集計値と直近の学習イベントを読み、学習者向けの短い寸評を書きます。数値は既に決定論的に集計済みです。あなたの仕事は「解釈」であり、数値を作り直したり上書きしたりしないでください。
+
+            出力は JSON オブジェクト 1 つだけ。前後の説明文・コードフェンス（```）・コメントは一切付けない。すべての文字列は日本語で、学習者に直接語りかける丁寧で簡潔な文体（です・ます）。
+            キーは次の 3 つ（すべて必須）:
+            {"summary": "string", "observations": ["string"], "recommended_next": "string"}
+
+            書き方:
+            - summary は 2〜3 文。subskills の高い観点・低い観点・未計測の観点に触れる。confidence が low なら「記録が少ないため暫定的」と必ず明記する。
+            - observations は行動の事実（ヒント回数・成功率・直近の失敗など）から言えることだけを 1〜3 件。性格の断定はしない。
+            - recommended_next は次に取り組む課題を 1 文で（未計測や低い観点を含む課題、または難易度を 1 段上げる提案）。
+        - id: llm_interpret-user
+          role: user
+          text: |-
+            ## mode
+            {{#start.mode#}}
+
+            ## stats（JSON: score, subskills, confidence, evidenceCount, successRate, avgHints, avgDifficulty）
+            {{#start.stats#}}
+
+            ## recent_events（JSON 配列: taskTitle, difficulty, success, hintCount, skillTags, daysAgo）
+            {{#start.recent_events#}}
+
+            上記を踏まえ、指定の JSON だけを出力してください。
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position:
+        x: 760
+        y: 420
+      positionAbsolute:
+        x: 760
+        y: 420
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: end-0
+      type: custom
+      data:
+        title: 終了 (llm_eval)
+        type: end
+        selected: false
+        outputs:
+        - variable: result
+          value_selector:
+          - llm_eval
+          - text
+      position:
+        x: 1100
+        y: 120
+      positionAbsolute:
+        x: 1100
+        y: 120
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: end-1
+      type: custom
+      data:
+        title: 終了 (llm_interpret)
+        type: end
+        selected: false
+        outputs:
+        - variable: result
+          value_selector:
+          - llm_interpret
+          - text
+      position:
+        x: 1100
+        y: 280
+      positionAbsolute:
+        x: 1100
+        y: 280
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    edges:
+    - id: start-source-branch
+      type: custom
+      source: start
+      sourceHandle: source
+      target: branch
+      targetHandle: target
+      data:
+        sourceType: start
+        targetType: if-else
+        isInIteration: false
+      zIndex: 0
+    - id: branch-true-llm_eval
+      type: custom
+      source: branch
+      sourceHandle: 'true'
+      target: llm_eval
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: branch-false-llm_interpret
+      type: custom
+      source: branch
+      sourceHandle: 'false'
+      target: llm_interpret
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_eval-source-end-0
+      type: custom
+      source: llm_eval
+      sourceHandle: source
+      target: end-0
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: end
+        isInIteration: false
+      zIndex: 0
+    - id: llm_interpret-source-end-1
+      type: custom
+      source: llm_interpret
+      sourceHandle: source
+      target: end-1
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: end
+        isInIteration: false
+      zIndex: 0
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.8

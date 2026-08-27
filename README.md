@@ -55,12 +55,18 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
 × 難易度重み（1→0.7 … 5→1.3）× 新しさ重み（半減期 14 日）。中立値 0.5 を擬似観測 2 件分混ぜているため、
 **一回の失敗だけで「苦手」とは断定されません**。記録が少ないうちは「信頼度: low（分析中）」と表示します。
 
-LLM（Dify）には「解釈」だけを任せます: 寸評・観察・次のおすすめ・ヒントの選択。
-Dify が未設定／障害のときは **ルールベースの Mock provider に自動フォールバック** し、アプリは止まりません。
+LLM には「解釈」だけを任せます: 寸評・観察・次のおすすめ・ヒントの選択。
+provider は `LearningAIService` で抽象化され、`AI_PROVIDER` で切り替えます。
+
+| provider | 説明 |
+|---|---|
+| `anthropic` | Claude API を server-side から直接呼ぶ（structured outputs で JSON 固定、system policy 7 か条を強制）。設定が最小で推奨 |
+| `dify` | Dify Workflow 経由。`dify/*.yml` をインポートすればそのまま動く |
+| `mock` | ルールベース。キー不要。上の 2 つが失敗したときも **自動でここにフォールバック** し、アプリは止まりません |
 
 ## 技術スタック
 
-Next.js 16 (App Router, TypeScript) · PostgreSQL · Prisma 7 · Auth.js v5 (Google) · Recharts · Dify Workflow API (server-side) · LINE Messaging API · Docker / Coolify
+Next.js 16 (App Router, TypeScript) · PostgreSQL · Prisma 7 · Auth.js v5 (Google) · Recharts · Claude API / Dify Workflow API (server-side) · LINE Messaging API · Docker / Coolify
 
 ## ローカル開発
 
@@ -93,7 +99,8 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth（server only） |
 | `DEMO_LOGIN_ENABLED` | デモ用フォールバックログイン（既定 false） |
 | `DEMO_SEED_ENABLED` | Dashboard の「デモデータ投入」ボタン（既定 true） |
-| `AI_PROVIDER` | `dify` または `mock` |
+| `AI_PROVIDER` | `anthropic` / `dify` / `mock` |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_TIMEOUT_MS` | Claude API（server only。`AI_PROVIDER=anthropic` のとき） |
 | `DIFY_API_BASE` / `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_TIMEOUT_MS` | Dify Workflow（server only） |
 | `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API |
 
