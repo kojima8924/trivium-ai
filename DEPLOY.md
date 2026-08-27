@@ -121,6 +121,7 @@ Dify → Studio → **Create from Blank → Workflow**。
 | `task` | 課題の JSON（id, title, passage, prompt, kind, choices, difficulty, criteria, hints） |
 | `learner_answer` | 学習者の回答 |
 | `deterministic_result` | `correct` / `incorrect` / `unknown`（決定論採点の結果。`unknown` は自由記述） |
+| `heuristic_result` | `meets_rubric` / `below_rubric` / `n/a`（自由記述のルーブリック簡易判定。AI の参考情報） |
 | `hint_level` | これまでに出したヒント数 |
 | `current_domain_profile` | domain profile の JSON（score, subskills, confidence, evidenceCount, summary） |
 | `recent_behavior` | 直近の学習行動（改行区切り） |
@@ -135,6 +136,7 @@ Dify → Studio → **Create from Blank → Workflow**。
 | `policy` | システムポリシー 7 箇条 |
 | `domains` | 3 domain の要約 JSON 配列（domain, score, subskills, confidence, evidenceCount, summary, observations, recommendedNext, eventsLast7Days） |
 | `total_events` | 学習記録の総数 |
+| `last_event` | 直近の学習イベント JSON（domain, taskTitle, difficulty, success, hintCount, minutesAgo）。無ければ空文字 |
 | `context` | 「10分だけ」などの文脈（無ければ空文字） |
 
 ### 5.3 出力（End ノード）
