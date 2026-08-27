@@ -363,7 +363,9 @@ async function handleRuleBasedPostback(lineUserId: string, replyToken: string, d
   const ctx = await contextFor(lu, linkUrl);
   // プロフィール: 連携済みなら Flex カード（ランク・XP・到達レベル・ミッション）
   if (action === "profile" && lu.userId) {
-    await replyFlex(replyToken, "プロフィール", await buildProfileCard(lu.userId, "あなた"));
+    // 表示名は Web アカウントの名前＋「さん」（未設定なら「あなた」）
+    const u = await prisma.user.findUnique({ where: { id: lu.userId }, select: { name: true } });
+    await replyFlex(replyToken, "プロフィール", await buildProfileCard(lu.userId, u?.name ? `${u.name}さん` : "あなた"));
     return;
   }
   const reply = buildPostbackReply(data, ctx);

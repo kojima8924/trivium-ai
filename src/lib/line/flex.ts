@@ -142,7 +142,7 @@ export function buildProfileFlex(input: FlexProfileInput): messagingApi.FlexBubb
       paddingAll: "16px",
       contents: [
         text("TRIVIUM", { size: "xxs", color: MUTED, weight: "bold" }),
-        text(`${input.name} のプロフィール`, { size: "md", weight: "bold" }),
+        text(`${input.name}のプロフィール`, { size: "md", weight: "bold" }),
       ],
     },
     body: {

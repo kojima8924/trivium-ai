@@ -37,7 +37,7 @@ export default async function DashboardPage() {
     <div className="flex flex-col gap-4 py-4">
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-lg font-bold">{session?.user?.name ?? "Learner"} の学習プロフィール</h1>
+          <h1 className="text-lg font-bold">{session?.user?.name ? `${session.user.name}さん` : "あなた"}の学習プロフィール</h1>
           <p className="text-xs text-muted">
             学習記録 {data.totalEvents} 件 — <span className="font-medium">数値は記録からの集計</span>、文章は AI の解釈です
           </p>
