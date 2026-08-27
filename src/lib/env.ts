@@ -24,6 +24,7 @@ export const env = {
     difyApiBase: process.env.DIFY_API_BASE ?? "https://api.dify.ai/v1",
     difyDomainApiKey: process.env.DIFY_DOMAIN_API_KEY ?? "",
     difyLeaderApiKey: process.env.DIFY_LEADER_API_KEY ?? "",
+    difyGenerateApiKey: process.env.DIFY_GENERATE_API_KEY ?? "",
     difyTimeoutMs: Number(process.env.DIFY_TIMEOUT_MS ?? 20000),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-opus-5",

@@ -1,5 +1,5 @@
 // 選択式の講評キャッシュを事前生成する（デモ前に実行。LINE の即答・API 節約用）
-//   npm run warm-cache -- --email demo+demo-learner@trivium.local [--all] [--levels 0,1,2]
+//   npm run warm-cache -- --email demo+demo-learner@trivium.local [--levels 0,1,2] [--concurrency 2]
 //   既定は全 domain の choice タスク × 各選択肢 × ヒント段階 0。--levels で段階を増やせる。
 // 人格（/settings）が変わるとキャッシュキーも変わるので、人格を決めてから実行する。
 import "dotenv/config";
@@ -21,7 +21,8 @@ async function main() {
   const ids = ALL_TASKS.filter((t) => t.kind === "choice").map((t) => t.id);
   console.log(`provider=${aiStatus().provider} / user=${user.id} / choice tasks=${ids.length} / levels=${levels.join(",")}`);
   const t0 = Date.now();
-  const n = await warmFeedbackCache(user.id, ids, { hintLevels: levels, concurrency: 4 });
+  const concurrency = Math.max(1, Number(arg("--concurrency") ?? 2));
+  const n = await warmFeedbackCache(user.id, ids, { hintLevels: levels, concurrency });
   const total = await prisma.taskFeedbackCache.count();
   console.log(`done: ${n} 件を処理（キャッシュ総数 ${total}）、${Math.round((Date.now() - t0) / 1000)} 秒`);
 }

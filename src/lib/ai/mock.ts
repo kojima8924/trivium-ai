@@ -178,7 +178,7 @@ export class MockProvider implements LearningAIProvider {
         interests: [],
         preferences: {},
         observations: [],
-        recommendation: "CODE の「出力予測」を1問（約3分）",
+        recommendation: "LOGIC の「出力予測」を1問（約3分）",
         recommendedDomain: "CODE",
       };
     }
@@ -189,38 +189,39 @@ export class MockProvider implements LearningAIProvider {
     const mostPracticed = [...input.domains].sort((a, b) => b.eventsLast7Days - a.eventsLast7Days)[0];
 
     const summaryParts: string[] = [];
-    summaryParts.push(`${strongest.domain}（${strongest.score}）を強みにしています。`);
+    const L = (d: DomainKey) => DOMAIN_META[d].label;
+    summaryParts.push(`${L(strongest.domain)}（${strongest.score}）を強みにしています。`);
     if (measured.length >= 2 && weakest.domain !== strongest.domain) {
       summaryParts.push(
-        `${weakest.domain}（${weakest.score}）を伸ばすことで、${strongest.domain}の強みをより活かしやすくなります。`,
+        `${L(weakest.domain)}（${weakest.score}）を伸ばすことで、${L(strongest.domain)}の強みをより活かしやすくなります。`,
       );
     }
     if (measured.length < 3) {
-      const missing = input.domains.filter((d) => d.evidenceCount === 0).map((d) => d.domain);
+      const missing = input.domains.filter((d) => d.evidenceCount === 0).map((d) => L(d.domain));
       summaryParts.push(`${missing.join("・")}は未計測のため、全体像はまだ暫定です。`);
     }
     const lowConf = measured.filter((d) => d.confidence === "low");
-    if (lowConf.length) summaryParts.push(`${lowConf.map((d) => d.domain).join("・")}は記録が少なく信頼度lowです。`);
+    if (lowConf.length) summaryParts.push(`${lowConf.map((d) => L(d.domain)).join("・")}は記録が少なく信頼度lowです。`);
 
     if (input.lastEvent) {
       const e = input.lastEvent;
       const how = e.success ? (e.hintCount === 0 ? "ヒントなしで解決" : `ヒント${e.hintCount}回で解決`) : "未達";
-      summaryParts.push(`直近では${e.domain}「${e.taskTitle}」（難易度${e.difficulty}）を${how}。`);
+      summaryParts.push(`直近では${L(e.domain)}「${e.taskTitle}」（難易度${e.difficulty}）を${how}。`);
     }
 
     const observations: string[] = [];
     if (mostPracticed.eventsLast7Days > 0)
-      observations.push(`直近7日は${mostPracticed.domain}に偏っている（${mostPracticed.eventsLast7Days}件）`);
+      observations.push(`直近7日は${L(mostPracticed.domain)}に偏っている（${mostPracticed.eventsLast7Days}件）`);
     if (leastPracticed.eventsLast7Days === 0)
-      observations.push(`${leastPracticed.domain}は直近7日で取り組みなし`);
+      observations.push(`${L(leastPracticed.domain)}は直近7日で取り組みなし`);
 
     // 次のおすすめ: 直近で少ない domain を優先し、その domain の recommendedNext を使う
     const target =
       leastPracticed.evidenceCount === 0 ? leastPracticed : weakest.domain === strongest.domain ? leastPracticed : weakest;
     const recommendation =
       target.recommendedNext && target.evidenceCount > 0
-        ? `${target.domain}: ${target.recommendedNext}`
-        : `${target.domain}: まず1問取り組んで計測を始める`;
+        ? `${L(target.domain)}: ${target.recommendedNext}`
+        : `${L(target.domain)}: まず1問取り組んで計測を始める`;
 
     return {
       summary: signed(summaryParts.join(""), input.persona),

@@ -152,12 +152,14 @@ test("leader: 強みと伸ばす domain を要約し、未計測 domain を推�
       { domain: "READ", score: 78, evidenceCount: 6, confidence: "medium", eventsLast7Days: 2 },
     ]),
   );
-  assert.ok(r.summary.includes("CODE"));
+  // ユーザー向け文言では内部キー CODE ではなく表示名 LOGIC を使う
+  assert.ok(r.summary.includes("LOGIC"));
+  assert.ok(!r.summary.includes("CODE"));
   assert.ok(r.summary.includes("86"));
   assert.ok(r.summary.includes("WRITE"));
   assert.equal(r.recommendedDomain, "WRITE");
   assert.ok(r.recommendation.startsWith("WRITE"));
-  assert.ok(r.observations.some((o) => o.includes("CODE")));
+  assert.ok(r.observations.some((o) => o.includes("LOGIC")));
 });
 
 test("leader: 全 domain 計測済みなら最弱 domain を推奨し、その recommendedNext を使う", async () => {
