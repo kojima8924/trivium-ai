@@ -20,7 +20,7 @@
 
 - [ ] `npm run preflight -- https://trivium.153.126.213.251.sslip.io` が全項目 OK（health / トップ / Google OAuth / 静的アセット / LINE 署名検証 / 認証ガード / HTTPS）
 - [ ] `/api/health` の `ai.provider` が `openai`、`lastError` が `null`（誤答→ヒントは 2〜5 秒、正答→寸評+ADVISOR 更新は 5〜10 秒）。遅い／不安なら `AI_PROVIDER=mock` にすると即時応答のルールベースに切り替わる
-- [ ] デモ用アカウントでログイン済み → Dashboard で **デモデータを投入** 済み（三角形と XP カードが出ている）
+- [ ] Google ログイン済み（デモログインは本番では無効。`DEMO_LOGIN_ENABLED=false`） → Dashboard で **デモデータを投入** 済み（三角形と XP カードが出ている）
 - [ ] 直近で `code-006`（二分探索の終了条件）を解いていない（解いた場合は「デモデータで置き換える」でリセット）。seed 直後の値: READ Lv.6 / WRITE Lv.4 / LOGIC Lv.7
 - [ ] 講評キャッシュを本番向けに生成済み（ログイン状態で `POST /api/demo/warm`、または `npm run warm-cache -- --concurrency 1`）。LINE の選択式が即答になる
 - [ ] スマートフォンで `https://trivium.153.126.213.251.sslip.io` を開き、ログイン状態にしておく（LINE から開く導線用）
