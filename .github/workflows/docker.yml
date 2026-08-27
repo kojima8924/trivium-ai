@@ -53,8 +53,10 @@ jobs:
 
       - name: Image size
         run: |
-          docker image inspect trivium:ci \
-            --format 'イメージサイズ: {{ printf "%.0f" (divf .Size 1048576) }} MiB'
+          # docker の Go テンプレートには除算が無いので shell 側で計算する
+          bytes=$(docker image inspect trivium:ci --format '{{.Size}}')
+          echo "イメージサイズ: $((bytes / 1048576)) MiB ($bytes bytes)"
+          echo "イメージサイズ: $((bytes / 1048576)) MiB" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run container
         env:
