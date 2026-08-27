@@ -12,7 +12,7 @@ import { checkDeterministic, checkHeuristic, getTask, pickNextTask, tasksFor, ty
 import { loadEvents, nextDifficultyFor, recomputeAll, subskillsOf } from "../profile";
 import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
-import { axesOf, computeDomainScore, DOMAIN_OF_AXIS } from "../scoring";
+import { axesOf, computeDomainScore, DOMAIN_OF_AXIS, adaptiveTarget } from "../scoring";
 import { xpBreakdown } from "../xp";
 import { updateLeaderMemory, updateMemoryAfterEvent } from "../memory";
 import { loadTaskPrefs } from "../task-prefs";
@@ -101,9 +101,12 @@ export async function nextTask(
     prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } }, select: { subskills: true } }),
     loadTaskPrefs(userId),
   ]);
-  // 本人の明示指定（LINE「難易度8」）があれば推薦より優先する
+  // 本人の明示指定（LINE「難易度8」）があれば推薦より優先する。
+  // 無ければ推薦値に決定論的なゆらぎを加える（最初は低め・広めに探索し、回答が増えるほど推薦値の周辺に収束）
   const explicit = opts.targetDifficulty !== undefined;
-  const targetDifficulty = explicit ? Math.min(10, Math.max(1, Math.round(opts.targetDifficulty as number))) : recommended;
+  const targetDifficulty = explicit
+    ? Math.min(10, Math.max(1, Math.round(opts.targetDifficulty as number)))
+    : adaptiveTarget(recommended, history.length, `${userId}:${domain}:${history.length}`);
   const seen = new Set(history.map((h) => h.taskId));
   for (const id of opts.excludeTaskIds ?? []) seen.add(id);
   // 出題設定（/settings で外した問題タイプ・複合問題）を反映。絞った結果が空なら設定を無視する（出題不能を避ける）

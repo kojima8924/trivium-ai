@@ -11,6 +11,7 @@ import {
   recencyWeight,
   recommendDifficulty,
   type ScorableEvent,
+  adaptiveTarget,
 } from "../src/lib/scoring";
 
 const NOW = new Date("2026-08-27T12:00:00Z");
@@ -143,8 +144,27 @@ test("axesのない旧データは主系統だけに割り当てる", () => {
   assert.equal(computeDomainScore("CODE", events, NOW).evidenceCount, 0);
 });
 
-test("recommendDifficultyは履歴なしなら3を返す", () => {
-  assert.equal(recommendDifficulty("CODE", [], NOW), 3);
+test("recommendDifficultyは履歴なしなら低め（2）から始める", () => {
+  assert.equal(recommendDifficulty("CODE", [], NOW), 2);
+});
+
+test("adaptiveTarget: 決定論的で、証拠が増えるほど推薦値の周辺に収束し、1〜10 に収まる", () => {
+  // 同じ seed なら同じ値
+  assert.equal(adaptiveTarget(4, 0, "u:CODE:0"), adaptiveTarget(4, 0, "u:CODE:0"));
+  const spread = (n: number) => {
+    const vals = new Set<number>();
+    for (let i = 0; i < 200; i++) vals.add(adaptiveTarget(5, n, `user${i}:READ:${n}`));
+    return vals;
+  };
+  const early = spread(0);
+  const late = spread(20);
+  assert.ok(early.has(6) || early.has(7), "序盤は上方向にも探索する");
+  assert.ok([...late].every((v) => v >= 4 && v <= 6), "証拠が多いと ±1 に収束する");
+  for (let i = 0; i < 100; i++) {
+    const v = adaptiveTarget(10, 0, `x${i}`);
+    assert.ok(v >= 1 && v <= 10);
+    assert.ok(adaptiveTarget(1, 0, `y${i}`) >= 1);
+  }
 });
 
 test("recommendDifficultyは基本的に到達レベルの1つ上を返し上限10に収める", () => {
@@ -170,9 +190,9 @@ test("recommendDifficultyは直近3件中2件失敗なら到達レベルに据�
   assert.equal(recommendDifficulty("CODE", noMastery, NOW), 1);
 });
 
-test("recommendDifficulty: 初回の正解で難易度が下がらない（3 → 4）。ヒントありなら据え置き、失敗なら 1 つ下げる", () => {
+test("recommendDifficulty: 初回の正解で難易度が下がらない（2 → 3）。ヒントありなら据え置き、失敗なら 1 つ下げる", () => {
   const start = recommendDifficulty("CODE", [], NOW);
-  assert.equal(start, 3);
+  assert.equal(start, 2);
   // 難易度 3 をヒントなしで正解 → 証拠は 1 件でレベルは付かないが、推薦は 4（逆行しない）
   assert.equal(recommendDifficulty("CODE", [ev({ difficulty: 3 })], NOW), 4);
   // ヒント 2 回で正解 → 3 で据え置き
@@ -182,8 +202,8 @@ test("recommendDifficulty: 初回の正解で難易度が下がらない（3 →
   // 正解 → 次（4）で失敗 → 直近の成功難易度 3 で据え置き
   const upThenFail = [ev({ difficulty: 3, createdAt: daysAgo(1) }), ev({ difficulty: 4, success: false })];
   assert.equal(recommendDifficulty("CODE", upThenFail, NOW), 3);
-  // 連続正解で単調に上がる（3 → 4 → 5 → …）。途中で下がらない
-  let prev = 3;
+  // 連続正解で単調に上がる（2 → 3 → 4 → …）。途中で下がらない
+  let prev = 2;
   const events: ScorableEvent[] = [];
   for (let i = 0; i < 6; i++) {
     events.push(ev({ difficulty: prev, createdAt: new Date(NOW.getTime() + i * 60_000) }));

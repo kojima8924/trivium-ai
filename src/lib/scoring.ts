@@ -265,7 +265,36 @@ export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], n
 }
 
 /** 履歴なしの初期難易度 */
-export const INITIAL_DIFFICULTY = 3;
+/** 履歴が無いときの推薦難易度。最初は低めから始め、正解ごとに 1 つずつ上がる */
+export const INITIAL_DIFFICULTY = 2;
+
+/** 文字列 → [0,1) の決定論的な擬似乱数（FNV-1a。出題のゆらぎ用で暗号用途ではない） */
+export function seededUnit(seed: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h / 0x100000000;
+}
+
+/**
+ * 推薦難易度に「ゆらぎ」を加えた実際の出題難易度。
+ * 証拠（その系統の回答数）が少ないうちは広め（-1〜+2）にばらつかせて探索し、増えるほど推薦値の周辺に収束する。
+ * seed は (userId, domain, 回答数) から作るので、同じ状態では同じ値（「次」を連打しても変わらない・テスト可能）。
+ */
+export function adaptiveTarget(recommended: number, evidenceCount: number, seed: string): number {
+  const u = seededUnit(seed);
+  // [offset, 累積確率]
+  const table: [number, number][] =
+    evidenceCount <= 2
+      ? [[-1, 0.2], [0, 0.55], [1, 0.85], [2, 1]]
+      : evidenceCount <= 6
+        ? [[-1, 0.25], [0, 0.75], [1, 1]]
+        : [[-1, 0.12], [0, 0.88], [1, 1]];
+  const offset = table.find(([, p]) => u < p)?.[0] ?? 0;
+  return Math.min(MAX_LEVEL, Math.max(1, recommended + offset));
+}
 
 /**
  * 次に出す難易度（1..10）。
