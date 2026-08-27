@@ -9,12 +9,21 @@ const TTL_MINUTES = 15;
 
 export type LinkIssue = { token: string; expiresInMinutes: number };
 
+/** 使用済み・期限切れのトークンを掃除する（発行のついでに呼ぶ。件数は小さい） */
+async function sweepStaleTokens(now: Date): Promise<void> {
+  await prisma.lineLinkToken.deleteMany({
+    where: { OR: [{ expiresAt: { lt: now } }, { usedAt: { not: null } }] },
+  });
+}
+
 /** LINE 側で連携URLを発行する（同じLINEユーザーの未使用トークンは無効化する） */
 export async function issueLinkToken(lineUserId: string): Promise<LinkIssue> {
+  const now = new Date();
+  await sweepStaleTokens(now);
   await prisma.lineLinkToken.deleteMany({ where: { lineUserId, usedAt: null } });
   const token = randomBytes(24).toString("base64url");
   await prisma.lineLinkToken.create({
-    data: { token, lineUserId, expiresAt: new Date(Date.now() + TTL_MINUTES * 60_000) },
+    data: { token, lineUserId, expiresAt: new Date(now.getTime() + TTL_MINUTES * 60_000) },
   });
   return { token, expiresInMinutes: TTL_MINUTES };
 }
@@ -27,12 +36,30 @@ export type LinkOutcome =
   | { status: "expired" }
   | { status: "used" };
 
-/** Web 側でトークンを消費して連携する */
+export type LinkStatus = LinkOutcome["status"];
+
+/**
+ * Web 側でトークンを消費して連携する。
+ * 単回性は「未使用かつ期限内の行を updateMany で使用済みにできたか（count === 1）」だけで判定する。
+ * 読み取り→更新の間に別リクエストが割り込んでも、更新に成功するのは1件だけ。
+ */
 export async function consumeLinkToken(token: string, userId: string): Promise<LinkOutcome> {
+  const now = new Date();
+  const claimed = await prisma.lineLinkToken.updateMany({
+    where: { token, usedAt: null, expiresAt: { gt: now } },
+    data: { usedAt: now },
+  });
+
+  if (claimed.count !== 1) {
+    // 消費できなかった理由を返すためだけに読む（ここでの読み取り結果は状態を変えない）
+    const row = await prisma.lineLinkToken.findUnique({ where: { token } });
+    if (!row) return { status: "invalid" };
+    if (row.usedAt) return { status: "used" };
+    return { status: "expired" };
+  }
+
   const row = await prisma.lineLinkToken.findUnique({ where: { token } });
-  if (!row) return { status: "invalid" };
-  if (row.usedAt) return { status: "used" };
-  if (row.expiresAt.getTime() < Date.now()) return { status: "expired" };
+  if (!row) return { status: "invalid" }; // 消費直後に掃除されたケース（実質起きない）
 
   const existing = await prisma.lineUser.findUnique({ where: { lineUserId: row.lineUserId } });
   const previousUserId = existing?.userId ?? null;
@@ -43,7 +70,6 @@ export async function consumeLinkToken(token: string, userId: string): Promise<L
       update: { userId },
       create: { lineUserId: row.lineUserId, userId, state: {} },
     }),
-    prisma.lineLinkToken.update({ where: { token }, data: { usedAt: new Date() } }),
     // 同じLINEユーザーの他の未使用トークンも無効化する
     prisma.lineLinkToken.deleteMany({ where: { lineUserId: row.lineUserId, usedAt: null } }),
   ]);
@@ -51,6 +77,18 @@ export async function consumeLinkToken(token: string, userId: string): Promise<L
   if (previousUserId === userId) return { status: "already" };
   if (previousUserId) return { status: "relinked" };
   return { status: "linked" };
+}
+
+/**
+ * 結果画面を出す前の裏取り。
+ * 「そのトークンが存在し、使用済みで、LINE ユーザーがログイン中のユーザーに紐づいている」ときだけ true。
+ * URL のクエリだけで成功画面が出ないようにするための検査で、状態は変えない。
+ */
+export async function isLinkResultGenuine(token: string, userId: string): Promise<boolean> {
+  const row = await prisma.lineLinkToken.findUnique({ where: { token }, select: { usedAt: true, lineUserId: true } });
+  if (!row || !row.usedAt) return false;
+  const lu = await prisma.lineUser.findUnique({ where: { lineUserId: row.lineUserId }, select: { userId: true } });
+  return lu?.userId === userId;
 }
 
 /** Web 側から連携を解除する */

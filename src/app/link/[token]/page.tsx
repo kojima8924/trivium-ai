@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { consumeLinkToken, type LinkOutcome } from "@/lib/line/link";
+import { consumeLinkToken, isLinkResultGenuine, type LinkStatus } from "@/lib/line/link";
+
+const SUCCESS: ReadonlySet<string> = new Set(["linked", "relinked", "already"]);
+const KNOWN: ReadonlySet<string> = new Set(["linked", "relinked", "already", "invalid", "expired", "used"]);
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +26,12 @@ export default async function LinkPage({
   const session = await auth();
   if (!session?.user?.id) redirect(`/login?next=${encodeURIComponent(`/link/${token}`)}`);
 
-  if (result) return <Result outcome={result as LinkOutcome["status"]} />;
+  if (result) {
+    // クエリだけで成功画面が出ないよう、成功系は DB で裏を取る（トークンが使用済みで、かつ自分に紐づいていること）
+    let outcome: LinkStatus = KNOWN.has(result) ? (result as LinkStatus) : "invalid";
+    if (SUCCESS.has(outcome) && !(await isLinkResultGenuine(token, session.user.id))) outcome = "invalid";
+    return <Result outcome={outcome} />;
+  }
 
   async function link() {
     "use server";
@@ -61,8 +69,8 @@ export default async function LinkPage({
   );
 }
 
-function Result({ outcome }: { outcome: LinkOutcome["status"] }) {
-  const map: Record<LinkOutcome["status"], { title: string; body: string; ok: boolean }> = {
+function Result({ outcome }: { outcome: LinkStatus }) {
+  const map: Record<LinkStatus, { title: string; body: string; ok: boolean }> = {
     linked: {
       title: "連携しました",
       body: "LINE に戻って「今日のおすすめ」と送ってみてください。学習記録にもとづいた提案が返ります。",
@@ -78,7 +86,7 @@ function Result({ outcome }: { outcome: LinkOutcome["status"] }) {
     expired: { title: "リンクの有効期限が切れています", body: "15分で失効します。LINE で「連携」と送り直してください。", ok: false },
     used: { title: "このリンクは使用済みです", body: "もう一度連携したい場合は、LINE で「連携」と送ってください。", ok: false },
   };
-  const m = map[outcome] ?? map.invalid;
+  const m = map[outcome];
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-5 py-12">
       <div>

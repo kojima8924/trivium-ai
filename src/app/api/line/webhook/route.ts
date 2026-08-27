@@ -79,12 +79,7 @@ async function handleEvent(client: messagingApi.MessagingApiClient, event: webho
     const text = event.message.text;
     const intent = classifyIntent(text);
 
-    // 連携要求: 未連携なら 15 分有効のワンタイムURLを発行する
-    let linkUrl: string | undefined;
-    if (intent.kind === "link" && !lu.userId) {
-      const issued = await issueLinkToken(lineUserId);
-      linkUrl = `${env.appUrl.replace(/\/$/, "")}/link/${issued.token}`;
-    }
+    const linkUrl = await prepareLink(lineUserId, lu.userId, intent.kind);
     // 連携解除: 返信前に実際に解除する（返信文は解除前の状態に基づく）
     if (intent.kind === "unlink" && lu.userId) {
       await unlinkLineUser(lineUserId);
@@ -101,13 +96,23 @@ async function handleEvent(client: messagingApi.MessagingApiClient, event: webho
   if (event.type === "postback") {
     if (!event.replyToken) return;
     const lu = await loadLineUser(lineUserId);
-    const ctx = await contextFor(lu);
+    // Rich Menu の postback（action=link）からも連携URLを発行できるようにする
+    const action = new URLSearchParams(event.postback.data).get("action");
+    const linkUrl = await prepareLink(lineUserId, lu.userId, action === "link" ? "link" : "other");
+    const ctx = await contextFor(lu, linkUrl);
     const r = buildPostbackReply(event.postback.data, ctx);
     await persist(lineUserId, lu.state, r);
     await reply(client, event.replyToken, r);
     return;
   }
   // それ以外（unfollow 等）は無視
+}
+
+/** 連携要求（message / postback 共通）: 未連携なら 15 分有効のワンタイムURLを発行する */
+async function prepareLink(lineUserId: string, linkedUserId: string | null, intentKind: string): Promise<string | undefined> {
+  if (intentKind !== "link" || linkedUserId) return undefined;
+  const issued = await issueLinkToken(lineUserId);
+  return `${env.appUrl.replace(/\/$/, "")}/link/${issued.token}`;
 }
 
 /**
