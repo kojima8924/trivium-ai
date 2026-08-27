@@ -83,7 +83,8 @@ POST /api/learn/submit             … { taskId, answer, hintCount }
 
 | provider | ファイル | 備考 |
 |---|---|---|
-| `AnthropicProvider` | `src/lib/ai/anthropic.ts` | Claude API を直接呼ぶ。zod structured outputs で JSON を固定。system prompt にポリシー 7 か条。`cache_control` で system を前置キャッシュ |
+| `OpenAIProvider`（既定） | `src/lib/ai/openai.ts` | OpenAI Responses API。zod structured outputs で JSON を固定。system にポリシー 7 か条＋人格。作問（generateTask）もここ |
+| `AnthropicProvider` | `src/lib/ai/anthropic.ts` | Claude API。任意（`AI_PROVIDER=anthropic`） |
 | `DifyProvider` | `src/lib/ai/dify.ts` | Dify Workflow API。`dify/*.yml` が対応する DSL |
 | `MockProvider` | `src/lib/ai/mock.ts` | ルールベース。常にフォールバック先 |
 
@@ -130,6 +131,29 @@ LearningAIService（src/lib/ai/index.ts）
 | `scripts/seed-demo.ts` | seed の CLI 版 |
 | `scripts/line-richmenu.ts` | LINE Rich Menu セットアップ |
 | `Dockerfile` / `docker-entrypoint.sh` | Coolify 用イメージ。起動時に `prisma migrate deploy` |
+
+## 学習ループのサービス層（Web と LINE で共通）
+
+```
+Web (/api/learn/*)  ─┐
+                     ├─→ src/lib/learn/service.ts ─→ learning_events → profiles → leader
+LINE webhook        ─┘        │
+                              ├─ resolveTask   : 静的タスク（src/lib/tasks）または LLM 生成タスク（GeneratedTask）
+                              ├─ nextTask      : 弱い subskill を優先して次の課題を選ぶ
+                              ├─ submitAnswer  : 決定論採点 → AI 講評/一段ヒント → 決着時に記録（deferFinalize で先に返信できる）
+                              └─ finalize      : profile / Leader 再計算・achievement・ProfileSnapshot・今日の3問通知
+```
+
+- **作問**（`src/lib/learn/generate.ts`）: 自由文の依頼 → domain / 形式 / 難易度 / LOGIC のスタイル（Python か論理パズルか）を**決定論で**決めてから LLM に作らせる。3 軸の評価に必ず紐づく。生成物は `GeneratedTask` に保存され、通常の学習ループで解ける
+- **人格**（`src/lib/persona.ts`）: READ / WRITE / LOGIC / LEADER の 4 人格（名前・口調・一人称・補足）。prompt にだけ効き、採点には影響しない。ユーザーごとに `/settings` で上書き
+- **講評キャッシュ**（`TaskFeedbackCache`）: 選択式は (task, 回答, ヒント段階, 人格) で講評を保存し、2 回目以降は LLM を呼ばない。LINE の即答と API 費用の節約。`npm run warm-cache` / `POST /api/demo/warm` で事前生成
+- **今日の 3 問**（`DailyDigest`）: JST の同日に READ / WRITE / LOGIC すべてに記録が付いた瞬間、Leader の総評を LINE に push（1 日 1 回）
+- **時系列**（`ProfileSnapshot`）: 再計算のたびに 3 軸のスコアを 1 行保存（グラフは今後）
+- **リセット**（`POST /api/demo/reset`）: 学習状態を初期化。人格と LINE 連携は残す
+
+## LOGIC 領域について
+
+内部キーは `CODE` のまま（DB の enum を変えない）、表示名は **LOGIC / 論理**。Python の読解と、手順・条件・推論の問題（非 Python）の両方を含む。subskill は tracing=手順の追跡 / debugging=誤りの発見 / algorithms=手順の設計 / design=構造化・言語化。
 
 ## LINE ↔ Web アカウント連携
 
