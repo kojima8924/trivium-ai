@@ -114,7 +114,8 @@ const ROLE_GENERATE = [
   "- 問題は自己完結で、passage と prompt だけで解けること。実在の個人・時事の断定・医療/法律の助言を避ける。",
   "- choice は選択肢4つ、正解は1つだけ、他は明確に誤り。short は表記ゆれの正解候補を複数。free は rubric を広めに。",
   "- hints は3段。1段目は問い返し、3段目でも答えの値・完成文を書かない。",
-  "- CODE（LOGIC）は Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。依頼に沿って選ぶ。",
+  "- CODE（LOGIC）は Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。request の先頭にある【形式: …】の指定に必ず従う（『論理パズル』ならコードを出さない）。",
+  "- passage にマークダウンのコードフェンス（```）や装飾を使わない。プレーンテキストのみ。",
   "- 直近の題材（recent_titles）と重ならない題材にする。",
 ].join("\n");
 
@@ -132,7 +133,7 @@ function personaText(p?: PersonaPrompt): string {
 
 /** UI はマークダウンを描画しないので、LLM が付けがちなバッククォートを落とす（再帰） */
 function stripBackticks<T>(v: T): T {
-  if (typeof v === "string") return v.replace(/`/g, "") as T;
+  if (typeof v === "string") return v.replace(/```[a-zA-Z]*\n?/g, "").replace(/`/g, "") as T;
   if (Array.isArray(v)) return v.map(stripBackticks) as T;
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};

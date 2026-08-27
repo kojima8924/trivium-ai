@@ -43,6 +43,13 @@ export function inferDifficultyDelta(text: string): number {
   return 0;
 }
 
+/** LOGIC の出題形式（Python か論理パズルか）を依頼文から決める。LLM に任せない */
+export function inferLogicStyle(text: string): "python" | "logic" | null {
+  if (/(python|パイソン|コード|プログラ|バグ|出力予測|関数)/i.test(text)) return "python";
+  if (/(パズル|論理|推論|順番|条件|嘘|並び|手順|ロジック|logic)/.test(text)) return "logic";
+  return null;
+}
+
 export async function generateTaskForUser(userId: string, req: GenerateRequest): Promise<{ task: Task; domain: DomainKey }> {
   const domain = req.domain ?? inferDomain(req.request) ?? "CODE";
   const kind = req.kind ?? inferKind(req.request);
@@ -54,9 +61,18 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
     personaPrompts(userId),
   ]);
 
+  // LOGIC は「Python」か「論理パズル（コード不可）」かを先頭で明示する
+  const style = domain === "CODE" ? inferLogicStyle(req.request) : null;
+  const styled =
+    style === "logic"
+      ? `【形式: 論理パズル・推論問題（プログラムコードは使わない）】${req.request}`
+      : style === "python"
+        ? `【形式: 短い Python コードの読解】${req.request}`
+        : req.request;
+
   const out = await learningAI.generateTask({
     learnerRef: userId,
-    request: req.request.slice(0, 300),
+    request: styled.slice(0, 300),
     domain,
     difficulty,
     kind,
