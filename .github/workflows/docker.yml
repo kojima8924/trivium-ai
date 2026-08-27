@@ -6,6 +6,8 @@
 #   2. PostgreSQL サービスを立て、イメージを --network host で起動
 #   3. entrypoint の `prisma migrate deploy` が通り、/api/health が db:ok を返すか
 #   4. public/ と app icon が配信されているか（.dockerignore の除外ミス検知）
+#   5. main への push ではスモーク通過後に GHCR へ push する（ghcr.io/<owner>/trivium-ai:latest）
+#      → Coolify は「Docker Image」としてこれを pull するだけ。4GB の VPS 上でビルドしない
 name: Docker
 
 on:
@@ -16,6 +18,10 @@ on:
 concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-and-smoke:
@@ -131,3 +137,39 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f trivium || true
+
+  # main への push でスモークが通ったら、同じ内容を GHCR へ push する。
+  # NEXT_PUBLIC_APP_URL は repo の Variables（Settings → Secrets and variables → Actions → Variables）に
+  # 置いた値を焼き込む。未設定でも、サーバ側は実行時の APP_URL を優先するので動作に支障はない。
+  publish:
+    needs: build-and-smoke
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image name (lowercase)
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }}
+          tags: |
+            ${{ steps.img.outputs.name }}:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Summary
+        run: |
+          echo "pushed: ${{ steps.img.outputs.name }}:latest (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"

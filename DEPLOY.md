@@ -53,6 +53,36 @@ Coolify の Health Check 設定は Dockerfile 内の `HEALTHCHECK`（`/api/healt
 
 `/api/health` は DB 疎通も確認するので、DB が落ちていると `503 degraded` になります。
 
+## 2.5 【推奨】VPS 上でビルドせず、GitHub Actions が作ったイメージを pull する
+
+4 vCPU / 4GB の VPS で Next.js を Docker ビルドすると、メモリ不足で Coolify ごと応答しなくなる（2026-08-27 に実際に発生。SSH のバナー交換すらタイムアウトした）。
+**ビルドは GitHub Actions に任せ、Coolify は「Docker Image」として pull するだけ**にする。
+
+1. main へ push すると `.github/workflows/docker.yml` の `publish` job が、スモークテスト通過後に
+   `ghcr.io/kojima8924/trivium-ai:latest`（と `:<commit sha>`）を push する（GitHub の Packages。private）
+2. VPS 側で一度だけ GHCR にログインする（Coolify は host の docker を使うので、この認証情報が pull に使われる）
+   ```bash
+   # GitHub → Settings → Developer settings → Personal access tokens（classic）で read:packages のみ付けたトークンを作る
+   ssh root@<VPS IP>
+   echo "<PAT>" | docker login ghcr.io -u kojima8924 --password-stdin
+   ```
+3. Coolify: プロジェクト → **+ New Resource → Docker Image** → Image に `ghcr.io/kojima8924/trivium-ai:latest`
+   - Port: `3000`、Domains: `https://trivium.<VPS IP>.sslip.io`
+   - 環境変数は 3 章と同じ（**Build Variable は不要**。`APP_URL` を必ず入れる）
+   - 既存の「GitHub から Dockerfile ビルド」のリソースは **削除するか Stop** する（2 本同時に動かさない）
+4. 更新するとき: main に push → Actions 完了（約 4〜8 分）→ Coolify で **Redeploy**（pull だけなので数十秒）
+
+イメージに焼き込まれる `NEXT_PUBLIC_APP_URL` は GitHub の repo Variables（`NEXT_PUBLIC_APP_URL`）から取る。
+未設定でもサーバ側は実行時の `APP_URL` を優先するので、OAuth / LINE のリンクは正しく動く。
+
+### VPS が固まったとき
+- さくらの VPS コントロールパネルから **再起動**（Coolify・DB は docker volume に永続化されているので消えない）
+- 復帰後、スワップを追加しておくと再発しにくい:
+  ```bash
+  fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  ```
+
 ## 3. 環境変数
 
 `.env.example` のキーと同じです。**実値はこのファイルにも repo にも書かない**でください。
