@@ -99,7 +99,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* 5. 履歴と achievements */}
-      <div className="grid gap-3 sm:grid-cols-[3fr_2fr]">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <section className="card p-4" aria-labelledby="history-heading">
           <h2 id="history-heading" className="mb-1 text-sm font-semibold">
             最近の学習

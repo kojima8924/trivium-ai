@@ -1,9 +1,9 @@
-import { ACHIEVEMENTS } from "@/lib/achievements";
+import { ACHIEVEMENTS } from "@/lib/achievement-defs";
 import type { DashboardData } from "@/lib/profile";
 
 /**
  * Achievements。未解除も薄く並べ、「何をすれば解除されるか」を見せる。
- * ACHIEVEMENTS は server-only なので Server Component からのみ使う。
+ * ACHIEVEMENTS の定義は achievement-defs（server-only なし）から取る。
  */
 export function AchievementList({ achievements }: { achievements: DashboardData["achievements"] }) {
   const unlocked = new Map(achievements.map((a) => [a.key, a]));

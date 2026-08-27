@@ -8,7 +8,7 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", displ
 
 export const metadata: Metadata = {
   // OGP 画像を絶対URLにするために必要（本番は公開URL）
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
   title: { default: "Trivium", template: "%s | Trivium" },
   description: "AI does not do the work for you. It helps you take the next step. — READ / WRITE / CODE を学ぶ、あなた専用の学習ループ。",
   applicationName: "Trivium",

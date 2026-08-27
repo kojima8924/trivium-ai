@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOMAIN_META, MAX_HINTS, type DomainKey } from "@/lib/domain";
 import type { TaskPublic } from "@/lib/tasks/types";
+import { achievementTitle } from "@/lib/achievement-defs";
 
 type SubmitResponse =
   | { status: "retry"; feedback: string; hint: string; hintCount: number; hintsRemaining: number }
@@ -192,7 +193,7 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
           {task.kind === "free" && <div className="text-right text-[11px] text-muted">{[...answer].length} 字</div>}
           {error && <p className="text-xs text-ng">送信に失敗しました（{error}）。もう一度お試しください。</p>}
           <div className="flex items-center justify-between gap-2">
-            <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => submit(true)} disabled={busy}>
+            <button type="button" className="min-h-11 px-2 text-xs text-muted hover:text-fg" onClick={() => submit(true)} disabled={busy}>
               解説を見て終える
             </button>
             <button type="button" className="btn btn-primary" onClick={() => submit()} disabled={busy || answer.trim() === ""}>
@@ -230,7 +231,7 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
           )}
           {result.newAchievements.length > 0 && (
             <p className="text-xs">
-              <span className="font-semibold">Achievement 解除:</span> {result.newAchievements.join(", ")}
+              <span className="font-semibold">Achievement 解除:</span> {result.newAchievements.map(achievementTitle).join("、")}
             </p>
           )}
           <div className="flex flex-wrap gap-2 pt-1">

@@ -7,7 +7,9 @@ function bool(v: string | undefined, def: boolean): boolean {
 }
 
 export const env = {
-  appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  // NEXT_PUBLIC_* はビルド時に焼き込まれるので、サーバ側では実行時の APP_URL を優先する
+  // （Coolify で Build Variable の設定を忘れても、リダイレクト/LINE リンクが localhost にならない）
+  appUrl: process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   isProduction: process.env.NODE_ENV === "production",
 
   demoLoginEnabled: bool(process.env.DEMO_LOGIN_ENABLED, false),

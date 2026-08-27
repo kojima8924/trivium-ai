@@ -1,5 +1,5 @@
 // デモ用seed: 架空の約10日分の learning_events を投入し、profile を再計算する。
-// 目標像: READ ≈ 78 / WRITE ≈ 61 / CODE ≈ 86（決定論的集計なので厳密には一致しない）
+// 実測（seed 直後）: READ 72 / WRITE 57 / CODE 79。数値は scoring.ts の決定論的集計から出る
 import "server-only";
 import { prisma } from "./prisma";
 import { recomputeAll } from "./profile";
@@ -44,6 +44,8 @@ export async function seedDemoForUser(userId: string, opts: { reset?: boolean } 
     await prisma.learningEvent.deleteMany({ where: { userId } });
     await prisma.achievement.deleteMany({ where: { userId } });
   }
+  // 進行中の挑戦（ヒント回数）は常に消す。リハーサルを途中で止めたままだと、本番の1問目が「ヒント2回目」から始まってしまう
+  await prisma.taskAttempt.deleteMany({ where: { userId } });
   const now = Date.now();
   const data = SPECS.map((s, i) => {
     const pool = tasksFor(s.domain);

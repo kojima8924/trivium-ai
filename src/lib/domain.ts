@@ -64,10 +64,5 @@ export const DOMAIN_META: Record<
 
 export type Confidence = "low" | "medium" | "high";
 
-export const CONFIDENCE_LABELS: Record<Confidence, string> = {
-  low: "信頼度: low（分析中）",
-  medium: "信頼度: medium",
-  high: "信頼度: high",
-};
 
 export const MAX_HINTS = 3;
