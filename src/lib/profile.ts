@@ -109,7 +109,18 @@ export async function recomputeLeaderProfile(userId: string, context?: string) {
       eventsLast7Days: events.filter((e) => e.domain === d && e.createdAt.getTime() >= weekAgo).length,
     };
   });
-  const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, context });
+  const last = events[events.length - 1];
+  const lastEvent = last
+    ? {
+        domain: last.domain,
+        taskTitle: getTask(last.taskId)?.title ?? last.taskId,
+        difficulty: last.difficulty,
+        success: last.success,
+        hintCount: last.hintCount,
+        minutesAgo: Math.round((Date.now() - last.createdAt.getTime()) / 60_000),
+      }
+    : undefined;
+  const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context });
   const data = {
     summary: out.summary,
     interests: out.interests,

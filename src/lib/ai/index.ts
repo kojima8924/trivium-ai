@@ -60,8 +60,11 @@ function build(): LearningAIService {
   return new LearningAIService(useDify ? new DifyProvider() : mock, mock);
 }
 
+// 本番では globalThis に保持して lastUsed を request 間で共有する。
+// 開発時はホットリロードで provider の新コードが反映されるよう、モジュール評価ごとに作り直す。
 const g = globalThis as unknown as { __triviumAI?: LearningAIService };
-export const learningAI: LearningAIService = g.__triviumAI ?? (g.__triviumAI = build());
+export const learningAI: LearningAIService =
+  process.env.NODE_ENV === "production" ? (g.__triviumAI ??= build()) : build();
 
 export function aiStatus() {
   return { provider: learningAI.name, lastUsed: learningAI.lastUsed };

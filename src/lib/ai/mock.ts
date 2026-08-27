@@ -22,13 +22,17 @@ export class MockProvider implements LearningAIProvider {
   readonly name = "mock";
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
-    const success = input.deterministicResult === true;
+    const isFree = input.deterministicResult === null;
+    const success = (input.deterministicResult ?? input.heuristicResult) === true;
     const hintIdx = Math.min(input.hintLevel, input.task.hints.length - 1);
     const nextHint = input.task.hints[hintIdx] ?? "もう一度、問題文の条件を一つずつ確認してみましょう。";
 
     if (success) {
-      const feedback =
-        input.hintLevel === 0
+      const feedback = isFree
+        ? input.hintLevel === 0
+          ? "評価観点を満たしています。自分の文章で一番効いている一文はどれか、意識してみてください。"
+          : `問い返し${input.hintLevel}回を経て観点を満たしました。最初の文章から何を足したかを振り返ってみましょう。`
+        : input.hintLevel === 0
           ? "正解です。ヒントなしで到達できました。どこで確信が持てたか、一言で言えますか？"
           : `正解です。ヒント${input.hintLevel}回で到達しました。最初の答えと何が違ったかを振り返ってみましょう。`;
       return {
@@ -142,6 +146,12 @@ export class MockProvider implements LearningAIProvider {
     }
     const lowConf = measured.filter((d) => d.confidence === "low");
     if (lowConf.length) summaryParts.push(`${lowConf.map((d) => d.domain).join("・")}は記録が少なく信頼度lowです。`);
+
+    if (input.lastEvent) {
+      const e = input.lastEvent;
+      const how = e.success ? (e.hintCount === 0 ? "ヒントなしで解決" : `ヒント${e.hintCount}回で解決`) : "未達";
+      summaryParts.push(`直近では${e.domain}「${e.taskTitle}」（難易度${e.difficulty}）を${how}。`);
+    }
 
     const observations: string[] = [];
     if (mostPracticed.eventsLast7Days > 0)

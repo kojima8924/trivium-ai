@@ -103,6 +103,8 @@ export class DifyProvider implements LearningAIProvider {
         learner_answer: input.learnerAnswer,
         deterministic_result:
           input.deterministicResult === null ? "unknown" : input.deterministicResult ? "correct" : "incorrect",
+        heuristic_result:
+          input.heuristicResult === null ? "n/a" : input.heuristicResult ? "meets_rubric" : "below_rubric",
         hint_level: input.hintLevel,
         current_domain_profile: JSON.stringify(input.currentDomainProfile),
         recent_behavior: input.recentBehavior.join("\n"),
@@ -156,6 +158,7 @@ export class DifyProvider implements LearningAIProvider {
         policy: AI_SYSTEM_POLICY.join("\n"),
         domains: JSON.stringify(input.domains),
         total_events: input.totalEvents,
+        last_event: input.lastEvent ? JSON.stringify(input.lastEvent) : "",
         context: input.context ?? "",
       },
       input.learnerRef,

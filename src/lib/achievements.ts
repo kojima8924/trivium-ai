@@ -12,7 +12,11 @@ export const ACHIEVEMENTS: Record<string, { title: string; description: string }
   hard_clear: { title: "高難度クリア", description: "難易度4以上の課題を解いた" },
 };
 
-export async function evaluateAchievements(userId: string): Promise<string[]> {
+/**
+ * 達成条件を評価し、新規解除分を保存して返す。
+ * @param exclude 今回は付与しない key（demo seed が「立て直し」を先に消費しないために使う）
+ */
+export async function evaluateAchievements(userId: string, exclude: string[] = []): Promise<string[]> {
   const events = await prisma.learningEvent.findMany({
     where: { userId },
     select: { domain: true, success: true, hintCount: true, difficulty: true },
@@ -27,7 +31,7 @@ export async function evaluateAchievements(userId: string): Promise<string[]> {
 
   const existing = await prisma.achievement.findMany({ where: { userId }, select: { key: true } });
   const have = new Set(existing.map((a) => a.key));
-  const fresh = [...unlocked].filter((k) => !have.has(k));
+  const fresh = [...unlocked].filter((k) => !have.has(k) && !exclude.includes(k));
   if (fresh.length) {
     await prisma.achievement.createMany({
       data: fresh.map((key) => ({ userId, key })),

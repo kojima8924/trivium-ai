@@ -20,6 +20,7 @@ function evalInput(over: Partial<DomainEvalInput> = {}): DomainEvalInput {
     },
     learnerAnswer: "x",
     deterministicResult: false,
+    heuristicResult: null,
     hintLevel: 0,
     currentDomainProfile: { score: 0, subskills: {}, confidence: "low", evidenceCount: 0, summary: "" },
     recentBehavior: [],

@@ -22,6 +22,8 @@ export type DomainEvalInput = {
   learnerAnswer: string;
   /** 決定論的採点の結果。free タスクでは null */
   deterministicResult: boolean | null;
+  /** free タスクのルーブリック・ヒューリスティック判定（AIの参考情報）。choice/short では null */
+  heuristicResult: boolean | null;
   /** これまでに出したヒント数 */
   hintLevel: number;
   currentDomainProfile: {
@@ -90,6 +92,15 @@ export type LeaderInput = {
     eventsLast7Days: number;
   }[];
   totalEvents: number;
+  /** 直近の学習イベント（寸評が最新の行動を反映するため） */
+  lastEvent?: {
+    domain: DomainKey;
+    taskTitle: string;
+    difficulty: number;
+    success: boolean;
+    hintCount: number;
+    minutesAgo: number;
+  };
   /** 「10分だけ」などの文脈（LINE経由）。無ければ空 */
   context?: string;
 };

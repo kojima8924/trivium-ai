@@ -59,13 +59,9 @@ export async function POST(req: Request) {
     });
   }
 
-  // 1) 決定論的採点（free は null）
-  let deterministic = checkDeterministic(task, answer);
-  if (deterministic === null) {
-    // free タスク: ルーブリックのヒューリスティック判定を「暫定結果」として AI へ渡す
-    const h = checkHeuristic(task, answer);
-    deterministic = h.pass;
-  }
+  // 1) 決定論的採点（free は null）。free タスクはルーブリックのヒューリスティック判定を AI の参考情報として渡す
+  const deterministic = checkDeterministic(task, answer);
+  const heuristic = deterministic === null ? checkHeuristic(task, answer).pass : null;
 
   // 2) AI（Dify / Mock）による feedback と一段ヒント
   const ai = await learningAI.evaluate({
@@ -84,6 +80,7 @@ export async function POST(req: Request) {
     },
     learnerAnswer: answer,
     deterministicResult: deterministic,
+    heuristicResult: heuristic,
     hintLevel: hintCount,
     currentDomainProfile: {
       score: profile?.score ?? 0,

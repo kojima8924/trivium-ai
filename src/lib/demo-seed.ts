@@ -67,6 +67,7 @@ export async function seedDemoForUser(userId: string, opts: { reset?: boolean } 
   });
   await prisma.learningEvent.createMany({ data });
   await recomputeAll(userId);
-  await evaluateAchievements(userId);
+  // 「立て直し」はデモ中にライブで解除されるよう seed では付与しない
+  await evaluateAchievements(userId, ["comeback"]);
   return { inserted: data.length };
 }
