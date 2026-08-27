@@ -45,6 +45,13 @@ READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教え�
 
 手書きの 63 問に加えて、**難易度 1〜10 × READ / WRITE / LOGIC** の課題を `scripts/stock/gen_stock.mts` で事前生成し、`src/lib/tasks/stock/*.generated.ts` に同梱している（手で編集しない）。生成時に **Python の出力予測問題は実際にコードを実行して正解を照合**、それ以外の選択式は**独立したソルバー**（正解を見ずに解く別の呼び出し）と照合し、一致しないものは捨てる。ストックがあるので通常の出題と LINE の「難易度 N」は LLM を呼ばずに即応答する。`tests/tasks.test.ts` が id 形式・4 択・難易度・skillTags・ヒント 3 段などをストックにも適用する品質ゲートになっている。同じ難易度の候補が複数あるときはユーザーごとに決定論的にばらけて出題される（乱数は使わない）。
 
+```bash
+npx tsx scripts/stock/gen_stock.mts                  # 3 系統すべて（difficulty 1〜10。済んだスロットは scripts/stock/out/*.json から再開）
+npx tsx scripts/stock/gen_stock.mts --domain code    # 1 系統だけ
+npx tsx scripts/stock/gen_stock.mts --emit-only      # 生成せずに *.generated.ts を書き出す
+npx tsx scripts/characters/gen_moods.mts             # キャラの表情差分（public/characters/<agent>-<mood>.png）を基準絵から生成
+```
+
 ## 画面
 
 | ホーム | 学習（一段ヒント） | 結果とプロフィール更新 |

@@ -283,6 +283,17 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
     const len = g.model_answer.length;
     const [lo, hi] = s.difficulty <= 3 ? [40, 130] : s.difficulty <= 6 ? [70, 200] : [110, 300];
     if (len < lo || len > hi) return { ok: false, reason: `model_answer length ${len} (want ${lo}〜${hi})` };
+    // ヒントがそのまま提出できる完成解になっていないか（tests/tasks.test.ts と同じ判定: 字数が範囲内・must_include 2 語以上・疑問文でない）
+    {
+      const n0 = g.model_answer.length;
+      const minL = Math.max(30, Math.round(n0 * 0.6));
+      const maxL = Math.max(minL + 40, Math.round(n0 * 1.6));
+      for (const h of g.hints) {
+        const hl = [...h].length;
+        const hits = g.must_include.filter((w) => w && h.includes(w)).length;
+        if (hl >= minL && hl <= maxL && hits >= 2 && !/[？?]\s*$/.test(h)) return { ok: false, reason: "hint looks like a full answer" };
+      }
+    }
     const r = await parse(
       REVIEW_MODEL,
       REVIEW_ROLE,
@@ -332,9 +343,15 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
   if (sol.hints_leak_answer) return { ok: false, reason: "hints leak answer" };
   if (sol.ambiguous) return { ok: false, reason: `ambiguous: ${sol.note.slice(0, 80)}` };
   if (sol.answer_index !== g.answer_index) return { ok: false, reason: `solver disagrees (${sol.answer_index} vs ${g.answer_index}): ${sol.note.slice(0, 80)}` };
-  // ソルバーの難易度評価は高難度ほど低めに出る傾向があるので、8 以上は許容幅を広げる
-  const tol = s.difficulty >= 8 ? 4 : 3;
-  if (Math.abs(sol.difficulty_rating - s.difficulty) > tol) return { ok: false, reason: `difficulty rated ${sol.difficulty_rating} (target ${s.difficulty})` };
+  // ソルバーの難易度評価は、READ / WRITE では強いモデルほど低めに出る（読解は「解ける」ので 2〜3 と評価しがち）。
+  // READ / WRITE の難易度は生成ガイド（本文の長さ・設問の型）で定義し、評価は「目標より明らかに難しすぎる」ときだけ弾く。
+  // LOGIC は評価を使うが、8 以上は許容幅を広げる（高難度ほど低めに出る傾向）
+  if (s.domain === "CODE") {
+    const tol = s.difficulty >= 8 ? 4 : 3;
+    if (Math.abs(sol.difficulty_rating - s.difficulty) > tol) return { ok: false, reason: `difficulty rated ${sol.difficulty_rating} (target ${s.difficulty})` };
+  } else if (sol.difficulty_rating - s.difficulty > 3) {
+    return { ok: false, reason: `too hard: rated ${sol.difficulty_rating} (target ${s.difficulty})` };
+  }
   return { ok: true, gen: g, rating: sol.difficulty_rating };
 }
 
