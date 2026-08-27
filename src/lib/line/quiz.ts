@@ -11,6 +11,13 @@ import { nextTask, resolveTask, submitAnswer, finalize, type SubmitResult } from
 import { generateTaskForUser } from "@/lib/learn/generate";
 import { loadPersonas } from "@/lib/persona";
 import type { Task } from "@/lib/tasks";
+import { loadEvents } from "@/lib/profile";
+import { computeXp, dayKey, xpForEvent } from "@/lib/xp";
+import { computeLevels } from "@/lib/scoring";
+import { pickRecommendation, weakestAxis } from "@/lib/recommend";
+import { XP } from "@/config/trivium.config";
+import { buildMissionFlex, buildProfileFlex } from "./flex";
+import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
 import { saveLineState, withPendingTask, type LineState } from "./state";
 
@@ -176,19 +183,100 @@ export async function giveUpQuiz(userId: string, lineUserId: string, state: Line
   };
 }
 
-/** 決着後の再計算 → push 用メッセージ（after() の中で呼ぶ） */
+export type SettleResult = {
+  reply: LeaderReply;
+  /** この決着でデイリーミッションが達成されたときだけ付く（Flex で送る） */
+  missionFlex: messagingApi.FlexBubble | null;
+};
+
+/**
+ * 決着後の再計算 → push 用メッセージ（after() の中で呼ぶ）。
+ * 戻り値は従来どおり LeaderReply（webhook 互換）。ミッション達成の Flex カードは settleAndBuildPushFull で取れる。
+ */
 export async function settleAndBuildPush(userId: string, domain: DomainKey): Promise<LeaderReply> {
+  return (await settleAndBuildPushFull(userId, domain)).reply;
+}
+
+/** 決着後の再計算 → push 用メッセージ ＋ ミッション達成時の Flex カード */
+export async function settleAndBuildPushFull(userId: string, domain: DomainKey): Promise<SettleResult> {
+  // 決着前の状態（この 1 件を除いた集計）をミッション達成の判定に使う
+  const now = new Date();
+  const eventsBefore = await loadEvents(userId);
+  const xpBefore = computeXp(eventsBefore.slice(0, -1), now);
+
   const r = await finalize(userId, domain);
   const personas = await loadPersonas(userId);
   const m = DOMAIN_META[domain];
+
+  // XP（決定論）: 直近 1 件の獲得と合計
+  const events = await loadEvents(userId);
+  const last = events[events.length - 1];
+  const xp = computeXp(events, now);
+  const earnedTask = last ? xpForEvent(last).total : 0;
+  const missionJustDone = xp.missionToday && !xpBefore.missionToday;
+  const streakBonus = Math.max(
+    0,
+    Math.min(XP.streakBonusMax, xp.streak * XP.streakBonusPerDay) - Math.min(XP.streakBonusMax, xpBefore.streak * XP.streakBonusPerDay),
+  );
+  const bonus = missionJustDone ? XP.dailyMissionBonus : 0;
+  const xpLine = `+${earnedTask + bonus + streakBonus} XP（課題 ${earnedTask}${bonus ? ` / ミッション +${bonus}` : ""}${streakBonus > 0 ? ` / 連続 +${streakBonus}` : ""}）→ 合計 ${xp.total} XP・${xp.rank.title}`;
+
   const lines = [
     `${m.label} ${scoreLine(r.profile.before, r.profile.after)}`,
+    xpLine,
     r.profile.summary ? `${personas[domain].name}: ${stripName(r.profile.summary, personas[domain].name)}` : "",
     r.leader ? `\n${personas.LEADER.name}: ${stripName(r.leader.summary, personas.LEADER.name)}` : "",
     r.leader?.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : "",
     r.newAchievements.length ? `\n🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : "",
   ].filter(Boolean);
-  return { text: lines.join("\n"), quickReplies: todayActions() };
+
+  let missionFlex: messagingApi.FlexBubble | null = null;
+  if (missionJustDone) {
+    const levels = computeLevels(events, now);
+    const rec = pickRecommendation(
+      weakestAxis(
+        DOMAINS.map((d) => ({
+          domain: d,
+          score: Math.min(100, Math.round(levels[AXIS_KEY[d]].level * 10)),
+          evidenceCount: events.filter((e) => e.domain === d).length,
+        })),
+      ),
+      [],
+      dayKey(now),
+    );
+    const todayKey = dayKey(now);
+    const rows = DOMAINS.map((d) => {
+      const e = [...events].reverse().find((x) => x.domain === d && dayKey(x.createdAt) === todayKey);
+      if (!e) return `・${DOMAIN_META[d].label}: —`;
+      const how = e.success ? (e.hintCount === 0 ? "ヒントなしで正解" : `ヒント${e.hintCount}回で正解`) : "未達";
+      return `・${DOMAIN_META[d].label}: 難易度 ${e.difficulty} — ${how}`;
+    });
+    missionFlex = buildMissionFlex({
+      xp,
+      earned: { tasks: earnedTask, bonus, streakBonus },
+      recommendation: rec,
+      rows,
+      dashboardUrl: `${appUrl()}/dashboard`,
+    });
+  }
+
+  return { reply: { text: lines.join("\n"), quickReplies: todayActions() }, missionFlex };
+}
+
+const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
+
+/** 「プロフィール」用の Flex カード（XP・到達レベル・今日のミッション）。webhook の action=profile から呼ぶ */
+export async function buildProfileCard(userId: string, displayName: string): Promise<messagingApi.FlexBubble> {
+  const now = new Date();
+  const events = await loadEvents(userId);
+  const levels = computeLevels(events, now);
+  const xp = computeXp(events, now);
+  const profiles = await prisma.domainProfile.findMany({ where: { userId }, select: { domain: true, score: true, evidenceCount: true } });
+  const domains = DOMAINS.map((d) => {
+    const p = profiles.find((x) => x.domain === d);
+    return { domain: d, score: p?.score ?? 0, level: levels[AXIS_KEY[d]].level, evidenceCount: p?.evidenceCount ?? 0 };
+  });
+  return buildProfileFlex({ name: displayName, xp, domains, dashboardUrl: `${appUrl()}/dashboard` });
 }
 
 function achievementLabel(key: string): string {

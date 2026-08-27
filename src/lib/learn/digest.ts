@@ -6,7 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { getTask } from "@/lib/tasks";
 import { loadPersonas } from "@/lib/persona";
-import { pushTo } from "@/lib/line/push";
+import { pushFlex } from "@/lib/line/push";
+import { loadEvents } from "@/lib/profile";
+import { computeXp, dayKey, xpForEvent } from "@/lib/xp";
+import { computeLevels } from "@/lib/scoring";
+import { pickRecommendation, recommendationLine, weakestAxis } from "@/lib/recommend";
+import { XP } from "@/config/trivium.config";
+import { buildMissionFlex } from "@/lib/line/flex";
+
+const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -73,26 +81,54 @@ export async function notifyDailyDigestIfComplete(userId: string, now: Date = ne
       return `・${DOMAIN_META[d].label}: ${title}（難易度${e.difficulty}）— ${how}${sc ? ` / ${sc}` : ""}`;
     });
 
+    // XP・streak・推薦（決定論）。DB 読み出しは直列（ローカル PG は並列に弱い）
+    const all = await loadEvents(userId);
+    const xp = computeXp(all, now);
+    const todayKey = dayKey(now);
+    const todayXp = all.filter((e) => dayKey(e.createdAt) === todayKey).reduce((a, e) => a + xpForEvent(e).total, 0);
+    const streakBonus = Math.min(XP.streakBonusMax, xp.streak * XP.streakBonusPerDay);
+    const levels = computeLevels(all, now);
+    const rec = pickRecommendation(
+      weakestAxis(
+        DOMAINS.map((d) => ({
+          domain: d,
+          score: Math.min(100, Math.round(levels[AXIS_KEY[d]].level * 10)),
+          evidenceCount: all.filter((e) => e.domain === d).length,
+        })),
+      ),
+      [],
+      day,
+    );
+
     const text = [
       `今日の3問、おつかれさまでした。`,
       ...rows,
+      `+${todayXp + XP.dailyMissionBonus} XP（今日の課題 ${todayXp} / ミッション +${XP.dailyMissionBonus}）→ 合計 ${xp.total} XP・${xp.rank.title}・🔥 ${xp.streak} 日連続`,
       "",
       leader?.summary ? `${personas.LEADER.name}: ${leader.summary.replace(new RegExp(`^${personas.LEADER.name}: `), "")}` : "",
       leader?.recommendation ? `明日のおすすめ: ${leader.recommendation}` : "",
+      rec ? `今日の 1 冊: ${recommendationLine(rec)}` : "",
     ]
-      .filter((s) => s !== undefined)
+      .filter((s) => s !== undefined && s !== "")
       .join("\n")
       .trim();
 
     await prisma.dailyDigest.update({ where: { userId_day: { userId, day } }, data: { summary: text.slice(0, 2000) } });
-    await Promise.all(
-      links.map((l) =>
-        pushTo(l.lineUserId, {
-          text,
-          quickReplies: [{ type: "uri", label: "Dashboard", uri: `${process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? ""}/dashboard` }],
-        }).catch((err) => console.warn("[digest] push failed:", (err as Error).message)),
-      ),
-    );
+    const dashboardUrl = `${process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? ""}/dashboard`;
+    const flex = buildMissionFlex({
+      xp,
+      earned: { tasks: todayXp, bonus: XP.dailyMissionBonus, streakBonus },
+      recommendation: rec,
+      rows,
+      dashboardUrl,
+    });
+    for (const l of links) {
+      // 直列に送る（1 件の失敗が残りに影響しないように）
+      await pushFlex(l.lineUserId, "今日の3問、達成！", flex, {
+        text,
+        quickReplies: [{ type: "uri", label: "Dashboard", uri: dashboardUrl }],
+      }).catch((err) => console.warn("[digest] push failed:", (err as Error).message));
+    }
     return true;
   } catch (err) {
     console.warn("[digest] failed:", (err as Error).message);

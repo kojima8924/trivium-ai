@@ -60,3 +60,19 @@ export async function pushTo(lineUserId: string, r: LeaderReply): Promise<void> 
   if (!c) return;
   await c.pushMessage({ to: lineUserId, messages: toMessages(r) });
 }
+
+/** Flex Message を push（プロフィールカード・ミッション達成カード）。lead を渡すとその text を先に送る */
+export async function pushFlex(lineUserId: string, altText: string, contents: messagingApi.FlexContainer, lead?: LeaderReply): Promise<void> {
+  const c = lineClient();
+  if (!c) return;
+  const messages: messagingApi.Message[] = [...(lead ? toMessages(lead) : []), { type: "flex", altText: altText.slice(0, 400), contents }];
+  await c.pushMessage({ to: lineUserId, messages: messages.slice(0, 5) });
+}
+
+/** Flex Message を reply（reply token が有効なとき） */
+export async function replyFlex(replyToken: string | undefined, altText: string, contents: messagingApi.FlexContainer, lead?: LeaderReply): Promise<void> {
+  const c = lineClient();
+  if (!c || !replyToken) return;
+  const messages: messagingApi.Message[] = [...(lead ? toMessages(lead) : []), { type: "flex", altText: altText.slice(0, 400), contents }];
+  await c.replyMessage({ replyToken, messages: messages.slice(0, 5) });
+}

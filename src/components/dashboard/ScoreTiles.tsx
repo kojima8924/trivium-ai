@@ -22,7 +22,7 @@ export function ScoreTiles({ domains }: { domains: DashboardData["domains"] }) {
               style={{ outlineColor: DOMAIN_VAR[d.domain] }}
               aria-label={
                 measured
-                  ? `${DOMAIN_META[d.domain].label} スコア ${d.score}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
+                  ? `${DOMAIN_META[d.domain].label} スコア ${d.score}、到達レベル ${d.level}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
                   : `${DOMAIN_META[d.domain].label} は未計測`
               }
             >
@@ -37,6 +37,10 @@ export function ScoreTiles({ domains }: { domains: DashboardData["domains"] }) {
               <span className="text-[10px] leading-tight text-muted">
                 {measured ? (
                   <>
+                    <span className="block font-semibold" style={{ color: DOMAIN_VAR[d.domain] }}>
+                      Lv.{d.level}
+                      {d.level < 10 && <span className="font-normal text-muted">（次まで {Math.round(d.progress * 100)}%）</span>}
+                    </span>
                     {CONFIDENCE_TEXT[d.confidence]}
                     {remaining !== null && <span className="block">あと{remaining}問で更新</span>}
                   </>

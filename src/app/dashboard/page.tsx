@@ -12,6 +12,7 @@ import { DomainCard } from "@/components/dashboard/DomainCard";
 import { HistoryList } from "@/components/dashboard/HistoryList";
 import { renderNow } from "@/components/dashboard/shared";
 import { AchievementList } from "@/components/dashboard/AchievementList";
+import { XpCard } from "@/components/dashboard/XpCard";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,9 @@ export default async function DashboardPage() {
         )}
         <ScoreTiles domains={data.domains} />
       </section>
+
+      {/* 2.5 XP（行動の積み上げ。能力図とは別の指標） */}
+      <XpCard xp={data.xp} />
 
       {/* 3. Leader の見立て */}
       <section className="card p-4 sm:p-5" aria-labelledby="leader-heading">
