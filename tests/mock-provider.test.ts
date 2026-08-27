@@ -65,11 +65,11 @@ test("evaluate: free タスクの不合格は needs_more", async () => {
   assert.equal(r.hint, "hint-0");
 });
 
-test("evaluate: recommendedNextDifficulty は 1..5 に収まる", async () => {
+test("evaluate: recommendedNextDifficulty は 1..10 に収まる", async () => {
   const hi = await provider.evaluate(
-    evalInput({ deterministicResult: true, task: { ...evalInput().task, difficulty: 5 } }),
+    evalInput({ deterministicResult: true, task: { ...evalInput().task, difficulty: 10 } }),
   );
-  assert.equal(hi.recommendedNextDifficulty, 5);
+  assert.equal(hi.recommendedNextDifficulty, 10);
   const lo = await provider.evaluate(evalInput({ hintLevel: 2, task: { ...evalInput().task, difficulty: 1 } }));
   assert.equal(lo.recommendedNextDifficulty, 1);
 });

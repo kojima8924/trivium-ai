@@ -3,6 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPostbackReply, buildReply, classifyIntent, domainOf, helpReply, quizOrWebActions, welcomeReply } from "../src/lib/line/leader";
 import type { LeaderContext } from "../src/lib/line/leader";
+import { detectAddressedAgent } from "../src/lib/persona-address";
+import { PERSONA_DEFAULTS } from "../src/config/trivium.config";
 
 const APP = "https://trivium.example.com";
 
@@ -183,4 +185,24 @@ test("ユーザー向け文言は CODE ではなく LOGIC", () => {
 test("quiz / generate を buildReply に直接渡しても壊れない（webhook が先に処理する前提の保険文言）", () => {
   assert.match(buildReply("1問", ctx()).text, /今日の学習/);
   assert.match(buildReply("パズルを出して", ctx()).text, /作問/);
+});
+
+// ---- 4 人格との会話: 宛先判定（webhook は unknown → chat に落とす。判定は persona-address の純粋関数） ----
+
+test("宛先判定: 呼びかけで人格が決まり、無ければ null（案内役に回る）", () => {
+  const p = PERSONA_DEFAULTS;
+  assert.equal(detectAddressedAgent("ケイ、順番の問題が苦手", p), "CODE");
+  assert.equal(detectAddressedAgent("アオイ、要旨ってどう掴む？", p), "READ");
+  assert.equal(detectAddressedAgent("フミに聞きたいんだけど", p), "WRITE");
+  assert.equal(detectAddressedAgent("リード、今日は何をやろう", p), "LEADER");
+  assert.equal(detectAddressedAgent("眠いけど何かやりたい", p), null);
+});
+
+test("呼びかけ付きの文は意図分類が quiz/domain に当たっても、宛先判定で人格に届く（webhook は宛先を優先）", () => {
+  // 「問題」「python」は出題/領域の語なので意図分類はコマンド寄りになるが、宛先があれば chat に回る
+  assert.notEqual(classifyIntent("ケイ、順番の問題が苦手").kind, "unknown");
+  assert.equal(detectAddressedAgent("ケイ、順番の問題が苦手", PERSONA_DEFAULTS), "CODE");
+  // 宛先も定型コマンドも無い雑談は unknown → 案内役（LEADER）に回る
+  assert.equal(classifyIntent("昨日の会議で言われたことがまだ引っかかってる").kind, "unknown");
+  assert.equal(detectAddressedAgent("昨日の会議で言われたことがまだ引っかかってる", PERSONA_DEFAULTS), null);
 });

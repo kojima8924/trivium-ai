@@ -126,7 +126,7 @@ export type GenerateTaskInput = {
   request: string;
   /** 依頼から推定した domain（呼び出し側で決める。LLM に任せない） */
   domain: DomainKey;
-  difficulty: number; // 1..5
+  difficulty: number; // 1..10
   /** 出題形式。LINE では choice を基本にする */
   kind: "choice" | "short" | "free";
   /** この domain の subskill 一覧（skill_tags はここから選ばせる） */
@@ -159,12 +159,67 @@ export type PersonaPrompt = {
   key: string;
 };
 
+// ---- 人格との会話（LINE）。system=人格・ポリシー、input=時刻・メモ・能力サマリ・会話履歴・発話 ----
+
+export type ChatTurnInput = { role: "user" | "assistant"; text: string };
+
+export type ChatInput = {
+  learnerRef: string;
+  persona: PersonaPrompt;
+  /** 発話（ユーザー由来。instructions には混ぜない） */
+  userText: string;
+  /** 直近 N 往復（古い順） */
+  history: ChatTurnInput[];
+  /** この人格の観察メモ（LEADER は 4 つ分を結合して渡す） */
+  memoryNotes: string;
+  /** 本人の能力サマリ（数値は集計値のみ） */
+  profileSummary: string;
+  /** Web 検索を許可するか（EXTERNAL.webSearchAllowed.chat） */
+  allowSearch: boolean;
+};
+
+export type ChatOutput = {
+  text: string;
+  /** 会話から勧めたい系統（無ければ null） */
+  suggestDomain: DomainKey | null;
+  usedSearch: boolean;
+};
+
+// ---- 観察メモの更新（決着した 1 問を踏まえて、その系統の人格がメモを書き直す） ----
+
+export type MemoryUpdateInput = {
+  learnerRef: string;
+  agent: "READ" | "WRITE" | "CODE" | "LEADER";
+  persona: PersonaPrompt;
+  /** 既存メモ（無ければ空） */
+  previousNotes: string;
+  /** 決着した 1 問（LEADER 更新時は省略可） */
+  event?: {
+    taskTitle: string;
+    domain: DomainKey;
+    axes: { read: number; write: number; code: number };
+    success: boolean;
+    hintCount: number;
+    /** 回答の要約（先頭 200 字） */
+    answerExcerpt: string;
+  };
+  /** LEADER 用: 3 系統のメモと直近の総評 */
+  domainNotes?: { agent: "READ" | "WRITE" | "CODE"; notes: string }[];
+  leaderSummary?: string;
+  /** 文字数上限（EXTERNAL.agentMemoryMaxChars） */
+  maxChars: number;
+};
+
+export type MemoryUpdateOutput = { notes: string };
+
 export interface LearningAIProvider {
   readonly name: string;
   evaluate(input: DomainEvalInput): Promise<DomainEvalOutput>;
   interpretDomain(input: DomainInterpretInput): Promise<DomainInterpretOutput>;
   leader(input: LeaderInput): Promise<LeaderOutput>;
   generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput>;
+  chat(input: ChatInput): Promise<ChatOutput>;
+  updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput>;
 }
 
 export const AI_SYSTEM_POLICY = [

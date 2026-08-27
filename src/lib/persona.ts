@@ -99,21 +99,3 @@ export async function personaPrompts(userId: string): Promise<Record<AgentKey, P
     LEADER: toPrompt(cfgs.LEADER),
   };
 }
-
-/**
- * テキスト中の呼びかけからエージェントを判定する（LINE 用）。
- * 「ケイ、〜」「アオイに聞きたい」「LOGIC の人」など。ユーザーが名前を変えていればその名前も拾う。
- * 判定できなければ null（呼び出し側が案内役に回す）。
- */
-export function detectAddressedAgent(text: string, personas: Record<AgentKey, PersonaConfig>): AgentKey | null {
-  const t = text.trim().toLowerCase();
-  const candidates: { agent: AgentKey; names: string[] }[] = AGENTS.map((a) => ({
-    agent: a,
-    names: [personas[a].name, ...PERSONA_DEFAULTS[a].aliases].map((n) => n.toLowerCase()),
-  }));
-  // 先頭 12 文字以内に名前があるものを優先（「ケイ、これ教えて」）
-  const head = t.slice(0, 12);
-  for (const c of candidates) if (c.names.some((n) => n && head.includes(n))) return c.agent;
-  for (const c of candidates) if (c.names.some((n) => n && t.includes(n))) return c.agent;
-  return null;
-}

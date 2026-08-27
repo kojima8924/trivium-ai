@@ -13,12 +13,16 @@ import { z } from "zod";
 import { env } from "../env";
 import { MockProvider } from "./mock";
 import type {
+  ChatInput,
+  ChatOutput,
   DomainEvalInput,
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
   GenerateTaskInput,
   GenerateTaskOutput,
+  MemoryUpdateInput,
+  MemoryUpdateOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
@@ -33,7 +37,7 @@ const evalSchema = z.object({
   hint: z.string().default(""),
   observations: z.array(z.string()).default([]),
   skill_tags: z.array(z.string()).default([]),
-  recommended_next_difficulty: z.coerce.number().min(1).max(5).default(3),
+  recommended_next_difficulty: z.coerce.number().min(1).max(10).default(3),
 });
 
 const interpretSchema = z.object({
@@ -297,5 +301,14 @@ export class DifyProvider implements LearningAIProvider {
       explanation: out.explanation,
       skillTags: tags,
     };
+  }
+
+  /** 会話・観察メモは OpenAI provider の担当。Dify ではワークフロー未定義なので Mock に委譲する */
+  async chat(input: ChatInput): Promise<ChatOutput> {
+    return this.fallback.chat(input);
+  }
+
+  async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
+    return this.fallback.updateMemory(input);
   }
 }

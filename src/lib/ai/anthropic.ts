@@ -14,8 +14,12 @@ import {
   type DomainEvalOutput,
   type DomainInterpretInput,
   type DomainInterpretOutput,
+  type ChatInput,
+  type ChatOutput,
   type GenerateTaskInput,
   type GenerateTaskOutput,
+  type MemoryUpdateInput,
+  type MemoryUpdateOutput,
   type LeaderInput,
   type LeaderOutput,
   type LearningAIProvider,
@@ -31,7 +35,7 @@ const evalSchema = z.object({
   hint: z.string().describe("次の一段のヒント。success のときは空文字"),
   observations: z.array(z.string()).describe("学習行動についての観察（性格ではなく行動）。最大3件"),
   skill_tags: z.array(z.string()).describe("この回答から観察できた subskill タグ（task に紐づくもののみ）"),
-  recommended_next_difficulty: z.number().int().min(1).max(5),
+  recommended_next_difficulty: z.number().int().min(1).max(10),
 });
 
 const interpretSchema = z.object({
@@ -206,5 +210,14 @@ export class AnthropicProvider implements LearningAIProvider {
   /** 作問は OpenAI provider の担当。この provider では定型問題（Mock）に委譲する */
   async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
     return this.fallback.generateTask(input);
+  }
+
+  /** 会話・観察メモも OpenAI provider の担当。ここでは Mock に委譲する */
+  async chat(input: ChatInput): Promise<ChatOutput> {
+    return this.fallback.chat(input);
+  }
+
+  async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
+    return this.fallback.updateMemory(input);
   }
 }

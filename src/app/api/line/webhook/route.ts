@@ -12,17 +12,21 @@ import { prisma } from "@/lib/prisma";
 import { loadLineUser, noteSuggestion, saveLineState, type LineState } from "@/lib/line/state";
 import { buildPostbackReply, buildReply, classifyIntent, domainOf, welcomeReply, type LeaderContext, type LeaderReply } from "@/lib/line/leader";
 import { issueLinkToken, unlinkLineUser } from "@/lib/line/link";
-import { pushTo, replyTo } from "@/lib/line/push";
+import { pushTo, replyTo, replyFlex } from "@/lib/line/push";
 import {
   answerQuiz,
   generateAndBuildPush,
   generatingReply,
   giveUpQuiz,
   needLinkReply,
-  settleAndBuildPush,
+  settleAndBuildPushFull,
+  buildProfileCard,
   startQuiz,
 } from "@/lib/line/quiz";
 import { notifyDailyDigestIfComplete } from "@/lib/learn/digest";
+import { AGENTS, loadPersonas, type AgentKey } from "@/lib/persona";
+import { detectAddressedAgent } from "@/lib/persona-address";
+import { agentQuickReplies, askPrompt, chatReply, chatWithAgent } from "@/lib/line/chat";
 import { parseDomain, type DomainKey } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +88,34 @@ async function handleEvent(event: webhook.Event): Promise<void> {
     const text = event.message.text;
     const intent = classifyIntent(text);
 
+    // ---- 4 人格との会話（連携済み）----
+    // 宛先: 呼びかけ（「ケイ、〜」）> 直前の「〜に聞く」> 案内役。呼びかけがあれば意図分類より優先する
+    // （「ケイ、順番の問題が苦手」を出題コマンドと誤認しないため）。連携/解除/ヘルプはコマンドとして先に処理する
+    if (lu.userId && !["link", "unlink", "help"].includes(intent.kind)) {
+      const userId = lu.userId;
+      const personas = await loadPersonas(userId);
+      const pendingAsk = lu.state.note?.startsWith("ask:") ? lu.state.note.slice(4) : null;
+      const addressed = detectAddressedAgent(text, personas);
+      const asked: AgentKey | null = pendingAsk && (AGENTS as readonly string[]).includes(pendingAsk) ? (pendingAsk as AgentKey) : null;
+      if (addressed || asked || intent.kind === "unknown") {
+        const agent: AgentKey = addressed ?? asked ?? "LEADER";
+        if (pendingAsk) await saveLineState(lineUserId, { ...lu.state, note: undefined });
+        // LLM（＋Web 検索）は数秒かかるので、先に受け付けを返し、after() で生成して push する
+        await replyTo(event.replyToken, { text: `${personas[agent].name}: 考えています…` }).catch((err) => console.warn("[line] reply failed:", (err as Error).message));
+        after(async () => {
+          try {
+            const result = await chatWithAgent(userId, agent, text);
+            const r = await chatReply(userId, env.appUrl, result);
+            await pushTo(lineUserId, r).catch((err) => console.warn("[line] push failed:", (err as Error).message));
+          } catch (err) {
+            console.warn("[line] chat failed:", (err as Error).message);
+            await pushTo(lineUserId, { text: "いまは答えられませんでした。「今日の学習」で 1 問どうぞ。", quickReplies: await agentQuickReplies(userId, env.appUrl) }).catch(() => undefined);
+          }
+        });
+        return;
+      }
+    }
+
     // ---- LINE 上で完結する出題・作問（連携が必要） ----
     if (intent.kind === "quiz") {
       if (!lu.userId) return replyTo(event.replyToken, needLinkReply());
@@ -144,17 +176,34 @@ async function handleEvent(event: webhook.Event): Promise<void> {
       if (outcome.settled) {
         const { domain } = outcome.settled;
         after(async () => {
-          const r = await settleAndBuildPush(userId, domain);
-          await pushTo(lineUserId, r).catch((err) => console.warn("[line] push failed:", (err as Error).message));
+          const r = await settleAndBuildPushFull(userId, domain);
+          await pushTo(lineUserId, r.reply).catch((err) => console.warn("[line] push failed:", (err as Error).message));
+          // 今日の 3 問がそろった瞬間のミッション Flex は日次総評（digest）に一本化する（二重送信を避ける）
           await notifyDailyDigestIfComplete(userId);
         });
       }
       return;
     }
 
+    // ---- 「〜に聞く」: 次の自由文をその人格宛てにする（連携が必要） ----
+    if (action === "ask") {
+      if (!lu.userId) return replyTo(event.replyToken, needLinkReply());
+      const raw = params.get("agent") ?? "LEADER";
+      const agent: AgentKey = (AGENTS as readonly string[]).includes(raw) ? (raw as AgentKey) : "LEADER";
+      const personas = await loadPersonas(lu.userId);
+      await saveLineState(lineUserId, { ...lu.state, note: `ask:${agent}` });
+      return replyTo(event.replyToken, askPrompt(agent, personas[agent].name));
+    }
+
     // ---- ルールベース（履歴 / プロフィール / 連携 / 領域選択） ----
     const linkUrl = await prepareLink(lineUserId, lu.userId, action === "link" ? "link" : "other");
     const ctx = await contextFor(lu, linkUrl);
+    // プロフィール: 連携済みなら Flex カード（ランク・XP・到達レベル・ミッション）
+    if (action === "profile" && lu.userId) {
+      const card = await buildProfileCard(lu.userId, "あなた");
+      await replyFlex(event.replyToken, "プロフィール", card);
+      return;
+    }
     const r = buildPostbackReply(event.postback.data, ctx);
     await persist(lineUserId, lu.state, r);
     await replyTo(event.replyToken, r);

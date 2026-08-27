@@ -7,10 +7,15 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { env } from "../env";
+import { EXTERNAL, MODELS } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
 import {
   AI_SYSTEM_POLICY,
+  type ChatInput,
+  type ChatOutput,
+  type MemoryUpdateInput,
+  type MemoryUpdateOutput,
   type DomainEvalInput,
   type DomainEvalOutput,
   type DomainInterpretInput,
@@ -33,7 +38,7 @@ const evalSchema = z.object({
   hint: z.string().describe("次の一段のヒント。success のときは空文字"),
   observations: z.array(z.string()).describe("学習行動についての観察（性格ではなく行動）。最大3件・各40字以内"),
   skill_tags: z.array(z.string()).describe("この回答から観察できた subskill タグ（allowed_skill_tags から）"),
-  recommended_next_difficulty: z.number().int().min(1).max(5),
+  recommended_next_difficulty: z.number().int().min(1).max(10),
 });
 
 const interpretSchema = z.object({
@@ -143,10 +148,44 @@ function stripBackticks<T>(v: T): T {
   return v;
 }
 
+/** 現在時刻（JST）。system ではなく input に入れる（system を安定させてキャッシュを効かせる） */
+function nowText(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "full", timeStyle: "short" }).format(now);
+}
+
 function fmt(label: string, value: unknown): string {
   const body = typeof value === "string" ? value : JSON.stringify(value);
   return `## ${label}\n${body}`;
 }
+
+// ---- 会話・メモ ----
+
+const chatSchema = z.object({
+  text: z.string().describe("LINE に送る返答。3 文以内・日本語。必ず『次の一歩』を 1 つ含める。答えは教えない"),
+  suggest_domain: z.enum(["READ", "WRITE", "CODE", "NONE"]).describe("会話から勧めたい系統。無ければ NONE"),
+  sources: z.array(z.string()).describe("Web 検索を使ったときの出典 URL（最大 2 件）。使わなければ空"),
+});
+
+const memorySchema = z.object({
+  notes: z.string().describe("観察メモ。行動の傾向と『次に見たいこと』を、数値を書かずに簡潔に。上限字数を守る"),
+});
+
+const ROLE_CHAT = [
+  "役割: LINE で学習者と短く会話する人格。課題を解かせる場ではなく、方向を決める場。",
+  "- 返答は 3 文以内。最後は必ず『次の一歩』を 1 つ（例: 『LOGIC を 1 問』『Dashboard で三角形を見る』）。",
+  "- 課題の答え・完成文は絶対に書かない。ヒントも会話では出さない（課題は Web か『今日の学習』で）。",
+  "- memory（観察メモ）と profile（能力サマリ）を踏まえ、本人の記録に基づいて話す。証拠が無いことは断定しない。",
+  "- 日付・時刻・時事・最新情報を聞かれたら、now を使い、必要なら Web 検索で確かめる（検索した場合は sources に URL）。",
+  "- conversation は直近の往復。文脈を引き継ぐが、繰り返しはしない。",
+].join("\n");
+
+const ROLE_MEMORY = [
+  "役割: 決着した 1 問を踏まえて、この人格が持つ学習者の観察メモを書き直す。",
+  "- メモは本人に見せない内部用。行動の傾向（どこで詰まる・どう立て直す・何が得意か）と『次に見たいこと』を書く。",
+  "- 数値（スコア・件数・正答率）は書かない。性格の断定もしない。証拠が少なければその旨を残す。",
+  "- 既存メモ（previous_notes）を引き継ぎつつ、古くなった観察は消す。上限字数（max_chars）を厳守。",
+  "- LEADER の場合は 3 系統のメモを横断して、学習者全体の傾向と、系統間のつながりを書く。",
+].join("\n");
 
 export class OpenAIProvider implements LearningAIProvider {
   readonly name = "openai";
@@ -160,6 +199,12 @@ export class OpenAIProvider implements LearningAIProvider {
     this.model = env.ai.openaiModel;
   }
 
+  /**
+   * structured output 付きの 1 回呼び出し。
+   * - instructions（system）= ポリシー＋役割＋人格（運営設定）。安定させてキャッシュを効かせる
+   * - input（user）= 課題・回答・記録・会話履歴などユーザー由来の情報。先頭に現在時刻（JST）を付ける
+   * - tools を渡すと Web 検索をモデル判断で使う（許可は EXTERNAL.webSearchAllowed の経路だけ）
+   */
   private async parse<T extends z.ZodTypeAny>(
     role: string,
     persona: PersonaPrompt | undefined,
@@ -167,21 +212,25 @@ export class OpenAIProvider implements LearningAIProvider {
     schema: T,
     name: string,
     learnerRef: string,
-  ): Promise<z.infer<T>> {
+    opts: { model?: string; effort?: "none" | "minimal" | "low" | "medium" | "high"; search?: boolean; maxOutputTokens?: number } = {},
+  ): Promise<{ parsed: z.infer<T>; usedSearch: boolean }> {
+    const input = EXTERNAL.includeDateTime ? `${fmt("now", nowText())}\n\n${user}` : user;
     const res = await this.client.responses.parse({
-      model: this.model,
+      model: opts.model ?? this.model,
       instructions: `${COMMON}\n\n${role}${personaText(persona)}`,
-      input: user,
+      input,
       text: { format: zodTextFormat(schema, name) },
-      // 学習コーチ用途は応答速度が重要なので推論量は控えめにする
-      reasoning: { effort: "low" },
-      max_output_tokens: 1200,
+      // 学習コーチ用途は応答速度が重要なので推論量は控えめにする（役割ごとに MODELS.reasoningEffort）
+      reasoning: { effort: opts.effort ?? "low" },
+      max_output_tokens: opts.maxOutputTokens ?? 1200,
       store: false,
       user: learnerRef,
+      ...(opts.search ? { tools: [{ type: "web_search" as const }], tool_choice: "auto" as const } : {}),
     });
     const parsed = res.output_parsed as z.infer<T> | null | undefined;
     if (!parsed) throw new Error(`structured output parse failed (${res.status ?? "unknown"})`);
-    return stripBackticks(parsed);
+    const usedSearch = (res.output ?? []).some((item) => item.type === "web_search_call");
+    return { parsed: stripBackticks(parsed), usedSearch };
   }
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
@@ -197,7 +246,10 @@ export class OpenAIProvider implements LearningAIProvider {
       fmt("recent_behavior", input.recentBehavior.join("\n") || "(なし)"),
       fmt("allowed_skill_tags", SUBSKILLS[domain]),
     ].join("\n\n");
-    const out = await this.parse(ROLE_EVAL, input.persona, user, evalSchema, "evaluation", input.learnerRef);
+    const { parsed: out } = await this.parse(ROLE_EVAL, input.persona, user, evalSchema, "evaluation", input.learnerRef, {
+      model: MODELS.evaluate,
+      effort: MODELS.reasoningEffort.evaluate,
+    });
 
     let status = out.status;
     if (input.deterministicResult === true) status = "success";
@@ -223,7 +275,10 @@ export class OpenAIProvider implements LearningAIProvider {
       fmt("stats", input.stats),
       fmt("recent_events", input.recentEvents),
     ].join("\n\n");
-    const out = await this.parse(ROLE_INTERPRET, input.persona, user, interpretSchema, "interpretation", input.learnerRef);
+    const { parsed: out } = await this.parse(ROLE_INTERPRET, input.persona, user, interpretSchema, "interpretation", input.learnerRef, {
+      model: MODELS.interpret,
+      effort: MODELS.reasoningEffort.interpret,
+    });
     return { summary: out.summary, observations: out.observations.slice(0, 3), recommendedNext: out.recommended_next };
   }
 
@@ -235,7 +290,10 @@ export class OpenAIProvider implements LearningAIProvider {
       fmt("last_event", input.lastEvent ?? "(なし)"),
       fmt("context", input.context ?? "(なし)"),
     ].join("\n\n");
-    const out = await this.parse(ROLE_LEADER, input.persona, user, leaderSchema, "leader", input.learnerRef);
+    const { parsed: out } = await this.parse(ROLE_LEADER, input.persona, user, leaderSchema, "leader", input.learnerRef, {
+      model: MODELS.leader,
+      effort: MODELS.reasoningEffort.leader,
+    });
     return {
       summary: out.summary,
       interests: out.interests.slice(0, 3),
@@ -244,6 +302,47 @@ export class OpenAIProvider implements LearningAIProvider {
       recommendation: out.recommendation,
       recommendedDomain: (DOMAINS as readonly string[]).includes(out.recommended_domain) ? out.recommended_domain : "CODE",
     };
+  }
+
+  /** LINE の会話（人格ごと）。system=人格、input=時刻・メモ・能力サマリ・会話履歴・発話 */
+  async chat(input: ChatInput): Promise<ChatOutput> {
+    const conversation = input.history.map((t) => `${t.role === "user" ? "learner" : input.persona.name}: ${t.text}`).join("\n");
+    const user = [
+      fmt("memory", input.memoryNotes || "(まだ観察メモは無い)"),
+      fmt("profile", input.profileSummary || "(まだ学習記録が無い)"),
+      fmt("conversation", conversation || "(最初の発話)"),
+      fmt("learner_says", input.userText),
+    ].join("\n\n");
+    const { parsed, usedSearch } = await this.parse(ROLE_CHAT, input.persona, user, chatSchema, "chat_reply", input.learnerRef, {
+      model: MODELS.chat,
+      effort: MODELS.reasoningEffort.chat,
+      search: input.allowSearch && EXTERNAL.webSearchAllowed.chat,
+      maxOutputTokens: 600,
+    });
+    const sources = parsed.sources.filter((s) => /^https?:\/\//.test(s)).slice(0, 2);
+    const text = sources.length ? `${parsed.text}\n出典: ${sources.join(" ")}` : parsed.text;
+    const suggest = parsed.suggest_domain === "NONE" ? null : parsed.suggest_domain;
+    return { text, suggestDomain: (DOMAINS as readonly string[]).includes(suggest ?? "") ? (suggest as DomainKey) : null, usedSearch };
+  }
+
+  /** 観察メモの更新（数値を書かない・上限字数）。失敗時は呼び出し側が catch する */
+  async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
+    const user = [
+      fmt("agent", input.agent),
+      fmt("max_chars", input.maxChars),
+      fmt("previous_notes", input.previousNotes || "(なし)"),
+      input.event ? fmt("settled_event", input.event) : "",
+      input.domainNotes?.length ? fmt("domain_notes", input.domainNotes) : "",
+      input.leaderSummary ? fmt("leader_summary", input.leaderSummary) : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const { parsed } = await this.parse(ROLE_MEMORY, input.persona, user, memorySchema, "memory_notes", input.learnerRef, {
+      model: MODELS.interpret,
+      effort: MODELS.reasoningEffort.interpret,
+      maxOutputTokens: 700,
+    });
+    return { notes: parsed.notes.slice(0, input.maxChars) };
   }
 
   async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
@@ -255,7 +354,14 @@ export class OpenAIProvider implements LearningAIProvider {
       fmt("allowed_skill_tags", input.allowedSkillTags),
       fmt("recent_titles", input.recentTitles),
     ].join("\n\n");
-    const out = await this.parse(ROLE_GENERATE, input.persona, user, generateSchema, "generated_task", input.learnerRef);
+    // 作問は品質重視のモデル。時事ネタの依頼だけ Web 検索を許可（EXTERNAL.webSearchAllowed.generate）
+    const wantsSearch = EXTERNAL.webSearchAllowed.generate && /(時事|ニュース|最近の|最新|今日の話題|話題の)/.test(input.request);
+    const { parsed: out } = await this.parse(ROLE_GENERATE, input.persona, user, generateSchema, "generated_task", input.learnerRef, {
+      model: MODELS.generate,
+      effort: MODELS.reasoningEffort.generate,
+      search: wantsSearch,
+      maxOutputTokens: 2000,
+    });
 
     const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
     const skillTags = out.skill_tags.filter((t) => input.allowedSkillTags.includes(t));

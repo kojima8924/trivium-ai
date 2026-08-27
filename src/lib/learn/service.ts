@@ -14,6 +14,7 @@ import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
 import { axesOf, computeDomainScore } from "../scoring";
 import { notifyDailyDigestIfComplete } from "./digest";
+import { updateLeaderMemory, updateMemoryAfterEvent } from "../memory";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 const ATTEMPT_STALE_MS = 6 * 60 * 60 * 1000;
@@ -363,6 +364,21 @@ export async function finalize(userId: string, domain: DomainKey): Promise<Final
     evaluateAchievements(userId),
   ]);
   await snapshot(userId);
+  // 系統エージェントの観察メモ → 案内役のメモ、の順で更新（失敗しても学習ループは止めない）
+  void (async () => {
+    const last = await prisma.learningEvent.findFirst({ where: { userId, domain }, orderBy: { createdAt: "desc" } });
+    if (!last) return;
+    const task = await resolveTask(userId, last.taskId);
+    await updateMemoryAfterEvent(userId, domain, {
+      taskTitle: task?.title ?? last.taskId,
+      domain,
+      axes: { read: last.axisRead, write: last.axisWrite, code: last.axisCode },
+      success: last.success,
+      hintCount: last.hintCount,
+      answer: last.answer,
+    });
+    await updateLeaderMemory(userId);
+  })().catch((err) => console.warn("[memory] update failed:", (err as Error).message));
   // Web からの回答でも「今日の3問」が揃えば LINE に総評を push（DailyDigest の unique で冪等）
   void notifyDailyDigestIfComplete(userId).catch(() => undefined);
   return {

@@ -6,12 +6,16 @@ import { DifyProvider } from "./dify";
 import { OpenAIProvider } from "./openai";
 import { MockProvider } from "./mock";
 import type {
+  ChatInput,
+  ChatOutput,
   DomainEvalInput,
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
   GenerateTaskInput,
   GenerateTaskOutput,
+  MemoryUpdateInput,
+  MemoryUpdateOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
@@ -62,6 +66,12 @@ class LearningAIService implements LearningAIProvider {
   }
   generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
     return this.withFallback("generateTask", (p) => p.generateTask(input));
+  }
+  chat(input: ChatInput): Promise<ChatOutput> {
+    return this.withFallback("chat", (p) => p.chat(input));
+  }
+  updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
+    return this.withFallback("updateMemory", (p) => p.updateMemory(input));
   }
 }
 

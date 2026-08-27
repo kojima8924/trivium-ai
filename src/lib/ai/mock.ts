@@ -7,11 +7,15 @@ import type {
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
+  ChatInput,
+  ChatOutput,
   GenerateTaskInput,
   GenerateTaskOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
+  MemoryUpdateInput,
+  MemoryUpdateOutput,
   PersonaPrompt,
 } from "./types";
 
@@ -69,6 +73,38 @@ const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = {
 export class MockProvider implements LearningAIProvider {
   readonly name = "mock";
 
+  /** 会話（ルールベース）: 人格名で名乗り、次の一歩を 1 つ添える。検索はしない */
+  async chat(input: ChatInput): Promise<ChatOutput> {
+    const t = input.userText;
+    const suggest: DomainKey | null = /(読|read)/i.test(t) ? "READ" : /(書|write)/i.test(t) ? "WRITE" : /(論理|logic|code|python)/i.test(t) ? "CODE" : null;
+    const now = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "long", timeStyle: "short" }).format(new Date());
+    const asksTime = /(何時|時間|日付|今日は|何日)/.test(t);
+    const body = asksTime
+      ? `いまは ${now} です。`
+      : input.history.length > 0
+        ? "続きですね。ここでは方向だけ決めましょう。"
+        : "ここでは課題は解かず、次に何をやるかを決めましょう。";
+    const next = suggest ? `次の一歩: ${DOMAIN_META[suggest].label} を 1 問。` : "次の一歩: 「今日の学習」で 1 問。";
+    return { text: signed(`${body} ${next}`, input.persona), suggestDomain: suggest, usedSearch: false };
+  }
+
+  /** 観察メモ（テンプレ）: 直近の 1 問を行動として追記し、上限で切る。数値は書かない */
+  async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
+    const prev = input.previousNotes.trim();
+    let line = "";
+    if (input.event) {
+      const e = input.event;
+      const how = e.success ? (e.hintCount === 0 ? "ヒントなしで解決" : "ヒントを経て解決") : "未達";
+      line = `「${e.taskTitle}」は${how}。`;
+    } else if (input.domainNotes?.length) {
+      line = input.domainNotes.map((d) => `${d.agent}: ${d.notes.slice(0, 60)}`).join(" / ");
+    }
+    const merged = [prev, line].filter(Boolean).join(" ");
+    // 上限を超えたら古い方（先頭）から落とす
+    const notes = merged.length > input.maxChars ? merged.slice(merged.length - input.maxChars) : merged;
+    return { notes };
+  }
+
   async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
     const seed = input.recentTitles.length + input.request.length;
     const t = CANNED[input.domain](seed);
@@ -100,7 +136,7 @@ export class MockProvider implements LearningAIProvider {
             : `難易度${input.task.difficulty}の課題をヒント${input.hintLevel}回で解決`,
         ],
         skillTags: [],
-        recommendedNextDifficulty: Math.min(5, input.task.difficulty + (input.hintLevel === 0 ? 1 : 0)),
+        recommendedNextDifficulty: Math.min(10, input.task.difficulty + (input.hintLevel === 0 ? 1 : 0)),
       };
     }
 
@@ -165,7 +201,7 @@ export class MockProvider implements LearningAIProvider {
     let recommendedNext: string;
     if (unmeasured.length) recommendedNext = `未計測の「${unmeasured[0]}」を含む課題に取り組む`;
     else if (weak.length) recommendedNext = `「${weak[0]}」を扱う難易度${Math.max(1, Math.round(stats.avgDifficulty))}の課題を1問`;
-    else recommendedNext = `難易度${Math.min(5, Math.round(stats.avgDifficulty) + 1)}の課題に挑戦する`;
+    else recommendedNext = `難易度${Math.min(10, Math.round(stats.avgDifficulty) + 1)}の課題に挑戦する`;
 
     return { summary: parts.join(""), observations, recommendedNext };
   }
