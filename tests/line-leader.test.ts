@@ -243,3 +243,15 @@ test("意図分類: 「今日の学習」はおすすめではなく出題（qui
   assert.deepEqual(classifyIntent("今日の1問"), { kind: "quiz", domain: null });
   assert.equal(classifyIntent("今日のおすすめ").kind, "today");
 });
+
+test("難易度指定は即・作問（generate）になり、domain と難易度を運ぶ", () => {
+  assert.deepEqual(classifyIntent("codeで難易度8"), { kind: "generate", request: "codeで難易度8", domain: "CODE", difficulty: 8 });
+  assert.deepEqual(classifyIntent("難易度８で出して"), { kind: "generate", request: "難易度8で出して", domain: null, difficulty: 8 });
+  assert.deepEqual(classifyIntent("logic 10"), { kind: "generate", request: "logic 10", domain: "CODE", difficulty: 10 });
+  assert.deepEqual(classifyIntent("READのレベル3を1問"), { kind: "generate", request: "READのレベル3を1問", domain: "READ", difficulty: 3 });
+  assert.equal(classifyIntent("Lv5の論理パズル").kind, "generate");
+  // 範囲外・数字だけは難易度扱いしない
+  assert.equal(classifyIntent("難易度11").kind === "generate" && "difficulty" in classifyIntent("難易度11") && (classifyIntent("難易度11") as { difficulty?: number }).difficulty !== undefined, false);
+  assert.equal(classifyIntent("10分だけ").kind, "short_time");
+  assert.equal(classifyIntent("履歴").kind, "history");
+});

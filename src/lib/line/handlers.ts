@@ -65,6 +65,7 @@ export async function handleLineEvent(event: webhook.Event, scheduleAfter: After
 async function handleMessage(lineUserId: string, replyToken: string, text: string, scheduleAfter: AfterScheduler): Promise<void> {
   const lu = await loadLineUser(lineUserId);
   const intent = classifyIntent(text);
+  console.log(`[line] message user=${lineUserId.slice(-6)} linked=${Boolean(lu.userId)} intent=${intent.kind} len=${text.length}`);
 
   // (1) 連携・解除・ヘルプは常に最優先
   if (intent.kind === "link" || intent.kind === "unlink" || intent.kind === "help") {
@@ -90,11 +91,14 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 
   // (3) 既知の意図
   if (intent.kind === "quiz") {
-    await handleQuiz(lineUserId, replyToken, lu, intent.domain);
+    await handleQuiz(lineUserId, replyToken, lu, intent.domain, intent.difficulty);
     return;
   }
   if (intent.kind === "generate") {
-    await handleGenerate(lineUserId, replyToken, lu, intent.request, scheduleAfter);
+    await handleGenerate(lineUserId, replyToken, lu, intent.request, scheduleAfter, {
+      domain: intent.domain,
+      difficulty: intent.difficulty,
+    });
     return;
   }
   // 連携済みなら、短いコマンド（「READ」「今日のおすすめ」「履歴」など）だけをルールベースで扱い、
@@ -151,12 +155,19 @@ async function handleChat(
 }
 
 /** LINE 上の選択式出題。 */
-async function handleQuiz(lineUserId: string, replyToken: string, lu: LineUser, domain: DomainKey | null): Promise<void> {
+async function handleQuiz(
+  lineUserId: string,
+  replyToken: string,
+  lu: LineUser,
+  domain: DomainKey | null,
+  difficulty?: number,
+): Promise<void> {
   if (!lu.userId) {
     await replyTo(replyToken, needLinkReply());
     return;
   }
-  const reply = await startQuiz(lu.userId, lineUserId, lu.state, domain);
+  const state = difficulty !== undefined ? { ...lu.state, preferredDifficulty: difficulty } : lu.state;
+  const reply = await startQuiz(lu.userId, lineUserId, state, domain, { difficulty });
   await replyTo(replyToken, reply);
 }
 
@@ -167,12 +178,16 @@ async function handleGenerate(
   lu: LineUser,
   request: string,
   scheduleAfter: AfterScheduler,
+  opts: { domain?: DomainKey | null; difficulty?: number } = {},
 ): Promise<void> {
   if (!lu.userId) {
     await replyTo(replyToken, needLinkReply());
     return;
   }
   const userId = lu.userId;
+  // 難易度指定は文脈として保存（以後の「次」「もう1問」もその難易度で出す）
+  const state: LineState = opts.difficulty !== undefined ? { ...lu.state, preferredDifficulty: opts.difficulty } : lu.state;
+  if (opts.difficulty !== undefined) await saveLineState(lineUserId, state);
   if (rateLimit(`line-generate:${userId}`, GENERATE_LIMIT.count, GENERATE_LIMIT.windowMs)) {
     await replyTo(replyToken, {
       text: "作問はしばらくお休み（10 分に 6 問まで）。用意してある問題なら今すぐ出せます。",
@@ -184,7 +199,7 @@ async function handleGenerate(
   await replyTo(replyToken, generatingReply(request)).catch((err) => console.warn("[line] reply failed:", (err as Error).message));
   scheduleAfter(async () => {
     try {
-      const reply = await generateAndBuildPush(userId, lineUserId, lu.state, request);
+      const reply = await generateAndBuildPush(userId, lineUserId, state, request, opts);
       await pushTo(lineUserId, reply).catch((err) => console.warn("[line] push failed:", (err as Error).message));
     } catch (err) {
       console.warn("[line] generate failed:", (err as Error).message);

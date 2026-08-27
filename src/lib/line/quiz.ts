@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import { nextTask, resolveTask, submitAnswer, finalize } from "@/lib/learn/service";
-import { generateTaskForUser } from "@/lib/learn/generate";
+import { generateTaskForUser, inferKind } from "@/lib/learn/generate";
 import { loadPersonas } from "@/lib/persona";
 import type { Task } from "@/lib/tasks";
 import { loadEvents } from "@/lib/profile";
@@ -106,9 +106,16 @@ export async function startQuiz(
   lineUserId: string,
   state: LineState,
   domain: DomainKey | null,
+  opts: { difficulty?: number } = {},
 ): Promise<LeaderReply> {
   const d = domain ?? (await pickQuizDomain(userId, state));
-  const [{ task }, personas] = await Promise.all([nextTask(userId, d, { kind: "choice" }), loadPersonas(userId)]);
+  // 本人が難易度を指定していれば（「難易度8」→「次」）、推薦ではなくその難易度を狙う
+  const targetDifficulty = opts.difficulty ?? state.preferredDifficulty;
+  const [{ task }, personas] = await Promise.all([
+    nextTask(userId, d, { kind: "choice", targetDifficulty }),
+    loadPersonas(userId),
+  ]);
+  console.log(`[line] quiz domain=${d} target=${targetDifficulty ?? "auto"} task=${task.id} d=${task.difficulty}`);
   await saveLineState(lineUserId, withPendingTask(state, { taskId: task.id, domain: d, sentAt: new Date().toISOString() }));
   return quizReply(task, personas[d].name);
 }
@@ -272,9 +279,23 @@ export function generatingReply(request: string): LeaderReply {
 }
 
 /** 作問して push 用メッセージを作る（after() の中で呼ぶ）。choice なら LINE で解ける形、他は Web へ */
-export async function generateAndBuildPush(userId: string, lineUserId: string, state: LineState, request: string): Promise<LeaderReply> {
+export async function generateAndBuildPush(
+  userId: string,
+  lineUserId: string,
+  state: LineState,
+  request: string,
+  opts: { domain?: DomainKey | null; difficulty?: number } = {},
+): Promise<LeaderReply> {
   try {
-    const { task, domain } = await generateTaskForUser(userId, { request });
+    // 難易度指定つきの依頼（「codeで難易度8」）は LINE で解ける選択式にする（「記述で」などの明示があれば従う）
+    const kind = opts.difficulty !== undefined ? inferKind(request, "choice") : undefined;
+    const { task, domain } = await generateTaskForUser(userId, {
+      request,
+      domain: opts.domain ?? undefined,
+      difficulty: opts.difficulty,
+      kind,
+    });
+    console.log(`[line] generated domain=${domain} difficulty=${task.difficulty} kind=${task.kind} task=${task.id}`);
     const personas = await loadPersonas(userId);
     if (task.kind === "choice" && (task.choices?.length ?? 0) >= 2) {
       await saveLineState(lineUserId, withPendingTask(state, { taskId: task.id, domain, sentAt: new Date().toISOString() }));

@@ -53,8 +53,12 @@ export function inferLogicStyle(text: string): "python" | "logic" | null {
 export async function generateTaskForUser(userId: string, req: GenerateRequest): Promise<{ task: Task; domain: DomainKey }> {
   const domain = req.domain ?? inferDomain(req.request) ?? "CODE";
   const kind = req.kind ?? inferKind(req.request);
-  const base = req.difficulty ?? (await nextDifficultyFor(userId, domain));
-  const difficulty = Math.min(10, Math.max(1, base + inferDifficultyDelta(req.request)));
+  // 明示指定（「難易度8」）はそのまま使う。無指定なら推薦値に「やさしめ／難しめ」の語で ±1
+  const clamp = (n: number) => Math.min(10, Math.max(1, Math.round(n)));
+  const difficulty =
+    req.difficulty !== undefined
+      ? clamp(req.difficulty)
+      : clamp((await nextDifficultyFor(userId, domain)) + inferDifficultyDelta(req.request));
 
   const [recent, personas] = await Promise.all([
     prisma.generatedTask.findMany({ where: { userId, domain }, orderBy: { createdAt: "desc" }, take: 8, select: { title: true } }),

@@ -41,8 +41,8 @@ export type LeaderContext = {
 
 export type Intent =
   | { kind: "domain"; domain: DomainKey }
-  | { kind: "quiz"; domain: DomainKey | null }
-  | { kind: "generate"; request: string }
+  | { kind: "quiz"; domain: DomainKey | null; difficulty?: number }
+  | { kind: "generate"; request: string; domain?: DomainKey | null; difficulty?: number }
   | { kind: "link" }
   | { kind: "unlink" }
   | { kind: "today" }
@@ -66,6 +66,26 @@ export function domainOf(word: string): DomainKey | null {
   return null;
 }
 
+/** 「難易度8」「レベル 8」「Lv8」「code 8」から 1〜10 の難易度を取り出す（無ければ null） */
+export function parseDifficulty(raw: string): number | null {
+  const text = toHalfWidth(raw);
+  const m =
+    text.match(/(?:難易度|レベル|難度|level|lv\.?)\s*[:：=]?\s*(10|[1-9])(?![0-9分時])/i) ??
+    text.match(/^(?:read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(?:で|の)?\s*(10|[1-9])(?![0-9問回つ個分時])/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 10 ? n : null;
+}
+
+/** 文中の domain 語（read/write/logic/code/論理…）を拾う。無ければ null */
+export function domainInText(raw: string): DomainKey | null {
+  const lower = toHalfWidth(raw).toLowerCase();
+  if (/(logic|code|ロジック|論理|コード|python|パイソン|プログラ)/.test(lower)) return "CODE";
+  if (/(write|ライト|作文)/.test(lower) || /書(く|き)/.test(lower)) return "WRITE";
+  if (/(read|リード|読解)/.test(lower) || /読(む|み)/.test(lower)) return "READ";
+  return null;
+}
+
 export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
@@ -73,6 +93,11 @@ export function classifyIntent(raw: string): Intent {
   if (/(連携(を)?(解除|やめ|外し|切)|解除|unlink)/.test(text)) return { kind: "unlink" };
   if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
   if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
+  // 難易度指定（「codeで難易度8」「難易度8で出して」「logic 8」）は即・作問。domain 未指定なら文脈に任せる
+  const difficulty = parseDifficulty(text);
+  if (difficulty !== null && !/(履歴|プロフィール|連携)/.test(text)) {
+    return { kind: "generate", request: text.slice(0, 300), domain: domainInText(text), difficulty };
+  }
   // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
   const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回|今日の学習|今日の1問|今日の一問|今日の問題)(ください|して|お願い(します)?)?[!！。]?$/;
   const quizWithDomain = text.match(/^(read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(で|の)?\s*(1問|一問|出題|問題|クイズ)/i);
@@ -181,6 +206,7 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
       "できること:",
       "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）",
       "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
+      "・「LOGICで難易度8」「難易度3で出して」→ その難易度（1〜10）で即作問。以後の「次」もその難易度",
       "・READ / WRITE / LOGIC → LINE で1問 or Web で解く",
       "・「今日のおすすめ」「10分だけ」→ 次の一歩を提案",
       "・「履歴」「プロフィール」→ Dashboard へ",

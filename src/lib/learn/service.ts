@@ -84,26 +84,34 @@ export async function resolveTask(userId: string, taskId: string): Promise<Task 
 export async function nextTask(
   userId: string,
   domain: DomainKey,
-  opts: { preferredTaskId?: string; kind?: Task["kind"] } = {},
+  opts: { preferredTaskId?: string; kind?: Task["kind"]; targetDifficulty?: number } = {},
 ): Promise<{ task: Task; targetDifficulty: number }> {
   if (opts.preferredTaskId) {
     const t = await resolveTask(userId, opts.preferredTaskId);
     if (t && t.domain === domain) return { task: t, targetDifficulty: t.difficulty };
   }
-  const [history, targetDifficulty, profile] = await Promise.all([
+  const [history, recommended, profile] = await Promise.all([
     prisma.learningEvent.findMany({ where: { userId, domain }, select: { taskId: true, success: true, createdAt: true } }),
     nextDifficultyFor(userId, domain),
     prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } }, select: { subskills: true } }),
   ]);
+  // 本人の明示指定（LINE「難易度8」）があれば推薦より優先する
+  const explicit = opts.targetDifficulty !== undefined;
+  const targetDifficulty = explicit ? Math.min(10, Math.max(1, Math.round(opts.targetDifficulty as number))) : recommended;
   const seen = new Set(history.map((h) => h.taskId));
   let pool = tasksFor(domain);
   if (opts.kind) pool = pool.filter((t) => t.kind === opts.kind);
 
-  // 弱い subskill を含む未回答の課題を優先（推薦文と出題を整合させる）
+  // 弱い subskill を含む未回答の課題を優先（推薦文と出題を整合させる）。
+  // ただし狙いの難易度から 2 以上離れる課題は選ばない（「難易度8 のつもりが 2 が出る」を防ぐ）
   const weakest = weakestSubskill(subskillsOf(profile?.subskills ?? {}));
   const rank = (t: Task) => Math.abs(t.difficulty - targetDifficulty);
   const unseen = pool.filter((t) => !seen.has(t.id));
-  const preferred = weakest ? unseen.filter((t) => t.skillTags.includes(weakest)).sort((a, b) => rank(a) - rank(b))[0] : undefined;
+  const preferred = weakest
+    ? unseen
+        .filter((t) => t.skillTags.includes(weakest) && rank(t) <= 1)
+        .sort((a, b) => rank(a) - rank(b))[0]
+    : undefined;
   if (preferred) return { task: preferred, targetDifficulty };
   if (opts.kind) {
     const next = unseen.sort((a, b) => rank(a) - rank(b))[0] ?? pool.sort((a, b) => rank(a) - rank(b))[0];

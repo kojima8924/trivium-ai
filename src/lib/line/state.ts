@@ -15,6 +15,8 @@ export type LineState = {
   note?: string;
   /** LINE 上で出題中の課題（回答待ち） */
   pendingTask?: { taskId: string; domain: DomainKey; sentAt: string };
+  /** 直近に本人が指定した難易度（1〜10）。「次」「もう1問」でも文脈として引き継ぐ */
+  preferredDifficulty?: number;
 };
 
 export function emptyCounts(): Record<DomainKey, number> {
@@ -37,6 +39,9 @@ export function parseLineState(json: unknown): LineState {
     state.counts = counts;
   }
   if (typeof o.note === "string") state.note = o.note.slice(0, 200);
+  if (typeof o.preferredDifficulty === "number" && o.preferredDifficulty >= 1 && o.preferredDifficulty <= 10) {
+    state.preferredDifficulty = Math.round(o.preferredDifficulty);
+  }
   if (o.pendingTask && typeof o.pendingTask === "object" && !Array.isArray(o.pendingTask)) {
     const t = o.pendingTask as Record<string, unknown>;
     if (
