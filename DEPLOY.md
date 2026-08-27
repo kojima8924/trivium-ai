@@ -255,9 +255,48 @@ curl -s -w ' %{http_code}
 
 ## 9. ローカルで同じイメージを試す（任意）
 
+> 注意: このリポジトリの開発機（Windows）は WSL 未導入のため Docker Desktop が起動しません。
+> ローカルで試せない場合は、10 章の CI（GitHub Actions）でのビルド検証結果を参照してください。
+
 ```bash
 npm run docker:build
 docker run --rm -p 3000:3000 --env-file .env trivium
 ```
 
 `.env` の `DATABASE_URL` はコンテナから見えるホスト（`host.docker.internal` など）に読み替えてください。
+
+## 10. イメージの実地検証（CI で毎回自動実行）
+
+このリポジトリの `.github/workflows/docker.yml` が、push のたびに **Coolify と同じ Dockerfile** を
+GitHub Actions 上でビルドし、PostgreSQL を立てて**実際にコンテナを起動**して確認します。
+ローカル（Windows）は WSL 未導入で Docker Desktop が動かないため、ここが唯一の実地検証です。
+
+CI が確認していること:
+
+1. `docker build`（4 ステージ）が通る
+2. `docker-entrypoint.sh` の `prisma migrate deploy` が成功し、テーブルが実際に作られる
+   （`User` / `LearningEvent` / `DomainProfile` / `LeaderProfile` / `TaskAttempt` / `LineUser` / `Achievement` の存在を SQL で検証）
+3. `/api/health` が 200 かつ `"db":"ok"` を返す
+4. `public/` と app icon が配信される（`.dockerignore` の除外ミス検知）
+5. トップページがレンダリングされる
+
+### 実測値（2026-08-27 / GitHub Actions ubuntu-latest, 4 vCPU 相当）
+
+| 項目 | 実測 |
+|---|---|
+| イメージサイズ | **518 MiB**（543,225,335 bytes） |
+| ビルド時間（キャッシュ無し） | 約 **7 分 34 秒** |
+| ビルド時間（GHA キャッシュあり） | 約 **3 分 33 秒** |
+| コンテナ起動 → `/api/health` が `db:ok` | **3 秒以内**（`migrate deploy` 込み） |
+| ヘルスチェック実応答 | `{"status":"ok","db":"ok","ai":{"provider":"mock","lastUsed":"mock"},"latencyMs":85}` |
+
+> イメージが 518 MiB あるのは `node:22-bookworm-slim` に加えて、
+> Prisma のクエリエンジンと `migrate deploy` 用の隔離 CLI（`/app/prisma-cli`）を同梱しているためです。
+> 4 GB RAM の VPS で問題になるサイズではありませんが、削るなら Prisma CLI を
+> 「初回デプロイ時だけ手で流す」運用に変えるのが最も効きます。
+
+### Coolify 側で気をつける点（実地検証で分かったこと）
+
+- 起動時に `DATABASE_URL` が無いと **entrypoint が exit 1 して起動しない**（黙って起動しないのではなくログに理由が出る）
+- migration は起動のたびに `migrate deploy` される。追加のみの migration なので再デプロイで壊れない
+- `AI_PROVIDER=mock`（または Dify 未設定）でも `/api/health` は `ok` を返す。AI の状態は `ai.lastUsed` で見る
