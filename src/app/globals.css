@@ -122,3 +122,24 @@ pre.codeblock {
   white-space: pre-wrap;
   line-height: 1.8;
 }
+
+/* CodeBlock（Python 簡易ハイライト）。背景 #0f172a 上で読める配色 */
+pre.codeblock .tok-kw {
+  color: #c792ea;
+}
+pre.codeblock .tok-str {
+  color: #c3e88d;
+}
+pre.codeblock .tok-num {
+  color: #f78c6c;
+}
+pre.codeblock .tok-com {
+  color: #7f8c98;
+  font-style: italic;
+}
+pre.codeblock .tok-fn {
+  color: #82aaff;
+}
+pre.codeblock .tok-bi {
+  color: #ffcb6b;
+}

@@ -6,6 +6,7 @@ import { DOMAIN_META, MAX_HINTS, type DomainKey } from "@/lib/domain";
 import type { TaskPublic } from "@/lib/tasks/types";
 import { achievementTitle } from "@/lib/achievement-defs";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
+import { CodeBlock } from "@/components/CodeBlock";
 
 type SubmitResponse =
   | { status: "retry"; feedback: string; hint: string; hintCount: number; hintsRemaining: number }
@@ -158,7 +159,7 @@ export function TaskPlayer({
             難易度 {task.difficulty}/10 · ヒント {hintCount}/{MAX_HINTS}
           </span>
         </div>
-        {task.passage && (looksLikeCode(task.passage) ? <pre className="codeblock">{task.passage}</pre> : <p className="passage text-sm">{task.passage}</p>)}
+        {task.passage && (looksLikeCode(task.passage) ? <CodeBlock code={task.passage} /> : <p className="passage text-sm">{task.passage}</p>)}
         <p className="mt-3 text-sm font-medium leading-relaxed">{task.prompt}</p>
       </section>
 
@@ -213,7 +214,8 @@ export function TaskPlayer({
               {task.choices.map((c, i) => (
                 <label key={i} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${answer === String(i) ? "border-fg" : "border-line"}`}>
                   <input type="radio" name="choice" value={i} checked={answer === String(i)} onChange={() => setAnswer(String(i))} className="mt-1" disabled={busy} />
-                  <span>{c}</span>
+                  {/* 複数行の出力（print が 2 行など）は改行のまま見せる。コードらしい選択肢は等幅 */}
+                  <span className={`whitespace-pre-wrap break-words ${looksLikeCode(c) ? "font-mono text-xs sm:text-sm" : ""}`}>{c}</span>
                 </label>
               ))}
             </div>

@@ -129,8 +129,22 @@ const ROLE_GENERATE = [
   "- hints は3段。1段目は問い返し、3段目でも答えの値・完成文を書かない。",
   "- CODE（LOGIC）は Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。request の先頭にある【形式: …】の指定に必ず従う（『論理パズル』ならコードを出さない）。",
   "- passage にマークダウンのコードフェンス（```）や装飾を使わない。プレーンテキストのみ。",
+  "- title に domain 名の接頭辞（『LOGIC:』『READ:』など）を付けない。",
+  "- 改行は実際の改行にする。文字列として『\\n』と書かない（選択肢に複数行の出力を入れるときも同様）。",
+  "- Python の出力予測問題は、コードを一行ずつ実際に実行した結果だけを正解にする（途中で変数の値を書き出して確かめる）。正解の選択肢は print の出力そのまま（Python の表記: 文字列はシングルクォート、タプルは丸括弧）。誤答の選択肢も『ありそうな誤り』にする。",
   "- 直近の題材（recent_titles）と重ならない題材にする。",
 ].join("\n");
+
+const ROLE_RUN_PYTHON = [
+  "役割: 与えられたテキストに含まれる Python コードを、code_interpreter で**そのまま**実行し、標準出力を一字一句そのまま stdout に入れる。",
+  "- コードを書き換えない・補完しない。実行できない（構文エラー等）なら stdout は空にして error に理由を書く。",
+  "- 出力が無ければ stdout は空文字。推測で出力を書かない。必ず実行結果をコピーする。",
+].join("\n");
+
+const runPythonSchema = z.object({
+  stdout: z.string(),
+  error: z.string(),
+});
 
 function personaText(p?: PersonaPrompt): string {
   if (!p) return "";
@@ -210,7 +224,14 @@ export class OpenAIProvider implements LearningAIProvider {
     schema: T,
     name: string,
     learnerRef: string,
-    opts: { model?: string; effort?: "none" | "minimal" | "low" | "medium" | "high"; search?: boolean; maxOutputTokens?: number } = {},
+    opts: {
+      model?: string;
+      effort?: "none" | "minimal" | "low" | "medium" | "high";
+      search?: boolean;
+      /** code_interpreter（サンドボックスで Python を実行）を許可する。作問の検証専用 */
+      codeInterpreter?: boolean;
+      maxOutputTokens?: number;
+    } = {},
   ): Promise<{ parsed: z.infer<T>; usedSearch: boolean }> {
     const input = EXTERNAL.includeDateTime ? `${fmt("now", nowText())}\n\n${user}` : user;
     const res = await this.client.responses.parse({
@@ -224,11 +245,30 @@ export class OpenAIProvider implements LearningAIProvider {
       store: false,
       user: learnerRef,
       ...(opts.search ? { tools: [{ type: "web_search" as const }], tool_choice: "auto" as const } : {}),
+      ...(opts.codeInterpreter
+        ? { tools: [{ type: "code_interpreter" as const, container: { type: "auto" as const } }], tool_choice: "required" as const }
+        : {}),
     });
     const parsed = res.output_parsed as z.infer<T> | null | undefined;
     if (!parsed) throw new Error(`structured output parse failed (${res.status ?? "unknown"})`);
     const usedSearch = (res.output ?? []).some((item) => item.type === "web_search_call");
     return { parsed: stripBackticks(parsed), usedSearch };
+  }
+
+  /** テキスト中の Python コードをサンドボックスで実行して stdout を返す（作問の検証） */
+  async runPython(text: string): Promise<{ stdout: string } | { error: string }> {
+    try {
+      const { parsed } = await this.parse(ROLE_RUN_PYTHON, undefined, fmt("text", text.slice(0, 6000)), runPythonSchema, "python_run", "verify", {
+        model: MODELS.evaluate,
+        effort: "low",
+        codeInterpreter: true,
+        maxOutputTokens: 1500,
+      });
+      if (parsed.error && !parsed.stdout) return { error: parsed.error };
+      return { stdout: parsed.stdout };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
   }
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {

@@ -10,6 +10,7 @@ import { SUBSKILLS, type DomainKey } from "../domain";
 import type { Task } from "../tasks";
 import { personaPrompts } from "../persona";
 import { nextDifficultyFor } from "../profile";
+import { looksLikePython, normalizeGenerated, normalizeOutput } from "./generate.pure";
 
 export type GenerateRequest = {
   request: string;
@@ -18,6 +19,33 @@ export type GenerateRequest = {
   kind?: Task["kind"];
   difficulty?: number;
 };
+
+type VerifyResult = { result: "skip" | "ok" } | { result: "fixed"; index: number } | { result: "mismatch"; stdout: string };
+
+/**
+ * 4 択の Python 出力予測問題を実行して検証する。
+ * ok: 正解の選択肢が実行結果と一致 / fixed: 別の選択肢が一致したので正解 index を直した / mismatch: どれも一致しない / skip: 対象外
+ */
+async function verifyPythonChoice(out: { passage: string; prompt: string; choices: string[]; answerKey: string[] }, domain: DomainKey): Promise<VerifyResult> {
+  if (domain !== "CODE" || out.choices.length !== 4 || !learningAI.runPython) return { result: "skip" };
+  const code = looksLikePython(out.passage) ? out.passage : looksLikePython(out.prompt) ? `${out.passage}\n${out.prompt}` : "";
+  if (!code) return { result: "skip" };
+  const run = await learningAI.runPython(code);
+  if ("error" in run) {
+    console.warn("[generate] python verify skipped:", run.error.slice(0, 200));
+    return { result: "skip" };
+  }
+  const actual = normalizeOutput(run.stdout);
+  if (!actual) return { result: "skip" };
+  const idx = out.choices.findIndex((c) => normalizeOutput(c) === actual);
+  const answer = Number(out.answerKey[0]);
+  if (idx === answer) return { result: "ok" };
+  if (idx >= 0) {
+    out.answerKey[0] = String(idx);
+    return { result: "fixed", index: idx };
+  }
+  return { result: "mismatch", stdout: run.stdout.trim() };
+}
 
 /** 依頼文から domain を推定する（決定論）。判定できなければ null */
 export function inferDomain(text: string): DomainKey | null {
@@ -74,16 +102,37 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
         ? `【形式: 短い Python コードの読解】${req.request}`
         : req.request;
 
-  const out = await learningAI.generateTask({
-    learnerRef: userId,
-    request: styled.slice(0, 300),
-    domain,
-    difficulty,
-    kind,
-    allowedSkillTags: SUBSKILLS[domain],
-    recentTitles: recent.map((r) => r.title),
-    persona: personas[domain],
-  });
+  const gen = async () =>
+    normalizeGenerated(
+      await learningAI.generateTask({
+        learnerRef: userId,
+        request: styled.slice(0, 300),
+        domain,
+        difficulty,
+        kind,
+        allowedSkillTags: SUBSKILLS[domain],
+        recentTitles: recent.map((r) => r.title),
+        persona: personas[domain],
+      }),
+    );
+  let out = await gen();
+  // Python の出力予測問題は実際に実行して正解を検証する（LLM の机上トレースは間違うことがある）
+  // 不一致なら 1 回だけ作り直し、それでも合わなければ正解の選択肢を実行結果で差し替える
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const v = await verifyPythonChoice(out, domain);
+    if (v.result !== "mismatch") {
+      if (v.result === "fixed") console.warn(`[generate] python verify: answer index corrected -> ${v.index}`);
+      break;
+    }
+    if (attempt === 0) {
+      console.warn("[generate] python verify: no choice matches actual output; regenerating");
+      out = await gen();
+      continue;
+    }
+    const idx = Number(out.answerKey[0]);
+    console.warn("[generate] python verify: patching correct choice with actual output");
+    out.choices[idx] = v.stdout;
+  }
 
   // Mock provider は依頼の kind と違う形式を返すことがあるので、返ってきた実体に合わせる
   const actualKind: Task["kind"] = out.choices.length === 4 ? "choice" : out.answerKey.length > 0 ? "short" : "free";

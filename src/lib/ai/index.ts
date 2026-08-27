@@ -73,6 +73,11 @@ class LearningAIService implements LearningAIProvider {
   updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
     return this.withFallback("updateMemory", (p) => p.updateMemory(input));
   }
+  /** Python 実行（作問の検証）。primary が対応していなければ undefined（呼び出し側は検証をスキップ） */
+  get runPython(): LearningAIProvider["runPython"] {
+    const p = this.primary;
+    return p.runPython ? (text: string) => p.runPython!(text) : undefined;
+  }
 }
 
 function build(): LearningAIService {

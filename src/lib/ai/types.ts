@@ -220,6 +220,11 @@ export interface LearningAIProvider {
   generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput>;
   chat(input: ChatInput): Promise<ChatOutput>;
   updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput>;
+  /**
+   * 任意: テキストに含まれる Python コードを実際に実行して標準出力を返す（作問の検証用）。
+   * 実行環境を持たない provider は実装しない（その場合は検証をスキップする）。
+   */
+  runPython?(text: string): Promise<{ stdout: string } | { error: string }>;
 }
 
 export const AI_SYSTEM_POLICY = [
