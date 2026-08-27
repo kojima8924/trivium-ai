@@ -47,7 +47,8 @@ export function TaskPlayer({
   const [phase, setPhase] = useState<Phase>("loading");
   const [answer, setAnswer] = useState("");
   const [hintCount, setHintCount] = useState(0);
-  const [log, setLog] = useState<{ kind: "feedback" | "hint" | "me"; text: string }[]>([]);
+  // mark: ○ 正解 / △ 誤答→ヒントで再挑戦 / ✕ ヒント切れ・ギブアップ
+  const [log, setLog] = useState<{ kind: "feedback" | "hint" | "me"; text: string; mark?: "○" | "△" | "✕" }[]>([]);
   const [result, setResult] = useState<Extract<SubmitResponse, { status: "success" | "failed" }> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
@@ -112,11 +113,11 @@ export function TaskPlayer({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = (await res.json()) as SubmitResponse;
       if (j.status === "retry") {
-        setLog((l) => [...l, { kind: "feedback", text: j.feedback }, ...(j.hint ? [{ kind: "hint" as const, text: j.hint }] : [])]);
+        setLog((l) => [...l, { kind: "feedback", text: j.feedback, mark: "△" }, ...(j.hint ? [{ kind: "hint" as const, text: j.hint }] : [])]);
         setHintCount(j.hintCount);
         setPhase("answering");
       } else {
-        setLog((l) => [...l, { kind: "feedback", text: j.feedback }]);
+        setLog((l) => [...l, { kind: "feedback", text: j.feedback, mark: j.status === "success" ? "○" : "✕" }]);
         setResult(j);
         setPhase("done");
       }
@@ -184,6 +185,15 @@ export function TaskPlayer({
                   {personaName}
                 </div>
               )}
+              {m.mark && (
+                <div
+                  className={`mb-1 text-3xl font-black leading-none ${m.mark === "○" ? "text-ok" : m.mark === "✕" ? "text-ng" : "text-write"}`}
+                  aria-label={m.mark === "○" ? "正解" : m.mark === "✕" ? "不正解" : "もう一度"}
+                >
+                  {m.mark}
+                  <span className="ml-2 align-middle text-xs font-semibold">{m.mark === "○" ? "正解" : m.mark === "✕" ? "不正解" : "もう一度"}</span>
+                </div>
+              )}
               <div className="whitespace-pre-wrap">{m.text}</div>
             </div>
           ))}
@@ -238,8 +248,11 @@ export function TaskPlayer({
 
       {done && result && (
         <section className="card flex flex-col gap-3 p-4 sm:p-5">
-          <div className={`text-sm font-semibold ${result.status === "success" ? "text-ok" : "text-ng"}`}>
-            {result.status === "success" ? `正解（ヒント ${result.hintCount} 回）` : "今回は未達"}
+          <div className={`flex items-center gap-3 ${result.status === "success" ? "text-ok" : "text-ng"}`}>
+            <span className="text-5xl font-black leading-none" aria-hidden="true">
+              {result.status === "success" ? "○" : "✕"}
+            </span>
+            <span className="text-sm font-semibold">{result.status === "success" ? `正解（ヒント ${result.hintCount} 回）` : "今回は未達"}</span>
           </div>
           <div className="rounded-lg bg-bg p-3 text-sm leading-relaxed">
             <div className="mb-1 text-[11px] font-semibold text-muted">解説</div>

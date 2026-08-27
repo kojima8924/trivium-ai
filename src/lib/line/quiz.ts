@@ -147,6 +147,7 @@ export async function answerQuiz(
     return {
       reply: {
         text: [
+          "🔺 △ もう一度",
           `${name}: ${stripName(result.feedback, name)}`,
           result.hint ? `\nヒント ${result.hintCount}/3: ${result.hint}` : "",
           `\nもう一度選んでください。`,
@@ -161,7 +162,7 @@ export async function answerQuiz(
 
   // 決着（success / failed）: pendingTask を消し、講評＋解説を返す。集計は after() で
   await saveLineState(lineUserId, withPendingTask(state, null));
-  const head = result.status === "success" ? `正解（ヒント ${result.hintCount} 回）` : "今回は未達";
+  const head = result.status === "success" ? `⭕ ○ 正解（ヒント ${result.hintCount} 回）` : "❌ ✕ 今回は未達";
   return {
     reply: {
       text: [`${head}`, `${name}: ${stripName(result.feedback, name)}`, `\n解説: ${result.explanation}`, "\n（集計中…）"].join("\n"),
@@ -178,7 +179,7 @@ export async function giveUpQuiz(userId: string, lineUserId: string, state: Line
   if ("error" in result || result.status === "retry") return { reply: { text: "処理できませんでした。", quickReplies: todayActions() }, settled: null };
   await saveLineState(lineUserId, withPendingTask(state, null));
   return {
-    reply: { text: [`今回はここまで。`, `解説: ${result.explanation}`, "\n（集計中…）"].join("\n") },
+    reply: { text: [`❌ ✕ 今回はここまで。`, `解説: ${result.explanation}`, "\n（集計中…）"].join("\n") },
     settled: { domain: task.domain, status: "failed" },
   };
 }
