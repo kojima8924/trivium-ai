@@ -165,6 +165,18 @@ model Achievement {
 
 // ---------- LINE (Web accountとは独立して開始できる) ----------
 
+// LINE ↔ Web アカウントの連携トークン（ワンタイム・短命。PII は持たない）
+model LineLinkToken {
+  token      String    @id
+  lineUserId String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  usedAt     DateTime?
+
+  @@index([lineUserId])
+  @@index([expiresAt])
+}
+
 model LineUser {
   id         String   @id @default(cuid())
   lineUserId String   @unique

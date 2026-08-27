@@ -1,0 +1,127 @@
+// LINE の Leader 会話ロジック（純粋関数）のテスト
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildPostbackReply, buildReply, classifyIntent, helpReply, welcomeReply } from "../src/lib/line/leader";
+import type { LeaderContext } from "../src/lib/line/leader";
+
+const APP = "https://trivium.example.com";
+
+function ctx(over: Partial<LeaderContext> = {}): LeaderContext {
+  return { state: {}, appUrl: APP, ...over };
+}
+
+test("意図分類: domain / 時間 / 連携 / 解除", () => {
+  assert.equal(classifyIntent("READ").kind, "domain");
+  assert.deepEqual(classifyIntent("コードやりたい"), { kind: "domain", domain: "CODE" });
+  assert.deepEqual(classifyIntent("10分くらい何かやりたい"), { kind: "short_time", minutes: 10 });
+  assert.deepEqual(classifyIntent("１０分だけ"), { kind: "short_time", minutes: 10 }); // 全角数字
+  assert.equal(classifyIntent("軽くやりたい").kind, "short_time");
+  assert.equal(classifyIntent("連携").kind, "link");
+  assert.equal(classifyIntent("アカウント連携したい").kind, "link");
+  assert.equal(classifyIntent("連携解除").kind, "unlink");
+  assert.equal(classifyIntent("連携を外したい").kind, "unlink");
+  assert.equal(classifyIntent("疲れた").kind, "tired");
+  assert.equal(classifyIntent("履歴").kind, "history");
+});
+
+test("LINE 上では課題を解かせず、必ず Web へ誘導する", () => {
+  for (const text of ["READ", "WRITE", "CODE", "今日のおすすめ", "10分だけ", "履歴", "プロフィール"]) {
+    const r = buildReply(text, ctx());
+    const uris = [...(r.quickReplies ?? []), ...(r.buttons?.actions ?? [])]
+      .filter((a) => a.type === "uri")
+      .map((a) => (a as { uri: string }).uri);
+    assert.ok(uris.length > 0, `${text}: Web へのリンクが無い`);
+    assert.ok(
+      uris.every((u) => u.startsWith(APP)),
+      `${text}: 自サイト以外のリンクがある`,
+    );
+  }
+});
+
+test("未連携: 連携を求めると、渡されたワンタイムURLを案内する", () => {
+  const url = `${APP}/link/abc123`;
+  const r = buildReply("連携", ctx({ linkUrl: url }));
+  const uris = (r.buttons?.actions ?? []).filter((a) => a.type === "uri").map((a) => (a as { uri: string }).uri);
+  assert.ok(uris.includes(url));
+  assert.match(r.text, /連携/);
+});
+
+test("未連携: linkUrl が無ければ答えを詐称せず、やり直しを促す", () => {
+  const r = buildReply("連携", ctx());
+  assert.match(r.text, /もう一度/);
+  assert.equal(r.buttons, undefined);
+});
+
+test("連携済み: 連携を求めても新しいURLは出さず、解除方法を案内する", () => {
+  const r = buildReply("連携", ctx({ linked: true }));
+  assert.match(r.text, /連携済み/);
+  assert.match(r.text, /連携解除/);
+});
+
+test("連携済み: プロフィールで実際のスコアを返す（分析中の注記つき）", () => {
+  const r = buildReply("プロフィール", {
+    ...ctx({ linked: true }),
+    leaderProfile: { summary: "CODEを強みにしています。", recommendation: "WRITEを1問", recommendedDomain: "WRITE" },
+    scores: [
+      { domain: "READ", score: 72, evidenceCount: 8, confidence: "high" },
+      { domain: "WRITE", score: 57, evidenceCount: 2, confidence: "low" },
+      { domain: "CODE", score: 79, evidenceCount: 10, confidence: "high" },
+    ],
+  });
+  assert.match(r.text, /READ 72/);
+  assert.match(r.text, /WRITE 57（分析中）/);
+  assert.match(r.text, /CODE 79/);
+  assert.match(r.text, /CODEを強みにしています。/);
+});
+
+test("未計測の domain はスコア行に出さない", () => {
+  const r = buildReply("プロフィール", {
+    ...ctx({ linked: true }),
+    leaderProfile: { summary: "まだ暫定です。", recommendation: "", recommendedDomain: null },
+    scores: [
+      { domain: "READ", score: 0, evidenceCount: 0, confidence: "low" },
+      { domain: "CODE", score: 60, evidenceCount: 4, confidence: "medium" },
+    ],
+  });
+  assert.ok(!r.text.includes("READ 0"));
+  assert.match(r.text, /CODE 60/);
+});
+
+test("連携済みなら Web 側の推薦 domain を優先する", () => {
+  const r = buildReply("今日のおすすめ", {
+    ...ctx({ linked: true }),
+    state: { counts: { READ: 0, WRITE: 0, CODE: 5 } },
+    leaderProfile: { summary: "s", recommendation: "WRITE: 明確さを1問", recommendedDomain: "WRITE" },
+  });
+  assert.equal(r.suggestedDomain, "WRITE");
+  assert.match(r.text, /WRITE/);
+});
+
+test("未連携のときだけ、おすすめに連携の案内を添える", () => {
+  const un = buildReply("今日のおすすめ", ctx());
+  assert.match(un.text, /連携/);
+  const linked = buildReply("今日のおすすめ", {
+    ...ctx({ linked: true }),
+    leaderProfile: { summary: "s", recommendation: "r", recommendedDomain: "READ" },
+  });
+  assert.ok(!linked.text.includes("（「連携」と送ると"));
+});
+
+test("解除の返信は解除前の状態に基づいて文面を変える", () => {
+  assert.match(buildReply("連携解除", ctx({ linked: true })).text, /解除しました/);
+  assert.match(buildReply("連携解除", ctx()).text, /まだ/);
+});
+
+test("postback: link / today / profile が対応する返信になる", () => {
+  const url = `${APP}/link/xyz`;
+  assert.match(buildPostbackReply("action=link", ctx({ linkUrl: url })).text, /連携/);
+  assert.ok(buildPostbackReply("action=today", ctx()).suggestedDomain);
+  assert.match(buildPostbackReply("action=profile", ctx()).text, /プロフィール|Dashboard/);
+  assert.match(buildPostbackReply("action=unknown", ctx()).text, /できること/);
+});
+
+test("welcome / help は Web リンク付きで、答えを教えない旨を含む", () => {
+  assert.match(welcomeReply(ctx()).text, /ヒント/);
+  assert.ok((welcomeReply(ctx()).quickReplies ?? []).length > 0);
+  assert.match(helpReply(ctx()).text, /連携/);
+});

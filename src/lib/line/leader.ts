@@ -29,12 +29,20 @@ export type LeaderContext = {
   now?: Date;
   /** Web 側の Leader プロフィール（連携済みのときだけ。任意） */
   leaderProfile?: { summary: string; recommendation: string; recommendedDomain?: DomainKey | null } | null;
+  /** Web アカウントと連携済みか */
+  linked?: boolean;
+  /** 連携用のワンタイムURL（未連携で連携を求められたときだけ渡す） */
+  linkUrl?: string;
+  /** 連携済みのときの能力スコア（数値は evidence。Dashboard と同じ集計値） */
+  scores?: { domain: DomainKey; score: number; evidenceCount: number; confidence: string }[];
 };
 
 // ---- 意図分類 ----
 
 export type Intent =
   | { kind: "domain"; domain: DomainKey }
+  | { kind: "link" }
+  | { kind: "unlink" }
   | { kind: "today" }
   | { kind: "history" }
   | { kind: "profile" }
@@ -51,6 +59,8 @@ export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
 
+  if (/(連携(を)?(解除|やめ|外し|切)|解除|unlink)/.test(text)) return { kind: "unlink" };
+  if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
   if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
   if (/(read|リード|読(む|み|解)|読書)/i.test(lower) && !/書/.test(text)) return { kind: "domain", domain: "READ" };
   if (/(write|ライト|書(く|き)|作文|文章)/i.test(lower)) return { kind: "domain", domain: "WRITE" };
@@ -102,6 +112,11 @@ function domainQuickReplies(appUrl: string): LeaderAction[] {
   ];
 }
 
+/** 未連携のときだけ添える一言（連携すると提案精度が上がることを伝える） */
+function linkHint(ctx: LeaderContext): string {
+  return ctx.linked ? "" : "\n\n（「連携」と送ると、Web の学習記録に基づいた提案になります）";
+}
+
 function domainButtons(appUrl: string, domain: DomainKey, headline: string): LeaderReply["buttons"] {
   const m = DOMAIN_META[domain];
   return {
@@ -136,6 +151,7 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
       "・「今日のおすすめ」→ 最近の偏りから1つ提案",
       "・「10分だけ」「軽く」→ 短い課題を提案",
       "・「履歴」「プロフィール」→ Dashboard へ",
+      "・「連携」→ Web アカウントと繋いで、記録に基づく提案にする",
       "",
       "課題そのものは Web で取り組みます。ここでは方向だけ決めましょう。",
     ].join("\n"),
@@ -150,6 +166,38 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
   switch (intent.kind) {
     case "help":
       return helpReply(ctx);
+
+    case "link": {
+      if (ctx.linked) {
+        return {
+          text: "この LINE は Web アカウントと連携済みです。あなたの学習記録をもとに提案しています。\n解除したいときは「連携解除」と送ってください。",
+          buttons: {
+            title: "連携済み",
+            text: "学習記録に基づいて提案します",
+            actions: [{ type: "uri", label: "Dashboard を開く", uri: dashboardUrl(appUrl) }],
+          },
+        };
+      }
+      if (!ctx.linkUrl) {
+        return { text: "連携URLを発行できませんでした。少し時間をおいて、もう一度「連携」と送ってください。" };
+      }
+      return {
+        text: "Web アカウントと連携すると、ここでの提案があなたの実際の学習記録に基づくようになります。\n\n下のリンクを開いて、Google でログインしてください（15分で失効します）。",
+        buttons: {
+          title: "アカウント連携",
+          text: "15分間有効なワンタイムリンク",
+          actions: [{ type: "uri", label: "連携する", uri: ctx.linkUrl }],
+        },
+      };
+    }
+
+    case "unlink":
+      return {
+        text: ctx.linked
+          ? "連携を解除しました。これ以降は学習記録を参照せず、この会話の流れだけで提案します。"
+          : "この LINE はまだ Web アカウントと連携していません。",
+        quickReplies: domainQuickReplies(appUrl),
+      };
 
     case "greeting":
       return {
@@ -181,10 +229,16 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
 
     case "profile": {
       const web = ctx.leaderProfile?.summary?.trim();
+      const measured = (ctx.scores ?? []).filter((x) => x.evidenceCount > 0);
+      const scoreLine = measured
+        .map((x) => `${x.domain} ${x.score}${x.confidence === "low" ? "（分析中）" : ""}`)
+        .join(" / ");
       return {
         text: web
-          ? `現在の総合寸評:\n${web}\n\n詳しい三角形プロフィールは Dashboard で。`
-          : "能力プロフィールは Dashboard の三角形で見られます。READ / WRITE / CODE の評価と、総合寸評、次のおすすめが並びます。",
+          ? [scoreLine ? `現在のプロフィール:\n${scoreLine}` : "", `総合寸評:\n${web}`, "詳しい三角形は Dashboard で。"]
+              .filter(Boolean)
+              .join("\n\n")
+          : "能力プロフィールは Dashboard の三角形で見られます。READ / WRITE / CODE の評価と、総合寸評、次のおすすめが並びます。\n（「連携」と送ると、ここでも数値を確認できます）",
         buttons: {
           title: "PROFILE",
           text: "三角形プロフィールと総合寸評",
@@ -220,7 +274,7 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
         ? { domain: ctx.leaderProfile.recommendedDomain, reason: ctx.leaderProfile.recommendation || "Web 側の分析に基づく提案です。" }
         : pickBalancedDomain(state);
       return {
-        text: `今日のおすすめは ${pick.domain} です。\n${pick.reason}`,
+        text: `今日のおすすめは ${pick.domain} です。\n${pick.reason}${linkHint(ctx)}`,
         buttons: domainButtons(appUrl, pick.domain, "今日の1問"),
         suggestedDomain: pick.domain,
       };
@@ -246,6 +300,8 @@ export function buildPostbackReply(data: string, ctx: LeaderContext): LeaderRepl
       return buildReply("履歴", ctx);
     case "profile":
       return buildReply("プロフィール", ctx);
+    case "link":
+      return buildReply("連携", ctx);
     case "read":
     case "write":
     case "code":

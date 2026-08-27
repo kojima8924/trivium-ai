@@ -28,6 +28,7 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
 - **能力プロフィール** — READ / WRITE / CODE の三角形レーダー、subskill ごとのバー、信頼度（low / medium / high）
 - **LEADER** — 各 domain の要約を読み、総合寸評と次の課題を提案
 - **LINE 公式アカウント** — 入口として「今日のおすすめ」「10 分だけやりたい」に応え、Web へ誘導（署名検証付き Webhook・Rich Menu）
+- **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイムURLが届き、Google ログイン後に紐づく。以降 LINE の Leader が実際の学習記録にもとづいて答える（「連携解除」でいつでも解除）
 - **Demo Seed** — 架空の 10 日分の学習履歴をワンクリックで投入（自分のアカウントにのみ）
 
 ## 数値 = evidence、文章 = AI interpretation
@@ -95,6 +96,7 @@ npm run line:richmenu                          # LINE Rich Menu 作成
 | `GET /api/profile` | Dashboard と同じプロフィール JSON |
 | `POST /api/demo/seed` | 自分のアカウントにデモ履歴を投入 |
 | `POST /api/line/webhook` | LINE Webhook（署名検証） |
+| `GET /link/<token>` | LINE 連携の確認ページ（POST で消費。単回・15分） |
 
 ## ドキュメント
 

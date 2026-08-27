@@ -7,7 +7,16 @@ import { messagingApi, validateSignature, type webhook } from "@line/bot-sdk";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { loadLineUser, noteSuggestion, saveLineState, type LineState } from "@/lib/line/state";
-import { buildPostbackReply, buildReply, welcomeReply, type LeaderAction, type LeaderReply } from "@/lib/line/leader";
+import {
+  buildPostbackReply,
+  buildReply,
+  classifyIntent,
+  welcomeReply,
+  type LeaderAction,
+  type LeaderContext,
+  type LeaderReply,
+} from "@/lib/line/leader";
+import { issueLinkToken, unlinkLineUser } from "@/lib/line/link";
 import type { DomainKey } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
@@ -67,8 +76,22 @@ async function handleEvent(client: messagingApi.MessagingApiClient, event: webho
   if (event.type === "message") {
     if (event.message.type !== "text" || !event.replyToken) return;
     const lu = await loadLineUser(lineUserId);
-    const ctx = await contextFor(lu);
-    const r = buildReply(event.message.text, ctx);
+    const text = event.message.text;
+    const intent = classifyIntent(text);
+
+    // 連携要求: 未連携なら 15 分有効のワンタイムURLを発行する
+    let linkUrl: string | undefined;
+    if (intent.kind === "link" && !lu.userId) {
+      const issued = await issueLinkToken(lineUserId);
+      linkUrl = `${env.appUrl.replace(/\/$/, "")}/link/${issued.token}`;
+    }
+    // 連携解除: 返信前に実際に解除する（返信文は解除前の状態に基づく）
+    if (intent.kind === "unlink" && lu.userId) {
+      await unlinkLineUser(lineUserId);
+    }
+
+    const ctx = await contextFor(lu, linkUrl);
+    const r = buildReply(text, ctx);
     // 返信APIが失敗しても状態は残るよう、先に保存する
     await persist(lineUserId, lu.state, r);
     await reply(client, event.replyToken, r);
@@ -87,18 +110,34 @@ async function handleEvent(client: messagingApi.MessagingApiClient, event: webho
   // それ以外（unfollow 等）は無視
 }
 
-/** Web アカウント連携済み（LineUser.userId あり）なら、保存済みの Leader プロフィールを添える。PII は使わない */
-async function contextFor(lu: { id: string; userId: string | null; state: LineState }) {
+/**
+ * Web アカウント連携済み（LineUser.userId あり）なら、保存済みの Leader プロフィールと
+ * 能力スコアを添える。氏名・メールなどの PII は一切読まない。
+ */
+async function contextFor(lu: { id: string; userId: string | null; state: LineState }, linkUrl?: string): Promise<LeaderContext> {
   let leaderProfile: { summary: string; recommendation: string; recommendedDomain: DomainKey | null } | null = null;
+  let scores: LeaderContext["scores"];
   if (lu.userId) {
-    const lp = await prisma.leaderProfile.findUnique({ where: { userId: lu.userId } });
+    const [lp, profiles] = await Promise.all([
+      prisma.leaderProfile.findUnique({ where: { userId: lu.userId } }),
+      prisma.domainProfile.findMany({
+        where: { userId: lu.userId },
+        select: { domain: true, score: true, evidenceCount: true, confidence: true },
+      }),
+    ]);
     if (lp) {
       const prefs = (lp.preferences ?? {}) as Record<string, unknown>;
       const rd = typeof prefs.recommendedDomain === "string" ? (prefs.recommendedDomain as DomainKey) : null;
       leaderProfile = { summary: lp.summary, recommendation: lp.recommendation, recommendedDomain: rd };
     }
+    scores = profiles.map((p) => ({
+      domain: p.domain as DomainKey,
+      score: p.score,
+      evidenceCount: p.evidenceCount,
+      confidence: p.confidence,
+    }));
   }
-  return { state: lu.state, appUrl: env.appUrl, leaderProfile };
+  return { state: lu.state, appUrl: env.appUrl, leaderProfile, linked: Boolean(lu.userId), linkUrl, scores };
 }
 
 async function persist(lineUserId: string, state: LineState, r: LeaderReply): Promise<void> {

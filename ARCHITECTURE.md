@@ -119,6 +119,25 @@ LearningAIService（src/lib/ai/index.ts）
 | `scripts/line-richmenu.ts` | LINE Rich Menu セットアップ |
 | `Dockerfile` / `docker-entrypoint.sh` | Coolify 用イメージ。起動時に `prisma migrate deploy` |
 
+## LINE ↔ Web アカウント連携
+
+LINE は「入口」、Web は「学習の場」。両者は既定では独立しているが、連携すると LINE の Leader が実データで答える。
+
+```
+LINE「連携」 → webhook が LineLinkToken を発行（単回・15分）
+            → ワンタイムURL /link/<token> を返信
+            → ユーザーが Web で Google ログイン
+            → 「連携する」ボタン（POST）で消費 → LineUser.userId = users.id
+            → 以降 LINE の Leader は domain_profiles / leader_profiles を読んで答える
+```
+
+- GET では消費しない（リンクのプレビュー取得やクローラで無効化されないため）
+- トークンは 24 バイト乱数、単回、15分で失効。新しく発行すると古い未使用トークンは無効化される
+- LINE 側へ渡すのは学習記録の集計値だけ。氏名・メールは読まない
+- 「連携解除」で `LineUser.userId` を外す（学習記録は Web 側に残る）
+
+関連ファイル: `src/lib/line/link.ts` / `src/app/link/[token]/page.tsx` / `src/app/api/line/webhook/route.ts`
+
 ## セキュリティ方針（要約）
 
 - API key（Dify / LINE / Google）は **server-side env のみ**。`NEXT_PUBLIC_` を付けるのは公開 URL だけ
