@@ -215,6 +215,7 @@ export function welcomeReply(ctx: LeaderContext): LeaderReply {
     "AIは答えを渡さない。一段ずつヒントを出すだけ。",
     "",
     "「今日の学習」で LINE 上の1問、「論理パズルを出して」で作問もできる。",
+    "質問や相談は、そのまま話しかけて。名前で呼べば担当（ヨミ・フミ・ロゴス）とも話せるわ。",
     "まず「連携」と送って Web アカウントと繋ぐと、記録が残るから。",
   ].join("\n");
   return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, { appUrl: ctx.appUrl, mood: "wave", quickReplies: domainQuickReplies(ctx.appUrl) });
@@ -224,6 +225,7 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
   return {
     text: [
       "できること:",
+      "・そのまま話しかけると案内役（ミチ）が答えます。「ヨミ、〜」「ロゴス、〜」のように名前で呼ぶと担当キャラと会話できます",
       "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）。「パス」で記録に残さず次へ",
       "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
       "・「LOGICで難易度8」「難易度3」→ 用意済みの問題から即出題（無ければ作問）。「難易度8で作って」で作問。以後の「次」もその難易度",

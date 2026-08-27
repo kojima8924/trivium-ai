@@ -9,7 +9,7 @@ import { env } from "@/lib/env";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import { nextTask, resolveTask, submitAnswer, finalize } from "@/lib/learn/service";
 import { generateTaskForUser, inferKind } from "@/lib/learn/generate";
-import { loadPersonas } from "@/lib/persona";
+import { loadPersonas, type AgentKey } from "@/lib/persona";
 import type { Task } from "@/lib/tasks";
 import { loadEvents } from "@/lib/profile";
 import { computeXp, xpForEvent } from "@/lib/xp";
@@ -78,11 +78,11 @@ function quizReply(task: Task, personaName: string, preface?: string): LeaderRep
     .join("\n");
   return agentReply(task.domain, personaName, body, {
     appUrl: appUrl(),
-    footer: "下のボタンで答えてください（パスは記録に残りません）",
+    footer: `下のボタンで答えてください（パスは記録に残りません）。分からないことは、そのまま話しかければ ${personaName} が答えます`,
     quickReplies: [
-      ...choiceActions(task),
       { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
       { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
+      ...choiceActions(task),
     ],
   });
 }
@@ -200,9 +200,10 @@ export async function answerQuiz(
         appUrl: appUrl(),
         mood: "think",
         quickReplies: [
-          ...choiceActions(task),
-          { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
           { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
+          { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
+          { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
+          ...choiceActions(task),
         ],
       }),
       settled: null,
@@ -299,7 +300,9 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
       out.push(agentReply("LEADER", ln, body, { appUrl: appUrl(), mood: up ? "cheer" : "normal" }));
     }
   }
-  out[out.length - 1] = { ...out[out.length - 1], quickReplies: todayActions() };
+  // 最後の 1 通に「もう1問 / <担当>と話す / <案内役>と話す / Dashboard」
+  const talk = withComment ? { agent: "LEADER" as AgentKey, name: personas.LEADER.name } : { agent: domain as AgentKey, name: personas[domain].name };
+  out[out.length - 1] = { ...out[out.length - 1], quickReplies: todayActions(talk) };
   return out;
 }
 
@@ -324,9 +327,13 @@ function stripName(text: string, name: string): string {
   return text.startsWith(`${name}: `) ? text.slice(name.length + 2) : text;
 }
 
-function todayActions(): LeaderAction[] {
+function todayActions(talkTo?: { agent: AgentKey; name: string }): LeaderAction[] {
   return [
     { type: "postback", label: "もう1問", data: "action=today", displayText: "もう1問" },
+    // 会話できることを常に見せる（押すと次の 1 通がその人格との会話になる）
+    ...(talkTo
+      ? [{ type: "postback" as const, label: `${talkTo.name}と話す`, data: `action=ask&agent=${talkTo.agent}`, displayText: `${talkTo.name}と話す` }]
+      : []),
     { type: "uri", label: "Dashboard", uri: `${appUrl()}/dashboard` },
   ];
 }
