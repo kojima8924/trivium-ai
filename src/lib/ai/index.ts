@@ -22,6 +22,8 @@ class LearningAIService implements LearningAIProvider {
   private fallback: LearningAIProvider;
   /** 直近で使われた provider 名（ヘルスチェック・UI表示用） */
   lastUsed: string;
+  /** primary が最後に失敗したときの情報（運用診断用。鍵などの秘密は含めない） */
+  lastError: { at: string; op: string; message: string } | null = null;
 
   constructor(primary: LearningAIProvider, fallback: LearningAIProvider) {
     this.primary = primary;
@@ -37,7 +39,9 @@ class LearningAIService implements LearningAIProvider {
       return r;
     } catch (err) {
       if (this.primary === this.fallback) throw err;
-      console.warn(`[ai] ${label}: ${this.primary.name} failed, falling back to ${this.fallback.name}:`, (err as Error).message);
+      const message = sanitizeError(err);
+      this.lastError = { at: new Date().toISOString(), op: label, message };
+      console.warn(`[ai] ${label}: ${this.primary.name} failed, falling back to ${this.fallback.name}:`, message);
       const r = await fn(this.fallback);
       this.lastUsed = this.fallback.name;
       return r;
@@ -73,6 +77,16 @@ const g = globalThis as unknown as { __triviumAI?: LearningAIService };
 export const learningAI: LearningAIService =
   process.env.NODE_ENV === "production" ? (g.__triviumAI ??= build()) : build();
 
+/** エラー文から鍵・トークンらしき文字列を落とし、長さも切る（ヘルスチェックに載せるため） */
+function sanitizeError(err: unknown): string {
+  const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  return raw
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, "sk-ant-***")
+    .replace(/Bearer\s+\S+/g, "Bearer ***")
+    .replace(/\s+/g, " ")
+    .slice(0, 240);
+}
+
 export function aiStatus() {
-  return { provider: learningAI.name, lastUsed: learningAI.lastUsed };
+  return { provider: learningAI.name, lastUsed: learningAI.lastUsed, lastError: learningAI.lastError };
 }
