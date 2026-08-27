@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { auth, authProvidersAvailable, signIn } from "@/auth";
 
@@ -24,7 +25,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-6 py-12">
       <div>
-        <h1 className="wordmark text-2xl">Trivium</h1>
+        <h1 className="sr-only">Trivium</h1>
+        <Image src="/brand/logo-wide.png" alt="Trivium" width={443} height={96} priority className="h-8 w-auto" />
         <p className="mt-2 text-sm text-muted">
           ログインすると、学習状態がサーバに保存され、別の端末からも同じプロフィールを利用できます。
         </p>

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { DOMAINS, DOMAIN_META } from "@/lib/domain";
@@ -11,7 +12,15 @@ export default async function Home() {
   return (
     <div className="flex flex-col gap-10 py-8">
       <section className="flex flex-col items-start gap-4">
-        <h1 className="wordmark text-4xl sm:text-5xl">Trivium</h1>
+        <h1 className="sr-only">Trivium</h1>
+        <Image
+          src="/brand/logo-wide.png"
+          alt="Trivium"
+          width={443}
+          height={96}
+          priority
+          className="h-12 w-auto sm:h-16"
+        />
         <p className="max-w-xl text-lg leading-relaxed text-muted">
           <span className="font-semibold text-fg">AI does not do the work for you.</span>
           <br />
