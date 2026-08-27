@@ -1,0 +1,49 @@
+# CI: typecheck / lint / test / build
+# DB には接続しない（DATABASE_URL はダミー）。Docker build は Coolify 側で行う。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      AUTH_SECRET: ci-only-dummy-secret
+      AUTH_TRUST_HOST: "true"
+      AI_PROVIDER: mock
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        # tests/ が無い段階でも落とさない
+        run: |
+          if [ -d tests ] && ls tests/*.test.ts >/dev/null 2>&1; then
+            npm test
+          else
+            echo "tests/ が無いためスキップ"
+          fi
+
+      - name: Build
+        run: npm run build
