@@ -31,10 +31,18 @@ export function SeedButton({ hasData }: { hasData: boolean }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-      <button type="button" className="btn h-9 min-h-0 px-3 py-1 text-xs" disabled={busy} onClick={() => run(hasData)}>
+      <button
+        type="button"
+        className="btn px-3 text-xs"
+        disabled={busy}
+        onClick={() => run(hasData)}
+        aria-label={hasData ? "学習記録をデモデータで置き換える" : "デモデータを投入する"}
+      >
         {busy ? "投入中…" : hasData ? "デモデータで置き換える" : "デモデータを投入"}
       </button>
-      {msg && <span>{msg}</span>}
+      <span role="status" aria-live="polite">
+        {msg}
+      </span>
     </div>
   );
 }

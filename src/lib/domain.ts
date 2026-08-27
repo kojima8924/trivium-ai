@@ -38,25 +38,26 @@ export const DOMAIN_META: Record<
   DomainKey,
   { label: string; ja: string; tagline: string; color: string; path: string }
 > = {
+  // color は CSS 変数を参照する（globals.css でダークモード時に明度を上げるため）
   READ: {
     label: "READ",
     ja: "読む",
     tagline: "短文を読み、要旨・推論・批判的読解に答える",
-    color: "#2563eb",
+    color: "var(--read)",
     path: "/learn/read",
   },
   WRITE: {
     label: "WRITE",
     ja: "書く",
     tagline: "主張や説明を書き、構成・根拠・反論を磨く",
-    color: "#d97706",
+    color: "var(--write)",
     path: "/learn/write",
   },
   CODE: {
     label: "CODE",
     ja: "コード",
     tagline: "短いPythonを読み、出力予測・バグ発見・説明をする",
-    color: "#059669",
+    color: "var(--code)",
     path: "/learn/code",
   },
 };

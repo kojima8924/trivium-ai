@@ -8,7 +8,7 @@ export async function Header() {
   return (
     <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" aria-label="Trivium ホーム" className="flex items-center">
+        <Link href="/" aria-label="Trivium ホーム" className="flex min-h-11 items-center">
           <Image src="/brand/logo-wide.png" alt="Trivium" width={443} height={96} priority className="h-6 w-auto" />
         </Link>
         <nav className="flex items-center gap-2 text-sm">
@@ -23,7 +23,7 @@ export async function Header() {
                   await signOut({ redirectTo: "/" });
                 }}
               >
-                <button type="submit" className="text-muted hover:text-fg" title={user.email ?? undefined}>
+                <button type="submit" className="min-h-11 px-2 text-muted hover:text-fg" title={user.email ?? undefined}>
                   ログアウト
                 </button>
               </form>

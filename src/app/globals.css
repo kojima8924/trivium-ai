@@ -39,6 +39,13 @@
     --muted: #a3a29b;
     --line: #2c2c29;
     --accent: #e5e7eb;
+    /* domain 色は暗い背景ではコントラストが足りないので明度を上げる
+       （UI 側は DOMAIN_META.color の hex ではなく var(--read) 等を参照する） */
+    --read: #60a5fa;
+    --write: #fbbf24;
+    --code: #34d399;
+    --ok: #34d399;
+    --ng: #f87171;
   }
 }
 
@@ -51,6 +58,20 @@ html {
 
 body {
   min-height: 100dvh;
+}
+
+/* キーボード操作時のフォーカスを必ず見えるようにする */
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* 画像・表などが親幅を超えて横スクロールを生まないようにする */
+img,
+svg,
+table {
+  max-width: 100%;
 }
 
 .card {
