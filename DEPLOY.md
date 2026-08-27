@@ -90,6 +90,7 @@ Coolify の Health Check 設定は Dockerfile 内の `HEALTHCHECK`（`/api/healt
 | キー | 必須 | 用途 | Build Variable? |
 |---|---|---|---|
 | `NEXT_PUBLIC_APP_URL` | ○ | 公開 URL（`https://trivium.example.com`）。OAuth コールバック・LINE からの誘導リンクに使う | **○ 必要**（`NEXT_PUBLIC_` はビルド時にバンドルへ埋め込まれる。Dockerfile は `ARG NEXT_PUBLIC_APP_URL` で受ける） |
+| `AUTH_URL` | ○ | 公開 URL（`APP_URL` と同じ値）。Traefik 越しだと Auth.js が `0.0.0.0:3000` を自分の URL と誤認し、Google の redirect_uri が壊れる。コードは `APP_URL` から自動補完するが、明示しておくのが確実 | 不要（実行時） |
 | `APP_URL` | ○ | `NEXT_PUBLIC_APP_URL` と同じ値。サーバ側はこちらを優先して読むので、Build Variable の設定漏れでもリダイレクト/LINE リンクが localhost にならない保険 | 不要（実行時） |
 | `DATABASE_URL` | ○ | 1 章の内部接続文字列 | 不要（実行時のみ。ビルドは DB に触らない） |
 | `AUTH_SECRET` | ○ | Auth.js のセッション署名鍵。`openssl rand -base64 32` で生成 | 不要 |

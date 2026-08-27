@@ -7,6 +7,13 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 
+// リバースプロキシ（Coolify/Traefik）配下では、Auth.js がリクエストから組み立てる URL が
+// コンテナ内の 0.0.0.0:3000 になり、OAuth の redirect_uri が壊れる。
+// AUTH_URL が未設定なら公開 URL（APP_URL / NEXT_PUBLIC_APP_URL）から補う。
+if (!process.env.AUTH_URL && env.appUrl && !env.appUrl.includes("localhost")) {
+  process.env.AUTH_URL = env.appUrl;
+}
+
 const providers: NextAuthConfig["providers"] = [];
 
 if (env.google.configured) {
