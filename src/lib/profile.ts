@@ -7,6 +7,7 @@ import { learningAI } from "./ai";
 import { DOMAINS, type Confidence, type DomainKey } from "./domain";
 import { computeDomainScore, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
 import { getTask } from "./tasks";
+import { personaPrompts } from "./persona";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 
@@ -57,9 +58,11 @@ export async function recomputeDomainProfile(userId: string, domain: DomainKey, 
       daysAgo: Math.round((now - e.createdAt.getTime()) / 86_400_000),
     }));
 
+  const personas = await personaPrompts(userId);
   const interp = await learningAI.interpretDomain({
     mode: MODE[domain],
     learnerRef: userId,
+    persona: personas[domain],
     stats: {
       score: stats.score,
       subskills: stats.subskills,
@@ -126,7 +129,8 @@ export async function recomputeLeaderProfile(userId: string, context?: string, p
         minutesAgo: Math.round((Date.now() - last.createdAt.getTime()) / 60_000),
       }
     : undefined;
-  const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context });
+  const personas = await personaPrompts(userId);
+  const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context, persona: personas.LEADER });
   const data = {
     summary: out.summary,
     interests: out.interests,

@@ -3,12 +3,15 @@ import "server-only";
 import { env } from "../env";
 import { AnthropicProvider } from "./anthropic";
 import { DifyProvider } from "./dify";
+import { OpenAIProvider } from "./openai";
 import { MockProvider } from "./mock";
 import type {
   DomainEvalInput,
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
+  GenerateTaskInput,
+  GenerateTaskOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
@@ -57,13 +60,18 @@ class LearningAIService implements LearningAIProvider {
   leader(input: LeaderInput): Promise<LeaderOutput> {
     return this.withFallback("leader", (p) => p.leader(input));
   }
+  generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
+    return this.withFallback("generateTask", (p) => p.generateTask(input));
+  }
 }
 
 function build(): LearningAIService {
   const mock = new MockProvider();
   // provider の選択。キーが無い場合は黙って mock に落とす（アプリを止めない）
   let primary: LearningAIProvider = mock;
-  if (env.ai.provider === "anthropic" && env.ai.anthropicApiKey) {
+  if (env.ai.provider === "openai" && env.ai.openaiApiKey) {
+    primary = new OpenAIProvider();
+  } else if (env.ai.provider === "anthropic" && env.ai.anthropicApiKey) {
     primary = new AnthropicProvider();
   } else if (env.ai.provider === "dify" && (env.ai.difyDomainApiKey || env.ai.difyLeaderApiKey)) {
     primary = new DifyProvider();

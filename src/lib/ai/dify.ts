@@ -11,6 +11,8 @@ import type {
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
+  GenerateTaskInput,
+  GenerateTaskOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
@@ -177,5 +179,10 @@ export class DifyProvider implements LearningAIProvider {
         ? (rd as DomainKey)
         : fallback.recommendedDomain,
     };
+  }
+
+  /** 作問は OpenAI provider の担当。この provider では定型問題（Mock）に委譲する */
+  async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
+    return this.fallback.generateTask(input);
   }
 }

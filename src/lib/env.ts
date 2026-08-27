@@ -16,8 +16,11 @@ export const env = {
   demoSeedEnabled: bool(process.env.DEMO_SEED_ENABLED, true),
 
   ai: {
-    /** dify | anthropic | mock（未設定なら dify。キーが無ければ自動で mock） */
-    provider: (process.env.AI_PROVIDER ?? "dify") as "dify" | "anthropic" | "mock",
+    /** openai | dify | anthropic | mock（未設定なら openai。キーが無ければ自動で mock） */
+    provider: (process.env.AI_PROVIDER ?? "openai") as "openai" | "dify" | "anthropic" | "mock",
+    openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+    openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? 25000),
     difyApiBase: process.env.DIFY_API_BASE ?? "https://api.dify.ai/v1",
     difyDomainApiKey: process.env.DIFY_DOMAIN_API_KEY ?? "",
     difyLeaderApiKey: process.env.DIFY_LEADER_API_KEY ?? "",

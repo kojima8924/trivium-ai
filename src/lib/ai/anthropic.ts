@@ -14,6 +14,8 @@ import {
   type DomainEvalOutput,
   type DomainInterpretInput,
   type DomainInterpretOutput,
+  type GenerateTaskInput,
+  type GenerateTaskOutput,
   type LeaderInput,
   type LeaderOutput,
   type LearningAIProvider,
@@ -199,5 +201,10 @@ export class AnthropicProvider implements LearningAIProvider {
       recommendation: out.recommendation,
       recommendedDomain: (DOMAINS as readonly string[]).includes(out.recommended_domain) ? out.recommended_domain : "CODE",
     };
+  }
+
+  /** 作問は OpenAI provider の担当。この provider では定型問題（Mock）に委譲する */
+  async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
+    return this.fallback.generateTask(input);
   }
 }

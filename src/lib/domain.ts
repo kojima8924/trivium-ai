@@ -10,6 +10,7 @@ export function isDomainKey(v: unknown): v is DomainKey {
 export function parseDomain(v: string | undefined | null): DomainKey | null {
   if (!v) return null;
   const upper = v.toUpperCase();
+  if (upper === "LOGIC") return "CODE"; // 表示名 LOGIC は内部キー CODE（DB の enum は変えない）
   return isDomainKey(upper) ? upper : null;
 }
 
@@ -28,10 +29,10 @@ export const SUBSKILL_LABELS: Record<string, string> = {
   clarity: "明確さ",
   reasoning: "根拠づけ",
   revision: "推敲",
-  tracing: "トレース",
-  debugging: "デバッグ",
-  algorithms: "アルゴリズム",
-  design: "設計の言語化",
+  tracing: "手順の追跡",
+  debugging: "誤りの発見",
+  algorithms: "手順の設計",
+  design: "構造化・言語化",
 };
 
 export const DOMAIN_META: Record<
@@ -53,12 +54,13 @@ export const DOMAIN_META: Record<
     color: "var(--write)",
     path: "/learn/write",
   },
+  // 内部キーは CODE のまま。表示は LOGIC（Python の読解と、論理的判断の問題の両方を含む）
   CODE: {
-    label: "CODE",
-    ja: "コード",
-    tagline: "短いPythonを読み、出力予測・バグ発見・説明をする",
+    label: "LOGIC",
+    ja: "論理",
+    tagline: "短いPythonや手順・条件の問題で、追跡・誤りの発見・手順の設計を鍛える",
     color: "var(--code)",
-    path: "/learn/code",
+    path: "/learn/logic",
   },
 };
 

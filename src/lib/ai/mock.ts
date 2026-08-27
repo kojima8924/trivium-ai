@@ -7,10 +7,58 @@ import type {
   DomainEvalOutput,
   DomainInterpretInput,
   DomainInterpretOutput,
+  GenerateTaskInput,
+  GenerateTaskOutput,
   LeaderInput,
   LeaderOutput,
   LearningAIProvider,
+  PersonaPrompt,
 } from "./types";
+
+/** 人格が指定されていれば短い名乗りを添える（Mock でも「4人いる」感を出す） */
+function signed(text: string, persona?: PersonaPrompt): string {
+  return persona ? `${persona.name}: ${text}` : text;
+}
+
+// LLM が使えないときの定型問題（domain ごとに 1 種類ずつ。数値は依頼ごとに少し変える）
+const CANNED: Record<DomainKey, (seed: number) => GenerateTaskOutput> = {
+  READ: (seed) => ({
+    title: "推論: 行動から状況を読む",
+    passage: `Dさんは会議室の前で立ち止まり、時計を見てから鞄の中を探した。${seed % 2 === 0 ? "資料は机の上に置いたままだった。" : "ノートパソコンの充電器が見当たらなかった。"}Dさんは小さくため息をつき、来た道を戻った。`,
+    prompt: "Dさんが来た道を戻った理由として最も自然なものを選んでください。",
+    choices: ["会議が中止になったから", "忘れ物を取りに行くため", "別の会議室に呼ばれたから", "時計が止まっていたから"],
+    answerKey: ["1"],
+    rubric: null,
+    hints: ["Dさんが直前にしていた動作は何ですか？", "鞄の中を探して、見つからなかったものがあります。", "見つからなかったものを取りに行く、という流れで考えてみましょう。"],
+    explanation: "鞄を探して見つからない→ため息→来た道を戻る、という行動の連鎖から、忘れ物を取りに戻ったと推論するのが自然です。",
+    skillTags: ["inference"],
+  }),
+  WRITE: (seed) => ({
+    title: "構成: 一文を分けて直す",
+    passage: `元の文: 「${seed % 2 === 0 ? "この提案は費用がかかるが効果も大きいので採用すべきだと思うがリスクもあるので検討が必要だ" : "新しい手順は速いが慣れるまで時間がかかるので導入は段階的にすべきだと考えるが反対もある"}。」`,
+    prompt: "この文を、意味を保ったまま2〜3文に分けて書き直してください（60〜120字）。",
+    choices: [],
+    answerKey: [],
+    rubric: { mustInclude: ["。", "しかし", "ただし", "一方", "そのため", "だから"], minLength: 40, maxLength: 200, criteria: ["2〜3文に分かれているか", "主張と留保が区別されているか", "意味が変わっていないか"] },
+    hints: ["この文には主張がいくつ入っていますか？", "「〜が」で繋がっている箇所で切ってみましょう。", "主張の文と、留保（ただし〜）の文を分けてみましょう。"],
+    explanation: "「〜が〜が〜」と続く文は、主張・理由・留保に分けると読みやすくなります。",
+    skillTags: ["structure", "clarity"],
+  }),
+  CODE: (seed) => ({
+    title: "推論: 条件から順番を決める",
+    passage: `A・B・C の3人が一列に並んでいる。
+・A は B より前にいる。
+・C は先頭ではない。
+・${seed % 2 === 0 ? "B は最後尾ではない。" : "A は先頭ではない。"}`,
+    prompt: "3人の並び順（先頭→最後尾）として正しいものを選んでください。",
+    choices: seed % 2 === 0 ? ["A, B, C", "A, C, B", "B, A, C", "C, A, B"] : ["A, B, C", "B, A, C", "C, A, B", "B, C, A"],
+    answerKey: seed % 2 === 0 ? ["1"] : ["2"],
+    rubric: null,
+    hints: ["条件を1つずつ使って、あり得ない並びを消してみましょう。", "「C は先頭ではない」で先頭候補は誰に絞れますか？", "残った候補に、3つ目の条件を当ててみましょう。"],
+    explanation: seed % 2 === 0 ? "A が B より前・C は先頭でない・B は最後尾でない、を満たすのは A, C, B だけです。" : "A は先頭でない・C も先頭でない→先頭は B。A が B より前という条件と矛盾しない並びは C, A, B です。",
+    skillTags: ["tracing", "algorithms"],
+  }),
+};
 
 const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = {
   read: "READ",
@@ -20,6 +68,13 @@ const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = {
 
 export class MockProvider implements LearningAIProvider {
   readonly name = "mock";
+
+  async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
+    const seed = input.recentTitles.length + input.request.length;
+    const t = CANNED[input.domain](seed);
+    // 依頼の kind と違う形式しか用意がない場合はそのまま返す（呼び出し側が kind を合わせる）
+    return { ...t, skillTags: t.skillTags.filter((x) => input.allowedSkillTags.includes(x)) };
+  }
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
     const isFree = input.deterministicResult === null;
@@ -37,7 +92,7 @@ export class MockProvider implements LearningAIProvider {
           : `正解です。ヒント${input.hintLevel}回で到達しました。最初の答えと何が違ったかを振り返ってみましょう。`;
       return {
         status: "success",
-        feedback,
+        feedback: signed(feedback, input.persona),
         hint: "",
         observations: [
           input.hintLevel === 0
@@ -67,7 +122,7 @@ export class MockProvider implements LearningAIProvider {
         : "まだ違うようです。もう一段だけ考える材料を出します。";
     return {
       status: "retry",
-      feedback: intro,
+      feedback: signed(intro, input.persona),
       hint: nextHint,
       observations: [`難易度${input.task.difficulty}の課題で誤答（ヒント${input.hintLevel + 1}回目）`],
       skillTags: [],
@@ -168,7 +223,7 @@ export class MockProvider implements LearningAIProvider {
         : `${target.domain}: まず1問取り組んで計測を始める`;
 
     return {
-      summary: summaryParts.join(""),
+      summary: signed(summaryParts.join(""), input.persona),
       interests: measured.map((d) => `${d.domain}: ${d.eventsLast7Days}件/週`),
       preferences: {
         practiceFocus: mostPracticed.domain,

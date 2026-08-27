@@ -35,6 +35,7 @@ export type DomainEvalInput = {
   };
   /** 直近の学習行動（要約用） */
   recentBehavior: string[];
+  persona?: PersonaPrompt;
 };
 
 export type DomainEvalOutput = {
@@ -68,6 +69,7 @@ export type DomainInterpretInput = {
     skillTags: string[];
     daysAgo: number;
   }[];
+  persona?: PersonaPrompt;
 };
 
 export type DomainInterpretOutput = {
@@ -103,6 +105,7 @@ export type LeaderInput = {
   };
   /** 「10分だけ」などの文脈（LINE経由）。無ければ空 */
   context?: string;
+  persona?: PersonaPrompt;
 };
 
 export type LeaderOutput = {
@@ -115,11 +118,53 @@ export type LeaderOutput = {
   recommendedDomain: DomainKey;
 };
 
+// ---- 作問（LINE の自由文リクエスト等） ----
+
+export type GenerateTaskInput = {
+  learnerRef: string;
+  /** 依頼文（例: 「論理パズルを出して」「短めの読解を1問」） */
+  request: string;
+  /** 依頼から推定した domain（呼び出し側で決める。LLM に任せない） */
+  domain: DomainKey;
+  difficulty: number; // 1..5
+  /** 出題形式。LINE では choice を基本にする */
+  kind: "choice" | "short" | "free";
+  /** この domain の subskill 一覧（skill_tags はここから選ばせる） */
+  allowedSkillTags: readonly string[];
+  /** 直近の課題タイトル（同じ題材を避ける） */
+  recentTitles: string[];
+  persona?: PersonaPrompt;
+};
+
+export type GenerateTaskOutput = {
+  title: string;
+  passage: string;
+  prompt: string;
+  choices: string[]; // choice のときのみ（4件）。それ以外は空
+  answerKey: string[]; // choice: 正解 index の文字列 / short: 正解候補 / free: 空
+  rubric: { mustInclude: string[]; minLength: number; maxLength: number; criteria: string[] } | null;
+  hints: [string, string, string];
+  explanation: string;
+  skillTags: string[];
+};
+
+/** AI の人格（prompt 用に整形済み。PII は含めない） */
+export type PersonaPrompt = {
+  agent: "READ" | "WRITE" | "CODE" | "LEADER";
+  name: string;
+  tone: string; // 口調の説明文
+  firstPerson: string;
+  extra: string;
+  /** キャッシュキー用（設定が変わると変わる） */
+  key: string;
+};
+
 export interface LearningAIProvider {
   readonly name: string;
   evaluate(input: DomainEvalInput): Promise<DomainEvalOutput>;
   interpretDomain(input: DomainInterpretInput): Promise<DomainInterpretOutput>;
   leader(input: LeaderInput): Promise<LeaderOutput>;
+  generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput>;
 }
 
 export const AI_SYSTEM_POLICY = [

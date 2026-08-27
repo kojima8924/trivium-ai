@@ -38,6 +38,10 @@ model User {
   leaderProfile  LeaderProfile?
   achievements   Achievement[]
   lineUsers      LineUser[]
+  personas       AgentPersona[]
+  generatedTasks GeneratedTask[]
+  dailyDigests   DailyDigest[]
+  snapshots      ProfileSnapshot[]
 }
 
 model Account {
@@ -148,6 +152,91 @@ model LeaderProfile {
   createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ---------- AI の人格（READ / WRITE / CODE / LEADER。ユーザーごとに上書き可） ----------
+
+model AgentPersona {
+  id          String   @id @default(cuid())
+  userId      String
+  agent       String // READ | WRITE | CODE | LEADER
+  name        String
+  tone        String   @default("polite") // polite | casual | senior | coach
+  firstPerson String   @default("私")
+  extra       String   @default("") // 自由記述（口癖・スタンスなど。prompt に追記）
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agent])
+}
+
+// ---------- LLM が作問した課題（LINE の自由文リクエスト等）。通常の Task と同じ形で扱う ----------
+
+model GeneratedTask {
+  id         String   @id // "gen-xxxx"
+  userId     String
+  domain     Domain
+  difficulty Int
+  title      String
+  passage    String   @default("")
+  prompt     String
+  kind       String // choice | short | free
+  choices    Json? // string[]
+  answerKey  Json? // string[]
+  rubric     Json? // { mustInclude, minLength, maxLength, criteria }
+  hints      Json // string[]
+  explanation String
+  skillTags  String[]
+  request    String   @default("") // 元になった依頼文
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ---------- 選択式の講評キャッシュ（タスク×回答×ヒント段階×人格） ----------
+
+model TaskFeedbackCache {
+  id        String   @id @default(cuid())
+  taskId    String
+  answer    String
+  hintLevel Int
+  personaKey String  @default("default")
+  payload   Json // DomainEvalOutput
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, answer, hintLevel, personaKey])
+}
+
+// ---------- 「今日の3問」完了通知の送信記録（1日1回） ----------
+
+model DailyDigest {
+  id      String   @id @default(cuid())
+  userId  String
+  day     String // YYYY-MM-DD (JST)
+  sentAt  DateTime @default(now())
+  summary String   @default("")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+}
+
+// ---------- 能力の時系列（profile 再計算のたびに 1 行） ----------
+
+model ProfileSnapshot {
+  id        String   @id @default(cuid())
+  userId    String
+  read      Int
+  write     Int
+  code      Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 // ---------- Achievements ----------
