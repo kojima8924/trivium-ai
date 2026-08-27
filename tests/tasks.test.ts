@@ -241,3 +241,88 @@ test("追加した short タスクの正解が checkDeterministic を通る（�
   assert.equal(checkDeterministic(getTask("code-009")!, "3.5"), false);
   assert.equal(checkDeterministic(getTask("code-013")!, "4 the"), false);
 });
+
+// ---- 全角入力・ヒントの完成解漏れ（レビュー指摘の回帰防止） ----
+
+/** ASCII 印字可能文字を全角に、半角スペースを全角スペースに変換する（日本語IMEでそのまま打った状態を再現） */
+function toFullWidth(s: string): string {
+  return [...s]
+    .map((ch) => {
+      const c = ch.charCodeAt(0);
+      if (ch === " ") return "　";
+      if (c >= 0x21 && c <= 0x7e) return String.fromCharCode(c + 0xfee0);
+      return ch;
+    })
+    .join("");
+}
+
+test("short タスク: 正解候補を全角で入力しても正解になる（IME 対策）", () => {
+  const shorts = ALL_TASKS.filter((t) => t.kind === "short");
+  assert.ok(shorts.length > 0);
+  for (const t of shorts) {
+    for (const key of t.answerKey ?? []) {
+      assert.equal(checkDeterministic(t, key), true, `${t.id}: 半角 ${key}`);
+      assert.equal(checkDeterministic(t, toFullWidth(key)), true, `${t.id}: 全角 ${toFullWidth(key)}`);
+    }
+  }
+});
+
+test("short タスク: Unicode のマイナス記号（− ‐ –）も '-' として扱う", () => {
+  const t = getTask("code-006")!; // 答えは -1
+  for (const minus of ["−", "‐", "–", "－"]) {
+    assert.equal(checkDeterministic(t, `${minus}1`), true, `U+${minus.charCodeAt(0).toString(16)}`);
+  }
+  assert.equal(checkDeterministic(t, "1"), false);
+});
+
+test("デモの正解入力 ３.０ / ３．０（全角）が code-003 で正解になる", () => {
+  const t = getTask("code-003")!;
+  assert.equal(checkDeterministic(t, "３.０"), true);
+  assert.equal(checkDeterministic(t, "３．０"), true);
+  assert.equal(checkDeterministic(t, "３。０"), true); // MS-IME 日本語モードの "." は「。」
+  assert.equal(checkDeterministic(t, "　3.0　"), true);
+});
+
+test("short タスク: answerKey に重複が無い（正規化後も一意）", () => {
+  for (const t of ALL_TASKS.filter((x) => x.kind === "short")) {
+    const keys = t.answerKey ?? [];
+    assert.equal(new Set(keys).size, keys.length, `${t.id}: answerKey が重複`);
+  }
+});
+
+test("free タスク: ヒントをそのまま提出しても rubric を満たさない（完成解を渡していない）", () => {
+  // 完成解をヒントに書くと「字数が範囲内」かつ「mustInclude 語を複数含む」平叙文になりやすい。
+  // その組み合わせを機械的に検出する。
+  //  - 1 語だけの一致は「観点を示す」正当なヒントでも起きるので 2 語以上を条件にする
+  //    （例: write-002 の「確かに〜。しかし〜」は 3 語一致するが minLength 90 に届かないので提出しても通らない＝OK）
+  //  - 疑問文（「〜ませんか？」）はそのまま答えとして提出できないので対象外にする
+  //    （例: write-003 hints[1] は要素名を 2 つ挙げるが「削れませんか？」と問い返している）
+  for (const t of ALL_TASKS.filter((x) => x.kind === "free")) {
+    const r = t.rubric!;
+    for (const [i, h] of t.hints.entries()) {
+      const len = [...h].length;
+      const inRange = (!r.minLength || len >= r.minLength) && (!r.maxLength || len <= r.maxLength);
+      const hits = (r.mustInclude ?? []).filter((w) => h.includes(w));
+      const isQuestion = /[？?]\s*$/.test(h);
+      assert.ok(
+        !(inRange && hits.length >= 2 && !isQuestion),
+        `${t.id} hints[${i}] は提出可能な完成解になっている可能性（${len}字, mustInclude 一致: ${hits.join("/")}）`,
+      );
+    }
+  }
+});
+
+test("short タスク: ヒント本文に正解の値そのものが含まれない（DEMO 依存の code-003 / code-006 は例外として明示）", () => {
+  // 3 段目のヒントでも最終値は書かない、が原則。
+  // code-003 / code-006 は台本が依存しているため文言を凍結しており、値を含む可能性を検査対象から外す。
+  const frozen = new Set(["code-003", "code-006"]);
+  for (const t of ALL_TASKS.filter((x) => x.kind === "short" && !frozen.has(x.id))) {
+    for (const key of t.answerKey ?? []) {
+      // 1 文字・2 文字の短い数値（"3"、"9"）は文中に偶然現れるので、3 文字以上の正解だけを見る
+      if ([...key].length < 3) continue;
+      for (const [i, h] of t.hints.entries()) {
+        assert.ok(!h.includes(key), `${t.id} hints[${i}] に正解 "${key}" が含まれている`);
+      }
+    }
+  }
+});

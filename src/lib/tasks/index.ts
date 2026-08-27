@@ -50,11 +50,19 @@ export function pickNextTask(
   )[0];
 }
 
+/**
+ * 短答の正規化。日本語IMEで入力された全角英数・全角記号・全角スペースを半角に揃える。
+ *   NFKC: ３.０ → 3.0、［４, １, ５］ → [4, 1, 5]、－ → -、全角スペース → 半角
+ *   NFKC が扱わない Unicode のマイナス/ダッシュ（− ‐ ‑ – — ―）は明示的に '-' へ、「。」は '.' へ
+ */
 function normalize(s: string): string {
   return s
+    .normalize("NFKC")
+    .replace(/[−‐-―]/g, "-")
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[，、]/g, ",")
+    .replace(/。/g, ".") // MS-IME の日本語モードでは "." が「。」になる（NFKC では畳まれない）
     .replace(/\s*,\s*/g, ", ")
     .replace(/[“”"'‘’]/g, "")
     .toLowerCase();
