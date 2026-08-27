@@ -57,7 +57,8 @@ function choiceActions(task: Task): LeaderAction[] {
     type: "postback" as const,
     label: `${LETTERS[i]}: ${c}`.slice(0, 20),
     data: `action=answer&task=${encodeURIComponent(task.id)}&choice=${i}`,
-    displayText: `${LETTERS[i]}. ${c}`,
+    // displayText は LINE の上限 300 字。生成課題の長い選択肢でも超えないように切る
+    displayText: `${LETTERS[i]}. ${c}`.slice(0, 280),
   }));
 }
 

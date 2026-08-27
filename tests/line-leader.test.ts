@@ -206,3 +206,40 @@ test("呼びかけ付きの文は意図分類が quiz/domain に当たっても�
   assert.equal(classifyIntent("昨日の会議で言われたことがまだ引っかかってる").kind, "unknown");
   assert.equal(detectAddressedAgent("昨日の会議で言われたことがまだ引っかかってる", PERSONA_DEFAULTS), null);
 });
+
+// ---- 呼びかけ判定（persona.pure.ts）: 名前限定・部分一致なし ----
+
+const PERSONAS = { READ: { name: "アオイ" }, WRITE: { name: "フミ" }, CODE: { name: "ケイ" }, LEADER: { name: "リード" } } as const;
+
+test("呼びかけ: 出題・作問・領域の依頼は呼びかけ扱いにならない", () => {
+  for (const t of ["論理パズルを出して", "READで1問", "LOGIC", "READ", "WRITE", "論理", "読む", "案内役に聞きたい"]) {
+    assert.equal(detectAddressedAgent(t, PERSONAS), null, `${t} が呼びかけ扱いになっている`);
+  }
+});
+
+test("呼びかけ: 名前＋区切り、名前＋に聞く、は呼びかけ", () => {
+  assert.equal(detectAddressedAgent("ケイ、これ教えて", PERSONAS), "CODE");
+  assert.equal(detectAddressedAgent("アオイに聞きたい", PERSONAS), "READ");
+  assert.equal(detectAddressedAgent("フミさん これどう？", PERSONAS), "WRITE");
+  assert.equal(detectAddressedAgent("リード", PERSONAS), "LEADER");
+  assert.equal(detectAddressedAgent("kei, what do you think", PERSONAS), "CODE");
+  assert.equal(detectAddressedAgent("今日はリードに相談したい", PERSONAS), "LEADER");
+});
+
+test("呼びかけ: 部分一致で誤爆しない", () => {
+  for (const t of ["とけいがほしい", "already", "読むのが好き", "けいかくを立てたい", "ふみきりを渡った"]) {
+    assert.equal(detectAddressedAgent(t, PERSONAS), null, `${t} が呼びかけ扱いになっている`);
+  }
+});
+
+test("呼びかけ: ユーザーが改名した名前も拾う", () => {
+  const renamed = { ...PERSONAS, CODE: { name: "タロウ" } };
+  assert.equal(detectAddressedAgent("タロウ、教えて", renamed), "CODE");
+  assert.equal(detectAddressedAgent("ケイ、教えて", renamed), "CODE"); // 既定名も残す
+});
+
+test("意図分類: 「今日の学習」はおすすめではなく出題（quiz）", () => {
+  assert.deepEqual(classifyIntent("今日の学習"), { kind: "quiz", domain: null });
+  assert.deepEqual(classifyIntent("今日の1問"), { kind: "quiz", domain: null });
+  assert.equal(classifyIntent("今日のおすすめ").kind, "today");
+});

@@ -105,7 +105,12 @@ export async function agentQuickReplies(userId: string, appUrl: string): Promise
 }
 
 /** 返答を LINE メッセージにする。勧める系統があればそのボタンを先頭に */
-export async function chatReply(userId: string, appUrl: string, r: ChatResult): Promise<LeaderReply> {
+export async function chatReply(
+  userId: string,
+  appUrl: string,
+  r: ChatResult,
+  opts: { offerQuiz?: boolean } = {},
+): Promise<LeaderReply> {
   const personas = await loadPersonas(userId);
   const name = personas[r.agent].name;
   const text = r.text.startsWith(`${name}: `) ? r.text : `${name}: ${r.text}`;
@@ -121,7 +126,15 @@ export async function chatReply(userId: string, appUrl: string, r: ChatResult): 
           },
         ]
       : [];
-  return { text, quickReplies: [...suggest, ...quick].slice(0, 13), suggestedDomain: r.suggestDomain ?? undefined };
+  // 呼びかけ＋依頼（「ケイ、論理パズル出して」）のときは、その人格の系統で 1 問出す近道を先頭に置く
+  const offer: LeaderAction[] =
+    opts.offerQuiz && r.agent !== "LEADER"
+      ? [{ type: "postback", label: "LINEで1問", data: `action=quiz&domain=${r.agent}`, displayText: `${DOMAIN_META[r.agent].label}で1問` }]
+      : opts.offerQuiz
+        ? [{ type: "postback", label: "LINEで1問", data: "action=today", displayText: "今日の学習" }]
+        : [];
+  const merged = [...offer, ...suggest, ...quick].filter((a, i, arr) => arr.findIndex((b) => b.label === a.label) === i);
+  return { text, quickReplies: merged.slice(0, 13), suggestedDomain: r.suggestDomain ?? undefined };
 }
 
 /** 「〜に聞く」を押した直後の案内（次の発話をその人格宛てにする） */

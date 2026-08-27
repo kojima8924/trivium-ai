@@ -74,7 +74,7 @@ export function classifyIntent(raw: string): Intent {
   if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
   if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
   // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
-  const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回)(ください|して|お願い(します)?)?[!！。]?$/;
+  const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回|今日の学習|今日の1問|今日の一問|今日の問題)(ください|して|お願い(します)?)?[!！。]?$/;
   const quizWithDomain = text.match(/^(read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(で|の)?\s*(1問|一問|出題|問題|クイズ)/i);
   if (quizWithDomain) return { kind: "quiz", domain: domainOf(quizWithDomain[1]) };
   if (quizCmd.test(text)) return { kind: "quiz", domain: null };

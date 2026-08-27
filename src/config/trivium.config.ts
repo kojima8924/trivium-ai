@@ -64,7 +64,7 @@ export type PersonaDefault = {
   tone: ToneKey;
   firstPerson: string;
   extra: string;
-  /** 呼びかけに使う別名（LINE で「ケイ」「けい」「kei」などを拾う） */
+  /** 呼びかけに使う別名。名前系（けい/kei 等）だけが呼びかけ判定に使われ、領域語（READ/論理 等）は出題・作問の意図を優先するため無視される */
   aliases: string[];
 };
 
