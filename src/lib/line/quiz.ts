@@ -98,6 +98,22 @@ function webTaskReply(task: Task, personaName: string): LeaderReply {
 }
 
 /**
+ * 指定難易度 ±1 に未回答の選択式課題が用意されているか。
+ * 無ければ呼び出し側が作問（generate）に切り替える（WRITE の選択式は難易度 3 までしか無い、など）。
+ */
+export async function staticQuizAvailable(
+  userId: string,
+  state: LineState,
+  domain: DomainKey | null,
+  difficulty: number,
+): Promise<{ domain: DomainKey; available: boolean }> {
+  const d = domain ?? (await pickQuizDomain(userId, state));
+  const { task } = await nextTask(userId, d, { kind: "choice", targetDifficulty: difficulty });
+  const seen = await prisma.learningEvent.count({ where: { userId, taskId: task.id } });
+  return { domain: d, available: seen === 0 && Math.abs(task.difficulty - difficulty) <= 1 };
+}
+
+/**
  * 出題。連携済みユーザー向け。domain 未指定なら Leader の推薦から選ぶ。
  * state に pendingTask を保存する。
  */

@@ -14,7 +14,7 @@ import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/http";
 import { notifyDailyDigestIfComplete } from "@/lib/learn/digest";
-import { parseDomain, type DomainKey } from "@/lib/domain";
+import { DOMAIN_META, parseDomain, type DomainKey } from "@/lib/domain";
 import { AGENTS, loadPersonas, type AgentKey } from "@/lib/persona";
 import { detectAddressedAgent } from "@/lib/persona.pure";
 import { agentQuickReplies, askPrompt, chatReply, chatWithAgent } from "./chat";
@@ -30,6 +30,7 @@ import {
   needLinkReply,
   settleAndBuildPush,
   startQuiz,
+  staticQuizAvailable,
 } from "./quiz";
 import { loadLineUser, noteSuggestion, saveLineState, withPendingTask, type LineState } from "./state";
 
@@ -91,7 +92,7 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 
   // (3) 既知の意図
   if (intent.kind === "quiz") {
-    await handleQuiz(lineUserId, replyToken, lu, intent.domain, intent.difficulty);
+    await handleQuiz(lineUserId, replyToken, lu, intent.domain, intent.difficulty, scheduleAfter);
     return;
   }
   if (intent.kind === "generate") {
@@ -161,12 +162,23 @@ async function handleQuiz(
   lu: LineUser,
   domain: DomainKey | null,
   difficulty?: number,
+  scheduleAfter?: AfterScheduler,
 ): Promise<void> {
   if (!lu.userId) {
     await replyTo(replyToken, needLinkReply());
     return;
   }
   const state = difficulty !== undefined ? { ...lu.state, preferredDifficulty: difficulty } : lu.state;
+  const target = difficulty ?? state.preferredDifficulty;
+  // 指定難易度の近くに用意済みの課題が無ければ、その難易度で作問に切り替える（文脈を無視した易しい出題を防ぐ）
+  if (target !== undefined && scheduleAfter) {
+    const { domain: d, available } = await staticQuizAvailable(lu.userId, state, domain, target);
+    if (!available) {
+      const request = `${DOMAIN_META[d].label}で難易度${target}の問題`;
+      await handleGenerate(lineUserId, replyToken, { ...lu, state }, request, scheduleAfter, { domain: d, difficulty: target });
+      return;
+    }
+  }
   const reply = await startQuiz(lu.userId, lineUserId, state, domain, { difficulty });
   await replyTo(replyToken, reply);
 }
@@ -229,7 +241,7 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
   if (action === "today" || action === "quiz") {
     const raw = params.get("domain") ?? "";
     const domain: DomainKey | null = action === "quiz" ? (parseDomain(raw) ?? domainOf(raw)) : null;
-    await handleQuiz(lineUserId, replyToken, lu, domain);
+    await handleQuiz(lineUserId, replyToken, lu, domain, undefined, scheduleAfter);
     return;
   }
   if (action === "answer" || action === "giveup") {
