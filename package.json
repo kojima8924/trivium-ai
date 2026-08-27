@@ -15,7 +15,8 @@
     "seed:demo": "tsx --conditions=react-server scripts/seed-demo.ts",
     "line:richmenu": "tsx --conditions=react-server scripts/line-richmenu.ts",
     "test": "tsx --test tests/*.test.ts",
-    "docker:build": "docker build -t trivium ."
+    "docker:build": "docker build -t trivium .",
+    "preflight": "tsx scripts/preflight.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

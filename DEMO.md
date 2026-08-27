@@ -4,7 +4,7 @@
 
 ## 事前準備（当日 18:30 までに）
 
-- [ ] `https://<公開URL>/api/health` が `{"status":"ok","db":"ok",...}` を返す
+- [ ] `npm run preflight -- https://<公開URL>` が全項目 OK（health / トップ / Google OAuth / 静的アセット / LINE 署名検証 / 認証ガード / HTTPS を自動チェック）
 - [ ] デモ用 Google アカウントでログイン済み → Dashboard で **デモデータを投入** 済み（三角形が出ている）
 - [ ] 直近で `code-003`（平均値のバグ）を解いていない（解いた場合は「デモデータで置き換える」で履歴をリセット。seed 直後の値は READ 72 / WRITE 57 / CODE 79）
 - [ ] スマートフォンで `https://<公開URL>` を開き、ログイン状態にしておく（LINE から開く導線用）

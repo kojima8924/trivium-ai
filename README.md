@@ -68,6 +68,7 @@ Google OAuth を用意しなくても、`DEMO_LOGIN_ENABLED=true` にすれば�
 npm run typecheck && npm run lint && npm test && npm run build
 npm run seed:demo -- --email you@example.com   # CLI から demo seed（--reset で入れ直し）
 npm run line:richmenu                          # LINE Rich Menu 作成
+npm run preflight -- https://<公開URL>         # デプロイ先の健全性チェック（デモ直前に実行）
 ```
 
 ## 環境変数
