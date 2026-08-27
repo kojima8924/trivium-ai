@@ -39,14 +39,22 @@ test("xpForEventは生成課題倍率を適用する", () => {
   assert.equal(xpForEvent(ev({ generated: true })).total, 48);
 });
 
-test("xpForEventは難易度比で系統別に按分し丸め差をCODEへ寄せる", () => {
+test("xpForEventは難易度比で系統別に按分し、端数は関与する系統のうち最も難しい系統へ寄せる", () => {
   const result = xpForEvent(
     ev({ axes: { read: 2, write: 1, code: 3 }, success: false }),
   );
 
   assert.equal(result.total, 15);
-  assert.deepEqual(result.byDomain, { READ: 5, WRITE: 3, CODE: 7 });
+  // floor で 5 / 2 / 7 → 端数 1 は最も難しい CODE へ
+  assert.deepEqual(result.byDomain, { READ: 5, WRITE: 2, CODE: 8 });
   assert.equal(Object.values(result.byDomain).reduce((sum, xp) => sum + xp, 0), result.total);
+});
+
+test("xpForEventは無関係な系統に負のXPを入れない", () => {
+  const result = xpForEvent(ev({ axes: { read: 1, write: 1, code: 0 }, success: false }));
+  assert.equal(result.total, 5);
+  assert.deepEqual(result.byDomain, { READ: 3, WRITE: 2, CODE: 0 });
+  assert.ok(Object.values(result.byDomain).every((xp) => xp >= 0));
 });
 
 test("missionDaysはJSTで3系統がそろった日だけを含む", () => {
