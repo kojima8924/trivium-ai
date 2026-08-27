@@ -381,13 +381,28 @@ type StockTask = {
   skillTags: string[];
 };
 
+/**
+ * 複合問題の axes と主系統。主系統は難易度 d、他の系統は d-1（主系統が厳密な最大になるように。tests の「domain が最大系統」に合わせる）。
+ * d=1 は全系統 1 の同点になるので、read → write → code の順で先の系統を主系統にする。
+ */
+function compositeAxes(s: Slot): { domain: Axis; axes: NonNullable<StockTask["axes"]> } {
+  const order: Axis[] = ["READ", "WRITE", "CODE"];
+  const involved = order.filter((a) => s.spec.axes.includes(a));
+  const primary: Axis = s.difficulty >= 2 ? s.spec.primary : involved[0];
+  const axes = Object.fromEntries(involved.map((a) => [a.toLowerCase(), a === primary ? s.difficulty : Math.max(1, s.difficulty - 1)])) as NonNullable<StockTask["axes"]>;
+  return { domain: primary, axes };
+}
+
 function toTask(s: Slot, g: Gen, id: string): StockTask {
   const kind = s.spec.kind;
+  const mix = s.domain === "MIX" ? compositeAxes(s) : null;
+  const domain: Axis = mix ? mix.domain : s.spec.primary;
+  const skillTags = g.skill_tags.filter((t) => SUBSKILLS[domain].includes(t));
   const base: StockTask = {
     id,
-    domain: s.spec.primary,
+    domain,
     difficulty: s.difficulty,
-    ...(s.domain === "MIX" ? { axes: Object.fromEntries(s.spec.axes.map((a) => [a.toLowerCase(), s.difficulty])) as StockTask["axes"] } : {}),
+    ...(mix ? { axes: mix.axes } : {}),
     title: g.title,
     passage: g.passage || undefined,
     prompt: g.prompt,
@@ -395,7 +410,7 @@ function toTask(s: Slot, g: Gen, id: string): StockTask {
     taskType: s.domain === "MIX" ? "composite" : s.spec.key,
     hints: g.hints,
     explanation: g.explanation,
-    skillTags: g.skill_tags,
+    skillTags: skillTags.length ? skillTags : [SUBSKILLS[domain][0]],
   };
   if (kind === "choice") return { ...base, choices: g.choices, answerKey: [String(g.answer_index)] };
   const n = g.model_answer.length;
