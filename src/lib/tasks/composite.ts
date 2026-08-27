@@ -8,6 +8,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "WRITE",
     difficulty: 4,
     axes: { read: 3, write: 4 },
+    taskType: "composite",
     title: "案内を要約する: 学習室の利用時間",
     passage:
       "地域の学習室は来月から、平日の終了時刻を午後9時から午後8時に変更します。一方、これまで休みだった土曜は午前10時から午後4時まで開室します。運営者は、利用できる曜日を増やしつつ、夜間の管理負担を減らすためだと説明しています。",
@@ -37,6 +38,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "WRITE",
     difficulty: 6,
     axes: { read: 5, write: 6 },
+    taskType: "composite",
     title: "提案を読んで応答する: 共用カップ",
     passage:
       "校内の売店は、使い捨て容器を減らすため、飲み物を共用カップで販売する案を出しました。購入時に預かり金を払い、カップを返すと返金されます。賛成する人はごみが減ると言い、反対する人は返却の手間や衛生管理を心配しています。売店はまず1か月試す予定です。",
@@ -67,6 +69,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "WRITE",
     difficulty: 8,
     axes: { read: 7, write: 8 },
+    taskType: "composite",
     title: "二つの評価を統合する: 事前資料",
     passage:
       "講座の参加者Aは、事前資料があったので当日の説明が短くなり、練習に多くの時間を使えたと評価しました。参加者Bは、資料に専門語が多く、初めて学ぶ人には準備の段階でつまずきやすかったと述べました。担当者は次回も事前資料を使いたいと考えています。",
@@ -99,6 +102,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "CODE",
     difficulty: 4,
     axes: { read: 3, code: 4 },
+    taskType: "composite",
     title: "条件を照合する: スタンプカード",
     passage:
       "売店の規則では、1回の会計が500円以上ならスタンプを1個押し、5個たまった直後に飲み物を1本渡します。ある客のカードには4個あり、その客は450円の商品を買いました。店員は今回で5個になるので飲み物を渡すと言いました。",
@@ -125,6 +129,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "CODE",
     difficulty: 6,
     axes: { read: 5, code: 6 },
+    taskType: "composite",
     title: "平均からの飛躍を見抜く: 小テスト",
     passage:
       "あるクラスで学習方法を変えたところ、小テストの平均点が68点から72点になりました。担当者は、この結果から『新しい方法で全員の点数が上がった』と報告しました。受験者は変更前後で同じ30人です。",
@@ -149,8 +154,9 @@ export const COMPOSITE_TASKS: Task[] = [
   {
     id: "mix-006",
     domain: "CODE",
-    difficulty: 7,
-    axes: { read: 6, code: 7 },
+    difficulty: 6,
+    axes: { read: 5, code: 6 },
+    taskType: "composite",
     title: "見落とした条件を答える: 同日発送",
     passage:
       "発送規則: 営業日の正午までに受け付け、商品を用意できる注文は、その日のうちに発送する。記録: 火曜午前11時に注文を受けたが、商品は入荷待ちだった。担当者は『正午前なので同日発送できる』と判断した。",
@@ -173,6 +179,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "CODE",
     difficulty: 4,
     axes: { write: 3, code: 4 },
+    taskType: "composite",
     title: "順序と例外を書く: 備品の貸し出し",
     passage:
       "備品を貸し出すときは、利用者名を記録してから備品を渡します。返却時には破損がないか確かめ、問題がなければ返却済みにします。破損があれば返却済みにせず、担当者へ知らせます。",
@@ -202,6 +209,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "CODE",
     difficulty: 6,
     axes: { write: 5, code: 6 },
+    taskType: "composite",
     title: "条件分岐を手順にする: 会議室選び",
     passage:
       "会議室は、8人以下なら小室、9〜20人なら中室、21人以上なら大室を選びます。ただし録画する場合は中室か大室のうち、録画機器が使える部屋を選びます。条件に合う空室がなければ、日時の変更案を出します。",
@@ -231,6 +239,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "WRITE",
     difficulty: 8,
     axes: { write: 8, code: 8 },
+    taskType: "composite",
     title: "重なる例外を整理する: 機材の返却",
     passage:
       "機材の返却では、付属品が不足していれば処理を保留して利用者へ連絡します。破損があれば写真を撮り、修理担当へ渡します。不足と破損は同時に起こることがあります。どちらもなければ返却済みにして保管棚へ戻します。期限超過は、ほかの状態にかかわらず記録します。",
@@ -263,6 +272,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "WRITE",
     difficulty: 6,
     axes: { read: 5, write: 6, code: 5 },
+    taskType: "composite",
     title: "試行結果を検討する: 売店の予約受取",
     passage:
       "売店は3日間、昼食の予約受取を試しました。予約者の待ち時間は平均8分から3分に減りましたが、対象は定食2種類だけで、予約しない客の待ち時間は測っていません。担当者は『予約受取を全商品に広げれば、売店の混雑は解消する』と述べています。",
@@ -293,6 +303,7 @@ export const COMPOSITE_TASKS: Task[] = [
     domain: "CODE",
     difficulty: 8,
     axes: { read: 7, write: 7, code: 8 },
+    taskType: "composite",
     title: "原因と数え方を検証する: 参加募集",
     passage:
       "交流会の案内を掲示板からメッセージ配信に変えた月、申込数は40件から55件に増えました。同じ月に開催日を平日から土曜へ変えています。また55件には後日の取消し5件が含まれます。担当者は『メッセージ配信に変えたから参加者が15人増えた』と報告しました。",
@@ -320,9 +331,10 @@ export const COMPOSITE_TASKS: Task[] = [
   },
   {
     id: "mix-012",
-    domain: "READ",
-    difficulty: 9,
-    axes: { read: 9, write: 9, code: 9 },
+    domain: "WRITE",
+    difficulty: 8,
+    axes: { read: 5, write: 8, code: 7 },
+    taskType: "composite",
     title: "因果を検証して改善する: 学習会の時間帯",
     passage:
       "自由に時間帯を選べる学習会で、朝の参加者は課題完了率82パーセント、夕方の参加者は61パーセントでした。運営者は『朝に参加すると集中力が上がるため、夕方の回を廃止すべきだ』と提案しました。しかし朝を選んだ人には、以前から課題提出が早い人が多く、夕方を選んだ人の一部は通学や仕事の都合で朝に参加できません。",
@@ -346,6 +358,6 @@ export const COMPOSITE_TASKS: Task[] = [
     ],
     explanation:
       "参加者が時間帯を自分で選んでいるため、元の学習習慣などの違いが完了率に表れた可能性があります。条件をそろえた複数回の比較や希望者の交差参加を試しつつ、夕方枠を残すなど参加機会への配慮も必要です。",
-    skillTags: ["critical_reading", "inference"],
+    skillTags: ["reasoning", "structure"],
   },
 ];

@@ -2,6 +2,7 @@
 // 「一度に一段だけヒント」「完成解は渡さない」「証拠のない断定をしない」を守る。
 
 import { DOMAIN_META, SUBSKILL_LABELS, SUBSKILLS, type DomainKey } from "../domain";
+import { formatScore } from "@/lib/scoring";
 import { filterSkillTags, safeEvaluationStatus } from "./shared";
 import type {
   DomainEvalInput,
@@ -228,10 +229,10 @@ export class MockProvider implements LearningAIProvider {
 
     const summaryParts: string[] = [];
     const L = (d: DomainKey) => DOMAIN_META[d].label;
-    summaryParts.push(`${L(strongest.domain)}（${strongest.score}）を強みにしています。`);
+    summaryParts.push(`${L(strongest.domain)}（${formatScore(strongest.score)}）を強みにしています。`);
     if (measured.length >= 2 && weakest.domain !== strongest.domain) {
       summaryParts.push(
-        `${L(weakest.domain)}（${weakest.score}）を伸ばすことで、${L(strongest.domain)}の強みをより活かしやすくなります。`,
+        `${L(weakest.domain)}（${formatScore(weakest.score)}）を伸ばすことで、${L(strongest.domain)}の強みをより活かしやすくなります。`,
       );
     }
     if (measured.length < 3) {
@@ -266,7 +267,8 @@ export class MockProvider implements LearningAIProvider {
       interests: measured.map((d) => `${d.domain}: ${d.eventsLast7Days}件/週`),
       preferences: {
         practiceFocus: mostPracticed.domain,
-        preferredDifficulty: String(Math.round(measured.reduce((a, d) => a + d.score, 0) / measured.length / 25) + 1),
+        // score は 0〜100（到達レベル×10 + 進捗）なので、平均 /10 が「到達レベル」。その +1 を好みの難易度とする（1〜10）
+        preferredDifficulty: String(Math.min(10, Math.max(1, Math.floor(measured.reduce((a, d) => a + d.score, 0) / measured.length / 10) + 1))),
       },
       observations,
       recommendation,

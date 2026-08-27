@@ -8,7 +8,7 @@ import { z } from "zod";
 import { env } from "../env";
 import { DOMAINS, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
-import { deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus } from "./shared";
+import { LEARNER_ANSWER_RULE, deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus, wrapLearnerAnswer } from "./shared";
 import {
   AI_SYSTEM_POLICY,
   type DomainEvalInput,
@@ -78,8 +78,9 @@ const SYSTEM_EVAL = [
   "役割: 学習者の回答を評価し、feedback と（必要なら）一段だけのヒントを返す。",
   "- deterministic_result が correct のときは status を success にし、hint は空文字にする。",
   "- deterministic_result が incorrect のときは status を retry にし、hints 配列の hint_level 番目（0始まり）を土台に、一段だけのヒントを返す。範囲外なら最後のヒントを言い換える。答えそのものは書かない。",
-  "- deterministic_result が unknown（自由記述）のときは criteria に照らして判断する。十分なら success、足りなければ needs_more にして、足りない観点を問い返す形のヒントを返す。heuristic_result は参考情報であり最終判断ではない。",
+  "- deterministic_result が unknown（自由記述）のときは criteria に照らして判断する。十分なら success、足りなければ needs_more にして、足りない観点を問い返す形のヒントを返す。heuristic_result が below_rubric なら success にしない。",
   "- feedback には正解の値や完成文を含めない（success 時に解説を添えるのは別の仕組みが行う）。",
+  LEARNER_ANSWER_RULE,
 ].join("\n");
 
 const SYSTEM_INTERPRET = [
@@ -143,7 +144,7 @@ export class AnthropicProvider implements LearningAIProvider {
     const user = [
       fmt("mode", input.mode),
       fmt("task", input.task),
-      fmt("learner_answer", input.learnerAnswer),
+      wrapLearnerAnswer(input.learnerAnswer),
       fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
       fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
       fmt("hint_level", input.hintLevel),
@@ -154,7 +155,7 @@ export class AnthropicProvider implements LearningAIProvider {
 
     const out = await this.parse(SYSTEM_EVAL, user, evalSchema, input.learnerRef);
 
-    const status = safeEvaluationStatus(out.status, input.deterministicResult);
+    const status = safeEvaluationStatus(out.status, input.deterministicResult, input.heuristicResult);
     const safeHint = fallbackHint(input.task.hints, input.hintLevel);
     return {
       status,

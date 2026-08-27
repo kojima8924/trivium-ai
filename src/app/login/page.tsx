@@ -60,7 +60,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           action={async (formData: FormData) => {
             "use server";
             const name = String(formData.get("name") ?? "");
-            await signIn("demo", { name, redirectTo: next });
+            const secret = String(formData.get("secret") ?? "");
+            await signIn("demo", { name, secret, redirectTo: next });
           }}
         >
           <div className="text-xs font-semibold text-muted">デモ用ログイン（Google を使わない保険）</div>
@@ -70,9 +71,22 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             className="rounded-lg border border-line bg-bg px-3 py-2 text-sm"
             maxLength={40}
           />
+          {authProvidersAvailable.demoSecret && (
+            <input
+              name="secret"
+              type="password"
+              placeholder="合言葉（運営から共有されたもの）"
+              className="rounded-lg border border-line bg-bg px-3 py-2 text-sm"
+              maxLength={80}
+              autoComplete="off"
+            />
+          )}
           <button type="submit" className="btn w-full">
             デモとして入る
           </button>
+          {!authProvidersAvailable.demoSecret && (
+            <p className="text-[11px] leading-relaxed text-muted">合言葉なしのときは新しい表示名でのみ入れます（既存のアカウントには入れません）。</p>
+          )}
         </form>
       )}
 

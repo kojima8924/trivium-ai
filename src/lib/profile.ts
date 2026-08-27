@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
 import { learningAI } from "./ai";
 import { DOMAINS, toUserWording, type Confidence, type DomainKey } from "./domain";
-import { computeDomainScore, computeLevels, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
+import { computeDomainScore, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
 import { getTask } from "./tasks";
 import { computeXp, type XpSummary } from "./xp";
 import { personaPrompts } from "./persona";
@@ -111,6 +111,20 @@ export async function recomputeDomainProfile(userId: string, domain: DomainKey, 
 }
 
 /**
+ * 数値だけを保存し直す（LLM 寸評は呼ばない）。複合課題で関与した非主系統の score / evidenceCount / confidence を
+ * 決着のたびに最新にするために使う（寸評は主系統だけ更新するので、非主系統の文章は前回のまま残す）。
+ */
+export async function refreshDomainNumbers(userId: string, domain: DomainKey, events: ScorableEvent[]) {
+  const stats = computeDomainScore(domain, events);
+  const data = { score: stats.score, subskills: stats.subskills, confidence: stats.confidence, evidenceCount: stats.evidenceCount };
+  return prisma.domainProfile.upsert({
+    where: { userId_domain: { userId, domain } },
+    update: data,
+    create: { userId, domain, ...data, summary: "", observations: [], recommendedNext: "" },
+  });
+}
+
+/**
  * Leader profile を再計算する。
  * 数値（score / subskills / confidence）は events から決定論的に計算し直すので、
  * domain profile の保存順序に依存しない（domain 寸評の生成と並列に走らせられる）。
@@ -148,11 +162,10 @@ export async function recomputeLeaderProfile(userId: string, context?: string, p
         minutesAgo: Math.round((Date.now() - last.createdAt.getTime()) / 60_000),
       }
     : undefined;
-  const [personas, existingPrefs] = await Promise.all([
-    personaPrompts(userId),
-    prisma.leaderProfile.findUnique({ where: { userId }, select: { preferences: true } }),
-  ]);
+  const personas = await personaPrompts(userId);
   const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context, persona: personas.LEADER });
+  // 出題設定は LLM 呼び出し（数秒）の間に /settings で更新されることがあるので、書き戻す直前に読み直す
+  const existingPrefs = await prisma.leaderProfile.findUnique({ where: { userId }, select: { preferences: true } });
   const data = {
     summary: toUserWording(out.summary),
     interests: out.interests.map(toUserWording),
@@ -164,13 +177,19 @@ export async function recomputeLeaderProfile(userId: string, context?: string, p
   return prisma.leaderProfile.upsert({ where: { userId }, update: data, create: { userId, ...data } });
 }
 
-/** learning_event 追加後にまとめて呼ぶ */
-export async function recomputeAll(userId: string, touched?: DomainKey) {
+/**
+ * learning_event 追加後にまとめて呼ぶ。
+ * touched（決着した課題が関与した系統）は LLM 寸評つきで再計算し、それ以外の系統も数値だけは毎回更新する
+ * （複合課題の失敗がボトルネック帰属で別系統に付いても、保存値が古いままにならない）。
+ */
+export async function recomputeAll(userId: string, touched?: DomainKey | DomainKey[]) {
   const events = await loadEvents(userId);
-  const targets = touched ? [touched] : DOMAINS;
+  const targets = touched === undefined ? [...DOMAINS] : Array.isArray(touched) ? touched : [touched];
+  const rest = DOMAINS.filter((d) => !targets.includes(d));
   // domain 寸評と Leader は独立に計算できる（Leader の数値は events から直接出す）ので並列化して待ち時間を短くする
   await Promise.all([
     ...targets.map((d) => recomputeDomainProfile(userId, d, events)),
+    ...rest.map((d) => refreshDomainNumbers(userId, d, events)),
     recomputeLeaderProfile(userId, undefined, events),
   ]);
 }
@@ -222,7 +241,14 @@ export type DashboardData = {
   xp: XpSummary;
 };
 
-const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
+/**
+ * 表示用の数値（score / level / progress / evidenceCount / confidence / subskills）を events から同じ時刻で計算する。
+ * DomainProfile の保存値は最後の決着時点のもので、時間経過（新しさ重み）や複合課題の帰属で live 値とずれるため、
+ * Dashboard・LINE のプロフィールカード・API はこちらを使う（保存値は AI 寸評の入力とスナップショット用）。
+ */
+export function liveDomainStats(events: ScorableEvent[], now: Date = new Date()): Record<DomainKey, DomainScore> {
+  return Object.fromEntries(DOMAINS.map((d) => [d, computeDomainScore(d, events, now)])) as Record<DomainKey, DomainScore>;
+}
 
 export async function getDashboardData(userId: string): Promise<DashboardData> {
   // ローカル PG（PGlite）は並列に弱いので、読み出しは 2 段に分けて並列度を抑える
@@ -237,21 +263,23 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
   ]);
   const totalEvents = events.length;
   const now = new Date();
-  const levels = computeLevels(events, now);
+  // 数値はすべて同じ now で events から計算する（保存値と live の混在で「30.0 / Lv.0」のような矛盾を出さない）
+  const live = liveDomainStats(events, now);
   const xp = computeXp(events, now);
   const prefs = (leader?.preferences ?? {}) as Record<string, unknown>;
   const rd = typeof prefs.recommendedDomain === "string" ? prefs.recommendedDomain : null;
   return {
     domains: DOMAINS.map((d) => {
       const p = profiles.find((x) => x.domain === d);
+      const s = live[d];
       return {
         domain: d,
-        score: p?.score ?? 0,
-        level: levels[AXIS_KEY[d]].level,
-        progress: levels[AXIS_KEY[d]].progress,
-        subskills: subskillsOf(p?.subskills ?? {}),
-        confidence: (p?.confidence ?? "low") as Confidence,
-        evidenceCount: p?.evidenceCount ?? 0,
+        score: s.score,
+        level: s.level,
+        progress: s.progress,
+        subskills: s.subskills,
+        confidence: s.confidence,
+        evidenceCount: s.evidenceCount,
         summary: p?.summary ?? "",
         observations: stringsOf(p?.observations ?? []),
         recommendedNext: p?.recommendedNext ?? "",

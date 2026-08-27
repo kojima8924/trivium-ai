@@ -35,8 +35,14 @@ export function inferTaskType(task: Pick<Task, "domain" | "kind" | "skillTags" |
     if (task.skillTags.includes("inference")) return "inference";
     return "summary";
   }
-  if (task.domain === "WRITE") return task.kind === "free" ? "argument" : "revision";
-  return looksLikePythonPassage(task.passage) ? "python" : "puzzle";
+  if (task.domain === "WRITE") {
+    // 記述: 推敲タグなら書き換え、それ以外は意見文 / 選択式: 構成タグなら構成、それ以外は推敲
+    if (task.kind === "free") return task.skillTags.includes("revision") ? "rewrite" : "argument";
+    return task.skillTags.includes("structure") && !task.skillTags.includes("clarity") && !task.skillTags.includes("revision") ? "structure" : "revision";
+  }
+  // LOGIC: Python らしい passage なら python（debugging タグなら debug）、それ以外は algorithms タグなら手順、無ければ論理パズル
+  if (looksLikePythonPassage(task.passage)) return task.skillTags.includes("debugging") ? "debug" : "python";
+  return task.skillTags.includes("algorithms") ? "algorithm" : "puzzle";
 }
 
 function withTaskType(tasks: Task[]): Task[] {

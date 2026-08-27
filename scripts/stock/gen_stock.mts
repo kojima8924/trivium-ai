@@ -19,6 +19,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SUBSKILLS } from "../../src/lib/domain";
+import { normalizeOutput } from "../../src/lib/learn/generate.pure";
 
 // ---- 設定 ----
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,11 +37,6 @@ type Domain = "READ" | "WRITE" | "CODE" | "MIX";
 type Axis = "READ" | "WRITE" | "CODE";
 type Kind = "choice" | "short" | "free";
 
-const SUBSKILLS: Record<Axis, string[]> = {
-  READ: ["comprehension", "inference", "critical_reading"],
-  WRITE: ["structure", "clarity", "reasoning", "revision"],
-  CODE: ["tracing", "debugging", "algorithms", "design"],
-};
 
 /** 問題タイプ（src/lib/task-types.ts のキーと一致） */
 type TypeSpec = { key: string; kind: Kind; count: number; label: string; axes: Axis[]; primary: Axis };
@@ -122,7 +119,7 @@ function difficultyGuide(domain: Domain, key: string, d: number): string {
   const base = `難易度 ${d}/10 — ${levelScale(d)}`;
   if (domain === "READ" || key === "read_code" || key === "read_write") {
     const len = d <= 1 ? "40〜80 字" : d <= 2 ? "60〜110 字" : d <= 3 ? "100〜160 字" : d <= 4 ? "140〜220 字" : d <= 5 ? "180〜280 字" : d <= 6 ? "220〜330 字" : d <= 7 ? "280〜400 字" : d <= 8 ? "350〜480 字" : d <= 9 ? "420〜560 字" : "500〜650 字";
-    const q = d <= 2 ? "本文に書いてあることをそのまま確認する設問。" : d <= 4 ? "1 段階の推論や主張と理由の区別。" : d <= 6 ? "対比・因果・譲歩（しかし／ただし）を含み、筆者の立場を読み取る。" : d <= 8 ? "論説調。暗黙の前提・反例・論理の飛躍を見抜く。" : "複数の立場が交錯し、根拠の強さや前提の妥当性を比較して判断する。";
+    const q = d <= 2 ? "本文に書いてあることをそのまま確認する設問。" : d <= 4 ? "1 段階の推論や主張と理由の区別。" : d <= 6 ? "譲歩・対比・因果・列挙・具体から抽象などの論理構造を 1 つ以上含み、筆者の立場を読み取る。" : d <= 8 ? "論説調。暗黙の前提・反例・論理の飛躍を見抜く。" : "複数の立場が交錯し、根拠の強さや前提の妥当性を比較して判断する。";
     return `${base} 本文 ${len}。${q}`;
   }
   if (domain === "WRITE" || key === "write_code") {
@@ -180,6 +177,9 @@ const GEN_ROLE = [
   "- 問題は自己完結で、passage と prompt だけで解ける。実在の個人・時事の断定・医療/法律の助言を避ける。",
   "- 難易度 1〜2 は『誰でも解ける』こと（迷う要素を入れない）。難易度 9〜10 は上級者でも慎重な検証が要る密度にする。指定の難易度ガイドに厳密に従う。",
   "- choice は選択肢 4 つ。正解は 1 つだけで、他の 3 つは明確に誤り（ただし『ありそうな誤り』にする）。選択肢どうしは文言も内容も重複させない。",
+  "- 4 つの選択肢の長さと文体をそろえる（正解だけが長い・正解だけが『〜しつつ〜も踏まえ』のような折衷表現、という手がかりを作らない。誤答にも穏当で長い文を含める）。誤答は『本文の一部を正しく述べつつ結論だけ違う』型を混ぜる。",
+  "- ヒントに本文の接続詞や着眼点の答え（『しかし』『ただし』の後に注目 など）をそのまま書かない。問い返しと観点の提示にとどめる。",
+  "- 難易度 1〜2 の推論（inference）は『本文から 1 文で自然に言えること』、批判的読解（critique）は『明らかな読み違いを見抜く』程度にし、型の意味は保つ。",
   "- free（記述）は rubric_criteria（採点観点 3〜5 個）、must_include（答案に含まれていれば加点する語 3〜6 個。お題に直結する具体語）、model_answer（模範解答。prompt で求める字数の範囲内で実際に書く）を書き、choices は空、answer_index は 0。prompt の字数指定は model_answer の長さに合わせる（模範解答より長い字数を要求しない）。free 以外では model_answer は空文字。",
   "- hints は 3 段。1 段目は問い返し、2 段目は着眼点、3 段目でも答えの値・完成文・正解の選択肢を書かない。記述問題のヒントは、そのまま提出できる文にしない（観点を示すか、問い返す）。",
   "- explanation は正解した後に見せる解説（正解の根拠を簡潔に）。",
@@ -248,6 +248,9 @@ function themeFor(s: Slot, attempt: number): string {
   return THEMES[i % THEMES.length];
 }
 
+/** 本文の論理構造をスロットごとに回す（同じ難易度帯が同じ型に偏らないように） */
+const STRUCTURES = ["譲歩（一見もっともな反対意見を認めてから主張）", "対比（二つの立場や事例を比べる）", "因果（原因と結果の連鎖）", "列挙と統合（複数の根拠をまとめる）", "具体から抽象（事例から一般則へ）", "問題提起と解決（問いを立てて答える）"];
+
 async function generate(s: Slot, attempt: number, recentTitles: string[]): Promise<Gen> {
   const domainLabel = s.domain === "MIX" ? `複合（主系統 ${s.spec.primary === "CODE" ? "LOGIC" : s.spec.primary}、関与: ${s.spec.axes.map((a) => (a === "CODE" ? "LOGIC" : a)).join("+")}）` : s.domain === "CODE" ? "LOGIC" : s.domain;
   const user = [
@@ -256,6 +259,7 @@ async function generate(s: Slot, attempt: number, recentTitles: string[]): Promi
     fmt("kind", s.spec.kind),
     fmt("difficulty", difficultyGuide(s.domain, s.spec.key, s.difficulty)),
     fmt("theme_hint", `${themeFor(s, attempt)}（題材の参考。無理に使わなくてよい）`),
+    ...(s.domain === "READ" || s.spec.key === "read_code" || s.spec.key === "read_write" ? [fmt("structure_hint", `本文の論理構造: ${STRUCTURES[(s.n + attempt) % STRUCTURES.length]}`)] : []),
     fmt("allowed_skill_tags", allowedTags(s)),
     fmt("recent_titles", recentTitles.slice(-40)),
   ].join("\n\n");
@@ -264,9 +268,6 @@ async function generate(s: Slot, attempt: number, recentTitles: string[]): Promi
 }
 
 // ---- 検証 ----
-function normalizeOutput(t: string): string {
-  return t.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean).join("\n").replace(/"/g, "'").replace(/\s+/g, "");
-}
 function nl(t: string): string {
   return t.replace(/\\n/g, "\n").replace(/\\t/g, "    ").replace(/\r/g, "").trim();
 }
@@ -316,6 +317,14 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
   if (new Set(norm).size !== 4 || norm.some((c) => !c)) return { ok: false, reason: "duplicate/empty choice" };
   if (g.answer_index < 0 || g.answer_index > 3) return { ok: false, reason: "answer_index" };
   if (g.hints.some((h) => norm.includes(normalizeOutput(h)))) return { ok: false, reason: "hint equals a choice" };
+  // 正解だけが目立って長い（2 番目に長い選択肢の 1.25 倍超）と「長いのが正解」で解けてしまう
+  if (s.spec.key !== "python") {
+    const lens = g.choices.map((c) => [...c].length);
+    const correct = lens[g.answer_index];
+    const others = lens.filter((_, i) => i !== g.answer_index);
+    if (correct > Math.max(...others) * 1.15 && correct - Math.max(...others) > 6) return { ok: false, reason: `correct choice is longest (${correct} vs ${Math.max(...others)})` };
+  }
+  if ((s.domain === "READ" || s.domain === "MIX") && g.hints.some((h) => /(しかし|ただし|だが|一方で)/.test(h))) return { ok: false, reason: "hint spells out the connective" };
 
   if (s.spec.key === "python") {
     if (!/print\(/.test(g.passage)) return { ok: false, reason: "no print" };
@@ -428,11 +437,31 @@ function saveCheckpoint(domain: Domain, cp: Checkpoint): void {
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(path.join(OUT_DIR, `${domain}.json`), JSON.stringify(cp, null, 2));
 }
+/** id から決定論的に 0..3 を返す（FNV-1a） */
+function rotationOf(id: string): number {
+  let h = 0x811c9dc5;
+  for (const ch of id) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % 4;
+}
+
+/** 選択式は正解の位置が偏らないよう、id ごとに選択肢を回転させる（answerKey も同時に写像） */
+function rotateChoices(t: StockTask): StockTask {
+  if (t.kind !== "choice" || !t.choices || t.choices.length !== 4 || !t.answerKey) return t;
+  const r = rotationOf(t.id);
+  if (r === 0) return t;
+  const choices = t.choices.map((_, i) => t.choices![(i - r + 4) % 4]);
+  const answer = (Number(t.answerKey[0]) + r) % 4;
+  return { ...t, choices, answerKey: [String(answer)] };
+}
+
 function emit(domain: Domain, cp: Checkpoint): number {
   const tasks = Object.values(cp)
     .map(({ rating: _r, ...t }) => {
       void _r;
-      return t;
+      return rotateChoices(t);
     })
     .sort((a, b) => a.difficulty - b.difficulty || a.id.localeCompare(b.id));
   const name = `${domain}_STOCK`;

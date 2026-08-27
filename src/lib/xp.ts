@@ -83,6 +83,25 @@ export function streakOf(missionDays: string[], now: Date): number {
   return streak;
 }
 
+/** これまでで最長のミッション連続日数（now に依存しない。XP の連続ボーナスは減らない指標として扱う） */
+export function longestStreak(missionDays: string[]): number {
+  const set = new Set(missionDays);
+  let best = 0;
+  for (const day of set) {
+    const prev = new Date(`${day}T00:00:00+09:00`);
+    prev.setUTCDate(prev.getUTCDate() - 1);
+    if (set.has(dayKey(prev))) continue; // 連続の先頭だけから数える
+    let run = 0;
+    const cursor = new Date(`${day}T00:00:00+09:00`);
+    while (set.has(dayKey(cursor))) {
+      run++;
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    best = Math.max(best, run);
+  }
+  return best;
+}
+
 export function rankFor(total: number): XpSummary["rank"] {
   const ranks = [...XP.ranks].sort((a, b) => b.min - a.min);
   const idx = ranks.findIndex((r) => total >= r.min);
@@ -104,7 +123,8 @@ export function computeXp(events: XpEvent[], now: Date = new Date()): XpSummary 
   const missionDays = missionDaysOf(events);
   const missions = missionDays.length * XP.dailyMissionBonus;
   const streak = streakOf(missionDays, now);
-  const streakBonus = Math.min(XP.streakBonusMax, streak * XP.streakBonusPerDay);
+  // 連続ボーナスは「これまでの最長連続」で確定させる（今日未達で streak が途切れても合計・ランクが減らない）
+  const streakBonus = Math.min(XP.streakBonusMax, longestStreak(missionDays) * XP.streakBonusPerDay);
   const total = tasks + missions + streakBonus;
 
   const todayKey = dayKey(now);
@@ -126,5 +146,39 @@ export function computeXp(events: XpEvent[], now: Date = new Date()): XpSummary 
     streak,
     rank: rankFor(total),
     breakdown: { tasks, missions, streak: streakBonus },
+  };
+}
+
+export type XpBreakdown = {
+  /** この決着で増えた XP（課題 + ミッション + 連続） */
+  gained: number;
+  task: number;
+  missionBonus: number;
+  streakBonus: number;
+  missionJustDone: boolean;
+  total: number;
+  rank: string;
+};
+
+/**
+ * 1 件の決着で増えた XP の内訳（決定論）。before = その決着を除いた events、after = 含めた events。
+ * Web の結果カードと LINE の push はこれだけを整形して表示する（計算を二重に持たない）。
+ */
+export function xpBreakdown(before: XpEvent[], after: XpEvent[], now: Date = new Date()): XpBreakdown {
+  const xb = computeXp(before, now);
+  const xa = computeXp(after, now);
+  const last = after[after.length - 1];
+  const task = last ? xpForEvent(last).total : 0;
+  const missionJustDone = xa.missionToday && !xb.missionToday;
+  const missionBonus = Math.max(0, xa.breakdown.missions - xb.breakdown.missions);
+  const streakBonus = Math.max(0, xa.breakdown.streak - xb.breakdown.streak);
+  return {
+    gained: Math.max(0, xa.total - xb.total),
+    task,
+    missionBonus,
+    streakBonus,
+    missionJustDone,
+    total: xa.total,
+    rank: xa.rank.title,
   };
 }

@@ -25,8 +25,9 @@ const SPECS: SeedSpec[] = [
   { taskId: "code-015", daysAgo: 5, success: true, hintCount: 0 },
   { taskId: "code-010", daysAgo: 4, success: true, hintCount: 0 },
   { taskId: "code-025", daysAgo: 3, success: true, hintCount: 1 },
+  { taskId: "code-s8-01", daysAgo: 3, success: true, hintCount: 0 },
   { taskId: "code-020", daysAgo: 2, success: true, hintCount: 0 },
-  { taskId: "code-014", daysAgo: 1, success: false, hintCount: 3 }, // 難易度10 設計の言語化: 失敗
+  { taskId: "code-s10-01", daysAgo: 1, success: false, hintCount: 3 }, // 難易度10（ストック）: 失敗（Lv8 の壁）
   // READ
   { taskId: "read-012", daysAgo: 10, success: true, hintCount: 0 },
   { taskId: "read-004", daysAgo: 9, success: true, hintCount: 0 },
@@ -36,6 +37,7 @@ const SPECS: SeedSpec[] = [
   { taskId: "read-010", daysAgo: 5, success: true, hintCount: 0 },
   { taskId: "read-007", daysAgo: 4, success: true, hintCount: 0 },
   { taskId: "read-008", daysAgo: 3, success: true, hintCount: 0 },
+  { taskId: "read-s7-01", daysAgo: 3, success: true, hintCount: 0 },
   { taskId: "read-003", daysAgo: 2, success: false, hintCount: 3 }, // 批判的読解: 失敗
   { taskId: "read-011", daysAgo: 1, success: true, hintCount: 1 },
   // WRITE
@@ -45,8 +47,9 @@ const SPECS: SeedSpec[] = [
   { taskId: "write-006", daysAgo: 6, success: true, hintCount: 0 },
   { taskId: "write-003", daysAgo: 5, success: true, hintCount: 2 },
   { taskId: "write-001", daysAgo: 4, success: true, hintCount: 1 },
-  { taskId: "write-011", daysAgo: 3, success: false, hintCount: 3 }, // 推敲: 失敗
+  { taskId: "write-011", daysAgo: 8, success: false, hintCount: 3 }, // 推敲: 失敗
   { taskId: "write-010", daysAgo: 2, success: true, hintCount: 2 },
+  { taskId: "write-s4-01", daysAgo: 1, success: true, hintCount: 0 },
 ];
 
 export async function seedDemoForUser(userId: string, opts: { reset?: boolean } = {}) {

@@ -140,7 +140,8 @@ export async function notifyDailyDigestIfComplete(userId: string, now: Date = ne
         l.lineUserId,
         "今日の3問、達成！",
         flex,
-        agentReply("LEADER", leaderName, leaderBody, { appUrl, mood: "cheer", quickReplies: [{ type: "uri", label: "Dashboard", uri: dashboardUrl }] }),
+        // Dashboard への導線は最後に送る達成カードのボタンに任せる（先行メッセージの Quick Reply は LINE では表示されない）
+        agentReply("LEADER", leaderName, leaderBody, { appUrl, mood: "cheer" }),
       ).catch((err) => console.warn("[digest] push failed:", (err as Error).message));
     }
     return true;

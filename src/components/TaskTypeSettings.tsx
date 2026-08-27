@@ -45,7 +45,7 @@ export function TaskTypeSettings({ initial, colors }: { initial: TaskPrefs; colo
       <div>
         <h2 className="text-base font-bold">出題する問題タイプ</h2>
         <p className="text-xs text-muted">
-          チェックを外したタイプは、Web・LINE の出題と AI 作問の両方から外れます（例: 「Python 読解」を外すと LOGIC は論理パズルや数的推理だけになります）。系統ごとに 1 つ以上は残してください。
+          チェックを外したタイプは、Web・LINE の出題と AI 作問の両方から外れます（例: 「Python 読解」を外すと LOGIC は論理パズルや数的推理だけになります）。系統ごとに 1 つ以上、LINE 用に選択式のタイプも 1 つ以上残してください。この設定は「初期状態に戻す」でも保持されます。
         </p>
       </div>
 

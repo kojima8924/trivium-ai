@@ -5,7 +5,8 @@ import type { messagingApi } from "@line/bot-sdk";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import type { LineState } from "./state";
 import { agentReply } from "./flex";
-import { PERSONA_DEFAULTS } from "@/config/trivium.config";
+import { formatScore } from "@/lib/scoring";
+import { LINE, PERSONA_DEFAULTS } from "@/config/trivium.config";
 
 // ---- 出力型（@line/bot-sdk の messagingApi.Message と互換な最小サブセット） ----
 
@@ -52,6 +53,8 @@ export type Intent =
   | { kind: "generate"; request: string; domain?: DomainKey | null; difficulty?: number }
   | { kind: "link" }
   | { kind: "unlink" }
+  /** 出題中の課題をパス（テキストの「パス」「スキップ」） */
+  | { kind: "pass" }
   | { kind: "today" }
   | { kind: "history" }
   | { kind: "profile" }
@@ -93,29 +96,45 @@ export function domainInText(raw: string): DomainKey | null {
   return null;
 }
 
+/** 疑問・説明を求める文か（出題ではなく会話に回す） */
+function isQuestionLike(text: string): boolean {
+  return /[?？]\s*$/.test(text) || /(教えて|説明|とは|って(何|なに|どの|どんな|どう)|どのくらい|どんな|なんですか|ですか)/.test(text);
+}
+
 export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
+  // 短文（コマンド）か。長い自由文は部分一致で連携・ヘルプ扱いにしない（会話に回す）
+  const short = text.length <= LINE.commandMaxChars;
 
-  if (/(連携(を)?(解除|やめ|外し|切)|解除|unlink)/.test(text)) return { kind: "unlink" };
-  if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
-  if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
-  // 難易度指定（「codeで難易度8」「難易度8で出して」「logic 8」）は即・作問。domain 未指定なら文脈に任せる
+  // 連携解除は「連携」を含む言い方に限定（「実績解除」などの文中の『解除』で発火させない）
+  if (/連携\s*(を|は|の)?\s*(解除|やめ|外|切|取り消|とりけ)|^解除$|unlink/i.test(text)) return { kind: "unlink" };
+  // 連携・ヘルプは短文か文頭一致だけ（「同期に勧められた本」「Pythonの辞書の使い方」は会話へ）
+  if ((short && /(連携|リンク|link|同期|アカウント)/i.test(lower)) || /^(連携|リンク|link|アカウント連携)/i.test(lower)) return { kind: "link" };
+  if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || (short && /使い方|ヘルプ|help/.test(lower)) || /^(使い方|ヘルプ|help)/.test(lower)) {
+    return { kind: "help" };
+  }
+  // 出題中の課題をパス（ボタンを閉じてしまったときのテキスト版）
+  if (/^(パス|ぱす|pass|スキップ|skip|飛ばして|とばして|パスして|パスで|スキップして)[!！。]?$/i.test(text)) return { kind: "pass" };
+
   // 難易度指定（「LOGICで難易度8」「難易度8」「logic 8」）は用意済みストックから即出題（quiz。±1 に無ければ handler 側で作問に切替）。
-  // 「作って」「作問」など明示語があるときだけ LLM 作問（generate）
+  // 「作って」「作問」など明示語があるときだけ LLM 作問（generate）。疑問文（「難易度8ってどのくらい？」）は会話へ
   const difficulty = parseDifficulty(text);
-  if (difficulty !== null && !/(履歴|プロフィール|連携)/.test(text)) {
+  if (difficulty !== null && !/(履歴|プロフィール|連携)/.test(text) && !isQuestionLike(text)) {
     const domain = domainInText(text);
     if (/(作って|つくって|作問|生成|新しい問題|新作|オリジナル)/.test(text)) {
       return { kind: "generate", request: text.slice(0, 300), domain, difficulty };
     }
     return { kind: "quiz", domain, difficulty };
   }
-  // 「writeで軽めに」「やさしいのを1問」「難しめで」→ 推薦難易度から ∓2 した出題（指定難易度の文脈はリセット）
-  const delta = /(軽め|軽い|やさし|易し|簡単|かんたん|入門|初級|易しめ)/.test(text) ? -2 : /(難しめ|むずかし|難し|歯ごたえ|ハード|上級|骨のある)/.test(text) ? 2 : null;
-  if (delta !== null && !/(履歴|プロフィール|連携|説明|教えて)/.test(text)) {
+  // 「writeで軽めに」「やさしいのを1問」「難しめで」→ 推薦難易度から ∓2 した出題（指定難易度の文脈はリセット）。
+  // 語形は出題向けのものに限定する（「やさしい人」「軽めの昼食」「難しい話」「簡単な質問」は拾わない）
+  const easy = /(軽め|やさしめ|易しめ|やさしい(の|問題|やつ|ほう|方)|易しい(の|問題|やつ)|簡単な(問題|の|やつ|ほう)|かんたんな(問題|の)|入門|初級)/;
+  const hard = /(難しめ|むずかしめ|難しい(の|問題|やつ|ほう|方)|むずかしい(の|問題|やつ)|歯ごたえ|ハードな|上級|骨のある)/;
+  const delta = easy.test(text) ? -2 : hard.test(text) ? 2 : null;
+  if (delta !== null && !/(履歴|プロフィール|連携)/.test(text) && !isQuestionLike(text)) {
     const domain = domainInText(text);
-    if (domain || /(問|出題|クイズ|やりたい|やる|お願い|ちょうだい|で$|に$|の$)/.test(text) || text.length <= 8) {
+    if (domain || /(問題|1問|一問|出題|クイズ|やりたい|お願い|ちょうだい|で$|に$|の$)/.test(text)) {
       return { kind: "quiz", domain, difficultyDelta: delta };
     }
   }
@@ -124,8 +143,12 @@ export function classifyIntent(raw: string): Intent {
   const quizWithDomain = text.match(/^(read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(で|の)?\s*(1問|一問|出題|問題|クイズ)/i);
   if (quizWithDomain) return { kind: "quiz", domain: domainOf(quizWithDomain[1]) };
   if (quizCmd.test(text)) return { kind: "quiz", domain: null };
-  // 自由文の作問依頼（「論理パズルを出して」「短い読解を1問」など）
-  if (/(出して|だして|ちょうだい|お願い|作って|つくって|作問|パズル|クイズ|問題を|問題が|1問|一問|出題して)/.test(text) && text.length >= 4) {
+  // 自由文の作問依頼（「論理パズルを出して」「短い読解を1問ください」）: 課題語 ＋（依頼動詞 or 文末が依頼形）の両方が要る。
+  // 「仕事で問題が起きて疲れた」「昨日クイズ番組を見た」「お願いがあるんだけど」は会話へ
+  const taskWord = /(問題|パズル|クイズ|読解|作文|1問|一問|課題|出題|作問|python|コード|論理)/i;
+  const requestVerb = /(出して|だして|ちょうだい|お願い|作って|つくって|作問|出題して|ください|くれ|頼む|ほしい)/;
+  const requestEnding = /(して|ください|お願い(します)?|ちょうだい|ほしい|くれ)[!！。]?$/;
+  if (text.length >= 4 && taskWord.test(text) && (requestVerb.test(text) || requestEnding.test(text)) && !isQuestionLike(text)) {
     return { kind: "generate", request: text.slice(0, 300) };
   }
 
@@ -219,6 +242,20 @@ export function welcomeReply(ctx: LeaderContext): LeaderReply {
     "まず「連携」と送って Web アカウントと繋ぐと、記録が残るから。",
   ].join("\n");
   return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, { appUrl: ctx.appUrl, mood: "wave", quickReplies: domainQuickReplies(ctx.appUrl) });
+}
+
+/** 連携解除の確認（テキストの「連携解除」では即解除せず、ボタンで確定させる） */
+export function confirmUnlinkReply(ctx: LeaderContext): LeaderReply {
+  if (!ctx.linked) {
+    return { text: "この LINE はまだ Web アカウントと連携していません。", quickReplies: domainQuickReplies(ctx.appUrl) };
+  }
+  return {
+    text: "Web アカウントとの連携を解除しますか？\n解除すると、LINE での出題・記録・記録に基づく提案ができなくなります（再連携はいつでも可能）。",
+    quickReplies: [
+      { type: "postback", label: "解除する", data: "action=unlink&confirm=1", displayText: "連携を解除する" },
+      { type: "postback", label: "やめる", data: "action=today", displayText: "やめる" },
+    ],
+  };
 }
 
 export function helpReply(ctx: LeaderContext): LeaderReply {
@@ -325,7 +362,7 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
       const web = ctx.leaderProfile?.summary?.trim();
       const measured = (ctx.scores ?? []).filter((x) => x.evidenceCount > 0);
       const scoreLine = measured
-        .map((x) => `${x.domain} ${x.score}${x.confidence === "low" ? "（分析中）" : ""}`)
+        .map((x) => `${x.domain} ${formatScore(x.score)}${x.confidence === "low" ? "（分析中）" : ""}`)
         .join(" / ");
       return {
         text: web

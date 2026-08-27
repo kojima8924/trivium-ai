@@ -3,12 +3,13 @@ import { currentUserId } from "@/auth";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, rejectCrossSite } from "@/lib/http";
+import { loadTaskPrefs, saveTaskPrefs } from "@/lib/task-prefs";
 
 export const dynamic = "force-dynamic";
 
 // POST /api/demo/reset
 // ログイン中ユーザーの学習状態を初期状態に戻す（events / profiles / leader / achievements / 挑戦 / 生成課題 / スナップショット）。
-// アカウント自体・人格設定・LINE 連携は残す。
+// アカウント自体・人格設定・LINE 連携・出題設定（問題タイプの除外）は残す。
 export async function POST(req: Request) {
   if (!env.demoSeedEnabled) return NextResponse.json({ error: "disabled" }, { status: 404 });
   const blocked = rejectCrossSite(req);
@@ -28,6 +29,8 @@ export async function POST(req: Request) {
     void _n;
     return prisma.lineUser.update({ where: { id: lu.id }, data: { state: rest as object } });
   });
+  // 出題設定（出さない問題タイプ・複合の可否）は LeaderProfile.preferences に同居しているので、削除前に退避して書き戻す
+  const taskPrefs = await loadTaskPrefs(userId);
   const results = await prisma.$transaction([
     ...lineUpdates,
     prisma.learningEvent.deleteMany({ where: { userId } }),
@@ -40,5 +43,6 @@ export async function POST(req: Request) {
     prisma.dailyDigest.deleteMany({ where: { userId } }),
   ]);
   const events = results[lineUpdates.length] as { count: number };
+  await saveTaskPrefs(userId, taskPrefs);
   return NextResponse.json({ ok: true, removedEvents: events.count });
 }

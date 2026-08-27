@@ -71,3 +71,10 @@ test("isCompositeAxes: 2 系統以上が正のときだけ true", () => {
   assert.equal(isCompositeAxes({ read: 5, code: 0 }), false);
   assert.equal(isCompositeAxes({ read: 5, code: 2 }), true);
 });
+
+test("taskPrefsLeaveSomething: 選択式タイプを全部外すと LINE で出せないので NG（kind: choice）", () => {
+  const r = taskPrefsLeaveSomething({ ...DEFAULT_TASK_PREFS, excludedTaskTypes: { READ: [], WRITE: ["revision", "structure"], CODE: [] } });
+  assert.deepEqual(r, { ok: false, domain: "WRITE", kind: "choice" });
+  const ok = taskPrefsLeaveSomething({ ...DEFAULT_TASK_PREFS, excludedTaskTypes: { READ: [], WRITE: ["revision", "argument", "summary", "rewrite"], CODE: [] } });
+  assert.deepEqual(ok, { ok: true });
+});

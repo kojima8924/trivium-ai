@@ -10,14 +10,7 @@ import { env } from "../env";
 import { EXTERNAL, MODELS, LINE } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
-import {
-  deterministicResultText,
-  fallbackHint,
-  filterSkillTags,
-  heuristicResultText,
-  safeEvaluationStatus,
-  stripBackticks,
-} from "./shared";
+import { LEARNER_ANSWER_RULE, deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus, stripBackticks, wrapLearnerAnswer } from "./shared";
 import {
   AI_SYSTEM_POLICY,
   type ChatInput,
@@ -104,8 +97,9 @@ const ROLE_EVAL = [
   "- deterministic_result が correct のときは status を success、hint は空文字。feedback は2文: 何ができていたか＋次に意識する一点。",
   "- incorrect のときは status を retry。feedback は2文で『どこを見直すか』だけを示す。誤りの箇所・原因・正解の値を特定して教えない（『式の最後の - 1 が効いている』のような指摘は禁止。ヒント3段目より先の情報になる）。",
   "- hint は hints 配列の hint_level 番目（0始まり）を、学習者の回答に合わせて言い換えたもの。その段のヒントに無い新しい事実を足さない。範囲外なら最後のヒントを言い換える。答えそのものは書かない。",
-  "- unknown（自由記述）のときは criteria に照らして判断。十分なら success、足りなければ needs_more にして、足りない観点を問い返す。heuristic_result は参考情報。",
+  "- unknown（自由記述）のときは criteria に照らして判断。十分なら success、足りなければ needs_more にして、足りない観点を問い返す。heuristic_result が below_rubric なら success にしない。",
   "- feedback に正解の値や完成文、誤りの具体的な位置を含めない。",
+  LEARNER_ANSWER_RULE,
 ].join("\n");
 
 const ROLE_INTERPRET = [
@@ -293,7 +287,7 @@ export class OpenAIProvider implements LearningAIProvider {
     const user = [
       fmt("mode", input.mode),
       fmt("task", input.task),
-      fmt("learner_answer", input.learnerAnswer),
+      wrapLearnerAnswer(input.learnerAnswer),
       fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
       fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
       fmt("hint_level", input.hintLevel),
@@ -306,7 +300,7 @@ export class OpenAIProvider implements LearningAIProvider {
       effort: MODELS.reasoningEffort.evaluate,
     });
 
-    const status = safeEvaluationStatus(out.status, input.deterministicResult);
+    const status = safeEvaluationStatus(out.status, input.deterministicResult, input.heuristicResult);
     const safeHint = fallbackHint(input.task.hints, input.hintLevel);
     return {
       status,

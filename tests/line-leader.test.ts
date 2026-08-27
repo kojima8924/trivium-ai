@@ -71,7 +71,7 @@ test("連携済み: プロフィールで実際のスコアを返す（分析中
     ],
   });
   assert.match(r.text, /READ 72/);
-  assert.match(r.text, /WRITE 57（分析中）/);
+  assert.match(r.text, /WRITE 57.0（分析中）/);
   assert.match(r.text, /CODE 79/);
   assert.match(r.text, /CODEを強みにしています。/);
 });
@@ -267,4 +267,55 @@ test("「軽めに」「難しめ」は推薦難易度から ∓2 の出題（�
   assert.deepEqual(classifyIntent("LOGICで歯ごたえのある問題"), { kind: "quiz", domain: "CODE", difficultyDelta: 2 });
   // 会話文は拾わない
   assert.notEqual(classifyIntent("簡単に説明してほしいんだけど、二分探索って何？").kind, "quiz");
+});
+
+test("意図分類: 文中の『解除』『同期』『リンク』『使い方』では連携・ヘルプに化けない（会話へ）", () => {
+  assert.notEqual(classifyIntent("実績解除うれしい").kind, "unlink");
+  assert.notEqual(classifyIntent("ロゴス、ブロックの解除ってどうやるの？").kind, "unlink");
+  assert.equal(classifyIntent("連携解除").kind, "unlink");
+  assert.equal(classifyIntent("連携をやめたい").kind, "unlink");
+  assert.notEqual(classifyIntent("同期に勧められた本を読んだ").kind, "link");
+  assert.notEqual(classifyIntent("このリンク先の記事を読んだんだけど").kind, "link");
+  assert.notEqual(classifyIntent("Googleアカウントの話なんだけど").kind, "link");
+  assert.equal(classifyIntent("連携をお願い").kind, "link");
+  assert.notEqual(classifyIntent("Pythonの辞書の使い方が分からない").kind, "help");
+  assert.equal(classifyIntent("使い方").kind, "help");
+  assert.equal(classifyIntent("使い方を教えて").kind, "help");
+});
+
+test("意図分類: 日常語の『問題』『クイズ』『お願い』『ちょうだい』は作問にならない", () => {
+  assert.notEqual(classifyIntent("仕事で問題が起きて疲れた").kind, "generate");
+  assert.equal(classifyIntent("仕事で問題が起きて疲れた").kind, "tired");
+  assert.notEqual(classifyIntent("順番の問題が苦手なんだけどどうすれば").kind, "generate");
+  assert.notEqual(classifyIntent("昨日クイズ番組を見た").kind, "generate");
+  assert.notEqual(classifyIntent("お願いがあるんだけど").kind, "generate");
+  assert.notEqual(classifyIntent("友達にちょうだいと言われた").kind, "generate");
+  // 依頼はこれまで通り作問
+  assert.equal(classifyIntent("論理パズルを出して").kind, "generate");
+  assert.equal(classifyIntent("短い読解を1問ください").kind, "generate");
+  assert.equal(classifyIntent("Pythonの問題を作って").kind, "generate");
+  assert.equal(classifyIntent("論理パズルをお願い").kind, "generate");
+  // 「読解の問題を〜」は用意済みストックからの出題（quiz）
+});
+
+test("意図分類: 『簡単』『難しい』『難易度N』を含む質問・感想は出題にならない", () => {
+  assert.notEqual(classifyIntent("簡単な質問があります").kind, "quiz");
+  assert.equal(classifyIntent("簡単なことでもやる気が出ない").kind, "tired");
+  assert.notEqual(classifyIntent("この本は難しいけど読みたい").kind, "quiz");
+  assert.notEqual(classifyIntent("やさしい人でした").kind, "quiz");
+  assert.notEqual(classifyIntent("軽めの昼食にした").kind, "quiz");
+  assert.notEqual(classifyIntent("難しい話を聞いた").kind, "quiz");
+  assert.notEqual(classifyIntent("難易度8ってどのくらい？").kind, "quiz");
+  assert.notEqual(classifyIntent("難易度5の問題ってどんな感じ？教えて").kind, "quiz");
+  // 出題向けの言い方はこれまで通り
+  assert.deepEqual(classifyIntent("簡単な問題を1問"), { kind: "quiz", domain: null, difficultyDelta: -2 });
+  assert.deepEqual(classifyIntent("難しいのをお願い"), { kind: "quiz", domain: null, difficultyDelta: 2 });
+  assert.deepEqual(classifyIntent("難易度8"), { kind: "quiz", domain: null, difficulty: 8 });
+});
+
+test("意図分類: 『パス』『スキップ』は pass", () => {
+  assert.deepEqual(classifyIntent("パス"), { kind: "pass" });
+  assert.deepEqual(classifyIntent("スキップ"), { kind: "pass" });
+  assert.deepEqual(classifyIntent("飛ばして"), { kind: "pass" });
+  assert.notEqual(classifyIntent("パスワードを忘れた").kind, "pass");
 });

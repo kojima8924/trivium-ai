@@ -4,6 +4,7 @@
 //   - 人格の観察メモ（LEADER は 4 つ分）・本人の能力サマリ・直近 N 往復を input に渡す（system には混ぜない）
 //   - 発話と返答を ChatTurn に保存し、人格ごとに直近 N 往復だけを prompt に載せる
 import "server-only";
+import { formatScore } from "@/lib/scoring";
 import { EXTERNAL } from "@/config/trivium.config";
 import { prisma } from "@/lib/prisma";
 import { learningAI, type ChatTurnInput } from "@/lib/ai";
@@ -25,7 +26,7 @@ async function profileSummaryFor(userId: string, agent: AgentKey): Promise<strin
   const lines = domains.map((d) => {
     const label = DOMAIN_META[d.domain].label;
     if (d.evidenceCount === 0) return `${label}: 未計測`;
-    return `${label}: ${d.score}（信頼度 ${d.confidence}・${d.evidenceCount}件）${d.summary ? ` / ${d.summary}` : ""}`;
+    return `${label}: ${formatScore(d.score)}（信頼度 ${d.confidence}・${d.evidenceCount}件）${d.summary ? ` / ${d.summary}` : ""}`;
   });
   if (agent === "LEADER" && data.leader) {
     lines.push(`総評: ${data.leader.summary}`);

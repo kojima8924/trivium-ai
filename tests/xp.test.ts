@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { computeXp, dayKey, rankFor, streakOf, xpForEvent, type XpEvent } from "../src/lib/xp";
+import { computeXp, dayKey, longestStreak, rankFor, streakOf, xpBreakdown, xpForEvent, type XpEvent } from "../src/lib/xp";
 
 const NOW = new Date("2026-08-28T03:00:00Z");
 
@@ -116,4 +116,38 @@ test("computeXpは課題・ミッション・連続日数のXPを合計する", 
   assert.deepEqual(result.breakdown, { tasks: 60, missions: 100, streak: 20 });
   assert.equal(result.total, 180);
   assert.equal(result.total, result.breakdown.tasks + result.breakdown.missions + result.breakdown.streak);
+});
+
+test("連続ボーナスは最長連続で確定し、今日未達で streak が途切れても合計・ランクが減らない", () => {
+  const days = ["2026-08-24T00:00:00Z", "2026-08-25T00:00:00Z", "2026-08-26T00:00:00Z"];
+  const events = days.flatMap((createdAt) => [
+    ev({ domain: "READ", difficulty: 1, createdAt: new Date(createdAt) }),
+    ev({ domain: "WRITE", difficulty: 1, createdAt: new Date(createdAt) }),
+    ev({ domain: "CODE", difficulty: 1, createdAt: new Date(createdAt) }),
+  ]);
+  assert.equal(longestStreak(["2026-08-24", "2026-08-25", "2026-08-26"]), 3);
+  assert.equal(longestStreak(["2026-08-20", "2026-08-24", "2026-08-25"]), 2);
+  const onLastDay = computeXp(events, new Date("2026-08-26T10:00:00Z"));
+  const twoDaysLater = computeXp(events, new Date("2026-08-28T10:00:00Z"));
+  assert.equal(onLastDay.streak, 3);
+  assert.equal(twoDaysLater.streak, 0);
+  assert.equal(onLastDay.breakdown.streak, 30);
+  assert.equal(twoDaysLater.breakdown.streak, 30);
+  assert.equal(onLastDay.total, twoDaysLater.total);
+});
+
+test("xpBreakdown: 1 件の決着で増えた XP を課題・ミッション・連続に分解する", () => {
+  const before = [ev({ domain: "READ", difficulty: 2 }), ev({ domain: "WRITE", difficulty: 2 })];
+  const after = [...before, ev({ domain: "CODE", difficulty: 4, createdAt: new Date(NOW.getTime() + 1) })];
+  const b = xpBreakdown(before, after, NOW);
+  assert.equal(b.task, 40);
+  assert.equal(b.missionJustDone, true);
+  assert.equal(b.missionBonus, 50);
+  assert.equal(b.streakBonus, 10);
+  assert.equal(b.gained, 100);
+  assert.equal(b.total, computeXp(after, NOW).total);
+  // 変化なし（練習モード）
+  const none = xpBreakdown(after, after, NOW);
+  assert.equal(none.gained, 0);
+  assert.equal(none.missionJustDone, false);
 });

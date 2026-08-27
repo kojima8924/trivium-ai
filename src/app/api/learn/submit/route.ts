@@ -4,6 +4,7 @@ import { currentUserId } from "@/auth";
 import { MAX_HINTS } from "@/lib/domain";
 import { rateLimit, rejectCrossSite } from "@/lib/http";
 import { submitAnswer } from "@/lib/learn/service";
+import { notifyDailyDigestIfComplete } from "@/lib/learn/digest";
 
 export const dynamic = "force-dynamic";
 
@@ -38,5 +39,7 @@ export async function POST(req: Request) {
 
   const result = await submitAnswer(userId, taskId, { answer, latencyMs, giveUp });
   if ("error" in result) return NextResponse.json({ error: "unknown task" }, { status: 404 });
+  // 「今日の3問」が揃えば LINE に総評を push（finalize の後に呼ぶ。DailyDigest の unique で冪等）
+  if (result.status !== "retry" && !result.practice) await notifyDailyDigestIfComplete(userId).catch(() => undefined);
   return NextResponse.json(result);
 }

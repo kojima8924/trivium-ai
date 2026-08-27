@@ -13,7 +13,14 @@ export const env = {
   isProduction: process.env.NODE_ENV === "production",
 
   demoLoginEnabled: bool(process.env.DEMO_LOGIN_ENABLED, false),
+  /** デモログインの合言葉。設定時は入力必須（既存アカウントへの入場も許可）。未設定なら新規作成のみ */
+  demoLoginSecret: process.env.DEMO_LOGIN_SECRET ?? "",
   demoSeedEnabled: bool(process.env.DEMO_SEED_ENABLED, true),
+  /** 管理者のメールアドレス（カンマ区切り・小文字比較）。/api/demo/warm など重い運用 API の許可リスト */
+  adminEmails: (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
 
   ai: {
     /** openai | dify | anthropic | mock（未設定なら openai。キーが無ければ自動で mock） */

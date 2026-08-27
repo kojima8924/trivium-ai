@@ -10,9 +10,12 @@ import { SUBSKILLS, type DomainKey } from "../domain";
 import type { Task } from "../tasks";
 import { personaPrompts } from "../persona";
 import { nextDifficultyFor } from "../profile";
-import { looksLikePython, normalizeGenerated, normalizeOutput } from "./generate.pure";
+import { chooseTaskType, inferDifficultyDelta, inferDomain, inferKind, inferLogicStyle, looksLikePython, normalizeGenerated, normalizeOutput, stableHash } from "./generate.pure";
+
+// 依頼文の推定は純粋モジュールに置いている（テストから直接呼べる）。互換のため再エクスポート
+export { chooseTaskType, inferDifficultyDelta, inferDomain, inferKind, inferLogicStyle, inferTaskTypeFromRequest } from "./generate.pure";
 import { loadTaskPrefs } from "../task-prefs";
-import { allowedTaskTypes, FREE_TASK_TYPES, taskTypeLabel } from "../task-types";
+import { taskTypeLabel } from "../task-types";
 
 export type GenerateRequest = {
   request: string;
@@ -24,41 +27,21 @@ export type GenerateRequest = {
   taskType?: string;
 };
 
-/** 依頼文から問題タイプを推定する（決定論）。判定できなければ null */
-export function inferTaskTypeFromRequest(domain: DomainKey, text: string): string | null {
-  const t = text.toLowerCase();
-  if (domain === "READ") {
-    if (/(語彙|言い換え|意味|表現)/.test(t)) return "vocabulary";
-    if (/(表|グラフ|データ|数値|図)/.test(t)) return "data";
-    if (/(批判|前提|反例|飛躍|妥当)/.test(t)) return "critique";
-    if (/(推論|推測|読み取|暗示)/.test(t)) return "inference";
-    if (/(要旨|要点|主張|要約)/.test(t)) return "summary";
-    return null;
-  }
-  if (domain === "WRITE") {
-    if (/(要約)/.test(t)) return "summary";
-    if (/(書き換え|言い換え|書き直|敬語|短く)/.test(t)) return "rewrite";
-    if (/(意見|主張|賛成|反対|作文|エッセイ)/.test(t)) return "argument";
-    if (/(並べ替え|順序|接続|構成|段落)/.test(t)) return "structure";
-    if (/(推敲|直し|明確|冗長|わかりやす)/.test(t)) return "revision";
-    return null;
-  }
-  if (/(バグ|不具合|直して|間違い|エラー)/.test(t) && /(python|パイソン|コード|プログラ)/i.test(t)) return "debug";
-  if (/(python|パイソン|コード|プログラ|出力予測|関数)/i.test(t)) return "python";
-  if (/(数列|場合の数|確率|比率|割合|計算|数的)/.test(t)) return "math";
-  if (/(手順|アルゴリズム|最短|フローチャート|擬似コード)/.test(t)) return "algorithm";
-  if (/(パズル|推理|論理|条件)/.test(t)) return "puzzle";
-  return null;
-}
-
 type VerifyResult = { result: "skip" | "ok" } | { result: "fixed"; index: number } | { result: "mismatch"; stdout: string };
 
 /**
- * 4 択の Python 出力予測問題を実行して検証する。
+ * 4 択の Python 出力予測問題（taskType = python）を実行して検証する。
  * ok: 正解の選択肢が実行結果と一致 / fixed: 別の選択肢が一致したので正解 index を直した / mismatch: どれも一致しない / skip: 対象外
+ * debug（バグ発見）は選択肢が「原因の行」や説明文なので stdout と照合しない（実行できるかの確認だけ）。
+ * puzzle / math / algorithm はコードではないので対象外。
  */
-async function verifyPythonChoice(out: { passage: string; prompt: string; choices: string[]; answerKey: string[] }, domain: DomainKey): Promise<VerifyResult> {
+async function verifyPythonChoice(
+  out: { passage: string; prompt: string; choices: string[]; answerKey: string[] },
+  domain: DomainKey,
+  taskType: string | undefined,
+): Promise<VerifyResult> {
   if (domain !== "CODE" || out.choices.length !== 4 || !learningAI.runPython) return { result: "skip" };
+  if (taskType !== undefined && taskType !== "python" && taskType !== "debug") return { result: "skip" };
   const code = looksLikePython(out.passage) ? out.passage : looksLikePython(out.prompt) ? `${out.passage}\n${out.prompt}` : "";
   if (!code) return { result: "skip" };
   const run = await learningAI.runPython(code);
@@ -66,6 +49,8 @@ async function verifyPythonChoice(out: { passage: string; prompt: string; choice
     console.warn("[generate] python verify skipped:", run.error.slice(0, 200));
     return { result: "skip" };
   }
+  // バグ発見問題は「動く（または例外で止まる）コード」であることだけ確認し、選択肢は照合しない
+  if (taskType === "debug") return { result: "skip" };
   const actual = normalizeOutput(run.stdout);
   if (!actual) return { result: "skip" };
   const idx = out.choices.findIndex((c) => normalizeOutput(c) === actual);
@@ -78,46 +63,15 @@ async function verifyPythonChoice(out: { passage: string; prompt: string; choice
   return { result: "mismatch", stdout: run.stdout.trim() };
 }
 
-/** 依頼文から domain を推定する（決定論）。判定できなければ null */
-export function inferDomain(text: string): DomainKey | null {
-  const t = text.toLowerCase();
-  if (/(論理|パズル|推論|順番|条件|python|パイソン|コード|プログラ|バグ|計算|数列|手順|ロジック|logic|code)/.test(t)) return "CODE";
-  if (/(書|作文|文章|要約を書|主張|反論|推敲|言い換え|説明文|write)/.test(t)) return "WRITE";
-  if (/(読|読解|文章題|要旨|批判|記事|read|物語|文を読)/.test(t)) return "READ";
-  return null;
-}
-
-/** 依頼文から形式を推定する。LINE では選択式が扱いやすいので既定は choice */
-export function inferKind(text: string, fallback: Task["kind"] = "choice"): Task["kind"] {
-  if (/(記述|自由|書いて|文章で|説明して)/.test(text)) return "free";
-  if (/(短答|数値|数字で|一言で|答えだけ)/.test(text)) return "short";
-  if (/(選択|4択|四択|クイズ)/.test(text)) return "choice";
-  return fallback;
-}
-
-/** 依頼文から難易度を推定する（「やさしい」「むずかしい」など） */
-export function inferDifficultyDelta(text: string): number {
-  if (/(やさし|易し|簡単|入門|初級|軽め)/.test(text)) return -1;
-  if (/(むずかし|難し|上級|難問|ハード|歯ごたえ)/.test(text)) return 1;
-  return 0;
-}
-
-/** LOGIC の出題形式（Python か論理パズルか）を依頼文から決める。LLM に任せない */
-export function inferLogicStyle(text: string): "python" | "logic" | null {
-  if (/(python|パイソン|コード|プログラ|バグ|出力予測|関数)/i.test(text)) return "python";
-  if (/(パズル|論理|推論|順番|条件|嘘|並び|手順|ロジック|logic)/.test(text)) return "logic";
-  return null;
-}
+/**
+ * 問題タイプと形式を決める（純粋）。
+ *   1. 明示指定 → そのまま（設定より本人の明示が優先）
+ *   2. 依頼文から推定 → 出題設定で除外されていなければ採用
+ *   3. それ以外 → 許可タイプ（形式ヒントで絞る）から seed で決定論的に選ぶ。形式ヒントで空なら形式を free に切り替える
+ */
 
 export async function generateTaskForUser(userId: string, req: GenerateRequest): Promise<{ task: Task; domain: DomainKey }> {
   const domain = req.domain ?? inferDomain(req.request) ?? "CODE";
-  // 問題タイプ: 明示 > 依頼文からの推定（本人の希望なので出題設定より優先） > 出題設定で許可されたタイプの先頭
-  const prefs = await loadTaskPrefs(userId);
-  const inferredType = req.taskType ?? inferTaskTypeFromRequest(domain, req.request);
-  const kindHint = req.kind ?? (inferredType ? (FREE_TASK_TYPES[domain].includes(inferredType) ? "free" : inferKind(req.request)) : inferKind(req.request));
-  const taskType = inferredType ?? allowedTaskTypes(domain, prefs, kindHint)[0] ?? allowedTaskTypes(domain, prefs)[0] ?? undefined;
-  // 記述式タイプ（意見文・要約・書き換え）は free、それ以外は依頼文の形式指定に従う
-  const kind: Task["kind"] = req.kind ?? (taskType && FREE_TASK_TYPES[domain].includes(taskType) ? "free" : inferKind(req.request));
   // 明示指定（「難易度8」）はそのまま使う。無指定なら推薦値に「やさしめ／難しめ」の語で ±1
   const clamp = (n: number) => Math.min(10, Math.max(1, Math.round(n)));
   const difficulty =
@@ -125,10 +79,18 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
       ? clamp(req.difficulty)
       : clamp((await nextDifficultyFor(userId, domain)) + inferDifficultyDelta(req.request));
 
-  const [recent, personas] = await Promise.all([
+  const [prefs, recent, personas] = await Promise.all([
+    loadTaskPrefs(userId),
     prisma.generatedTask.findMany({ where: { userId, domain }, orderBy: { createdAt: "desc" }, take: 8, select: { title: true } }),
     personaPrompts(userId),
   ]);
+
+  // 問題タイプと形式:
+  //   明示（req.taskType）> 依頼文からの推定 > 出題設定で許可されたタイプから決定論的に選ぶ（ユーザー × 直近の作問数でばらける）
+  //   推定したタイプが出題設定で除外されていれば、設定を尊重して許可タイプから選び直す（設定画面の「作問からも外れる」と整合）
+  //   記述式タイプ（意見文・要約・書き換え）は free。形式ヒント（choice 等）で出せるタイプが無ければ形式の方を free に切り替える
+  const kindHint: Task["kind"] | undefined = req.kind ?? (/(記述|自由|書いて|文章で|説明して|短答|数値|数字で|一言で|答えだけ|選択|4択|四択|クイズ)/.test(req.request) ? inferKind(req.request) : undefined);
+  const { taskType, kind } = chooseTaskType(domain, req, prefs, kindHint, stableHash(`${userId}:${recent.length}`));
 
   // LOGIC は「Python」か「論理パズル（コード不可）」かを先頭で明示する（問題タイプが決まっていればそれに従う）
   const style =
@@ -164,7 +126,7 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
   // Python の出力予測問題は実際に実行して正解を検証する（LLM の机上トレースは間違うことがある）
   // 不一致なら 1 回だけ作り直し、それでも合わなければ正解の選択肢を実行結果で差し替える
   for (let attempt = 0; attempt < 2; attempt++) {
-    const v = await verifyPythonChoice(out, domain);
+    const v = await verifyPythonChoice(out, domain, taskType);
     if (v.result !== "mismatch") {
       if (v.result === "fixed") console.warn(`[generate] python verify: answer index corrected -> ${v.index}`);
       break;
@@ -174,9 +136,12 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
       out = await gen();
       continue;
     }
-    const idx = Number(out.answerKey[0]);
-    console.warn("[generate] python verify: patching correct choice with actual output");
-    out.choices[idx] = v.stdout;
+    // 最後の手段: 正解の選択肢を実行結果で差し替える（出力予測問題 = python のときだけ。他タイプには絶対に適用しない）
+    if (taskType === "python" || taskType === undefined) {
+      const idx = Number(out.answerKey[0]);
+      console.warn("[generate] python verify: patching correct choice with actual output");
+      out.choices[idx] = v.stdout;
+    }
   }
 
   // Mock provider は依頼の kind と違う形式を返すことがあるので、返ってきた実体に合わせる

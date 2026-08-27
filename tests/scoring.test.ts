@@ -74,7 +74,48 @@ test("複合課題の失敗はボトルネックのCODEだけに否定証拠を�
   assert.equal(withoutFailure.write.level, 2);
   assert.equal(withFailure.write.level, 2);
   assert.equal(withoutFailure.code.level, 8);
-  assert.equal(withFailure.code.level, 6);
+  // 2 勝 1 敗（正答率 0.65）: 昇格しきい値 0.7 は割るが降格しきい値 0.5 は割らないので Lv8 を維持（ヒステリシス）
+  assert.equal(withFailure.code.level, 8);
+  // CODE の進捗（次のレベル帯）は失敗の分だけ下がる
+  assert.ok(withFailure.code.progress <= withoutFailure.code.progress);
+});
+
+test("降格: 1 回の失敗で 1 段以上落ちない。正答率が 0.5 を割ると落ちる", () => {
+  // 成功 2 件は直前（新しさ重み ≈ 1）に置く。時系列は 成功 → 失敗 の順
+  const base = [ev({ difficulty: 3, createdAt: new Date(NOW.getTime() - 2) }), ev({ difficulty: 3, createdAt: new Date(NOW.getTime() - 1) })];
+  assert.equal(computeLevels(base, NOW).code.level, 3);
+  // 推薦どおり難易度 4 に挑んで失敗 → 難易度 3 の判定は無傷（否定証拠は上方向にだけ効く）
+  assert.equal(computeLevels([...base, ev({ difficulty: 4, success: false })], NOW).code.level, 3);
+  // 同じ難易度 3 を 1 回落とす（2 勝 1 敗）→ 維持
+  assert.equal(computeLevels([...base, ev({ difficulty: 3, success: false })], NOW).code.level, 3);
+  // 2 回落とす（2 勝 2 敗 = 0.5）→ 維持。3 回落とす（0.4）→ 降格
+  const twoFails = [...base, ev({ difficulty: 3, success: false }), ev({ difficulty: 3, success: false, createdAt: new Date(NOW.getTime() + 1) })];
+  assert.equal(computeLevels(twoFails, NOW).code.level, 3);
+  const threeFails = [...twoFails, ev({ difficulty: 3, success: false, createdAt: new Date(NOW.getTime() + 2) })];
+  assert.ok(computeLevels(threeFails, NOW).code.level < 3);
+});
+
+test("複合課題の失敗は同点でも 1 系統（主系統）にしか帰属しない", () => {
+  const events = [
+    ev({ domain: "READ", difficulty: 3, createdAt: daysAgo(4) }),
+    ev({ domain: "READ", difficulty: 3, createdAt: daysAgo(3) }),
+    ev({ difficulty: 3, createdAt: daysAgo(2) }),
+    ev({ difficulty: 3, createdAt: daysAgo(1) }),
+  ];
+  // READ Lv3 / CODE Lv3 の状態で複合 {read:3, code:3}（主系統 CODE）を 3 回落とす → CODE だけが落ち、READ は無傷
+  const fails = [0, 1, 2].map((i) => ev({ domain: "CODE", difficulty: 3, axes: { read: 3, code: 3 }, success: false, createdAt: new Date(NOW.getTime() + i) }));
+  const levels = computeLevels([...events, ...fails], NOW);
+  assert.equal(levels.read.level, 3);
+  assert.ok(levels.code.level < 3, `code=${levels.code.level}`);
+});
+
+test("時間が経っても到達レベルは消えない（件数で判定し、進捗だけが減衰する）", () => {
+  const events = [ev({ difficulty: 3, createdAt: daysAgo(30) }), ev({ difficulty: 3, createdAt: daysAgo(29) })];
+  const fresh = computeDomainScore("CODE", events, daysAgo(28));
+  const later = computeDomainScore("CODE", events, NOW);
+  assert.equal(fresh.level, 3);
+  assert.equal(later.level, 3);
+  assert.ok(later.score >= 30 && later.score <= fresh.score, `later=${later.score} fresh=${fresh.score}`);
 });
 
 test("複合課題の成功は関与する3系統すべてに加点する", () => {
@@ -127,6 +168,29 @@ test("recommendDifficultyは直近3件中2件失敗なら到達レベルに据�
   assert.equal(computeLevels(events, NOW).code.level, 4);
   assert.equal(recommendDifficulty("CODE", events, NOW), 4);
   assert.equal(recommendDifficulty("CODE", noMastery, NOW), 1);
+});
+
+test("recommendDifficulty: 初回の正解で難易度が下がらない（3 → 4）。ヒントありなら据え置き、失敗なら 1 つ下げる", () => {
+  const start = recommendDifficulty("CODE", [], NOW);
+  assert.equal(start, 3);
+  // 難易度 3 をヒントなしで正解 → 証拠は 1 件でレベルは付かないが、推薦は 4（逆行しない）
+  assert.equal(recommendDifficulty("CODE", [ev({ difficulty: 3 })], NOW), 4);
+  // ヒント 2 回で正解 → 3 で据え置き
+  assert.equal(recommendDifficulty("CODE", [ev({ difficulty: 3, hintCount: 2 })], NOW), 3);
+  // 失敗 → 2（1 まで落ちない）
+  assert.equal(recommendDifficulty("CODE", [ev({ difficulty: 3, success: false })], NOW), 2);
+  // 正解 → 次（4）で失敗 → 直近の成功難易度 3 で据え置き
+  const upThenFail = [ev({ difficulty: 3, createdAt: daysAgo(1) }), ev({ difficulty: 4, success: false })];
+  assert.equal(recommendDifficulty("CODE", upThenFail, NOW), 3);
+  // 連続正解で単調に上がる（3 → 4 → 5 → …）。途中で下がらない
+  let prev = 3;
+  const events: ScorableEvent[] = [];
+  for (let i = 0; i < 6; i++) {
+    events.push(ev({ difficulty: prev, createdAt: new Date(NOW.getTime() + i * 60_000) }));
+    const next = recommendDifficulty("CODE", events, new Date(NOW.getTime() + 10 * 60_000));
+    assert.ok(next >= prev, `step ${i}: ${prev} -> ${next}`);
+    prev = next;
+  }
 });
 
 test("difficultyWeightは難易度1から10まで0.7から1.3へ線形に増える", () => {

@@ -81,10 +81,14 @@ export function parseTaskPrefs(raw: unknown): TaskPrefs {
   };
 }
 
-/** 各系統で少なくとも 1 タイプは残っているか（全部除外は出題不能になるので保存時に拒否する） */
-export function taskPrefsLeaveSomething(prefs: TaskPrefs): { ok: true } | { ok: false; domain: DomainKey } {
+/**
+ * 各系統で少なくとも 1 タイプは残っているか（全部除外は出題不能になるので保存時に拒否する）。
+ * LINE は選択式しか出せないので、選択式（choice）で出せるタイプが 0 になる設定も拒否する（kind: "choice" を返す）。
+ */
+export function taskPrefsLeaveSomething(prefs: TaskPrefs): { ok: true } | { ok: false; domain: DomainKey; kind?: "choice" } {
   for (const d of ["READ", "WRITE", "CODE"] as const) {
     if (prefs.excludedTaskTypes[d].length >= allTaskTypeKeys(d).length) return { ok: false, domain: d };
+    if (allowedTaskTypes(d, prefs, "choice").length === 0) return { ok: false, domain: d, kind: "choice" };
   }
   return { ok: true };
 }

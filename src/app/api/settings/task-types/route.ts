@@ -32,7 +32,12 @@ export async function POST(req: Request) {
   const prefs = parseTaskPrefs(body);
   const check = taskPrefsLeaveSomething(prefs);
   if (!check.ok) {
-    return NextResponse.json({ error: `${DOMAIN_META[check.domain].label} のタイプを全部外すと出題できません。1 つ以上残してください。` }, { status: 400 });
+    const label = DOMAIN_META[check.domain].label;
+    const error =
+      check.kind === "choice"
+        ? `${label} の選択式タイプを全部外すと LINE で出題できません（LINE は選択式のみ）。選択式のタイプを 1 つ以上残してください。`
+        : `${label} のタイプを全部外すと出題できません。1 つ以上残してください。`;
+    return NextResponse.json({ error }, { status: 400 });
   }
   return NextResponse.json(await saveTaskPrefs(userId, prefs));
 }

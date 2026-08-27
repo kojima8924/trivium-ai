@@ -5,7 +5,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-001",
     domain: "WRITE",
-    difficulty: 5,
+    difficulty: 4,
+    taskType: "argument",
     title: "主張と根拠: 1文で理由を添える",
     passage: "お題: 「学校や職場に、昼寝の時間があったほうがよいか」",
     prompt:
@@ -33,7 +34,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-002",
     domain: "WRITE",
-    difficulty: 8,
+    difficulty: 7,
+    taskType: "argument",
     title: "反論を想定する",
     passage:
       "あなたの主張: 「授業や会議では、スマートフォンの使用を禁止すべきだ」",
@@ -62,7 +64,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-003",
     domain: "WRITE",
-    difficulty: 4,
+    difficulty: 3,
+    taskType: "rewrite",
     title: "推敲: 分かりにくい文を直す",
     passage:
       "元の文: 「このアプリは、ユーザーが自分の学習の記録を見ることができて、それによって次に何をやるべきかというのが分かるようになっているというものです。」",
@@ -91,6 +94,7 @@ export const WRITE_TASKS: Task[] = [
     id: "write-004",
     domain: "WRITE",
     difficulty: 1,
+    taskType: "revision",
     title: "明確さ: いちばん読みやすい一文",
     passage: "同じ内容を4通りに書きました。",
     prompt: "次のうち、最も分かりやすい一文を選んでください。",
@@ -115,6 +119,7 @@ export const WRITE_TASKS: Task[] = [
     id: "write-005",
     domain: "WRITE",
     difficulty: 3,
+    taskType: "structure",
     title: "構成: 説明の順番を組み立てる",
     passage: `次の4つの文を、説明文として自然な順番に並べます。
 ア: しかし、雨の日は利用者が半分に減る。
@@ -137,7 +142,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-006",
     domain: "WRITE",
-    difficulty: 3,
+    difficulty: 2,
+    taskType: "revision",
     title: "推敲: 削ってよい言葉を見分ける",
     passage:
       "元の文: 「今回のアップデートにおきましては、主に速度の改善という点についての対応を行いました。」",
@@ -162,7 +168,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-007",
     domain: "WRITE",
-    difficulty: 7,
+    difficulty: 6,
+    taskType: "argument",
     title: "根拠づけ: 異なる観点から2つ挙げる",
     passage: "お題: 「中高生がプログラミングを学ぶことに、賛成か反対か」",
     prompt:
@@ -190,7 +197,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-008",
     domain: "WRITE",
-    difficulty: 7,
+    difficulty: 6,
+    taskType: "argument",
     title: "構成: 結論から書く",
     passage:
       "状況: あなたはチームの定例会議を週2回から週1回に減らすことを提案します。読み手は忙しい上司で、最初の1〜2文しか読まないかもしれません。",
@@ -218,7 +226,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-009",
     domain: "WRITE",
-    difficulty: 9,
+    difficulty: 8,
+    taskType: "rewrite",
     title: "根拠づけ: 飛躍を埋めて書き直す",
     passage:
       "元の文章: 「リモートワークは生産性を上げる。通勤時間がなくなるからだ。だから全社員を完全リモートにすべきだ。」",
@@ -246,7 +255,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-010",
     domain: "WRITE",
-    difficulty: 6,
+    difficulty: 5,
+    taskType: "rewrite",
     title: "明確さ: 専門語を使わずに説明する",
     passage: "お題: コンピュータの「キャッシュ」とは何かを、詳しくない人に説明します。",
     prompt: "専門用語を使わず、身近なたとえを1つ使って80〜160字で説明してください。",
@@ -273,7 +283,8 @@ export const WRITE_TASKS: Task[] = [
   {
     id: "write-011",
     domain: "WRITE",
-    difficulty: 6,
+    difficulty: 5,
+    taskType: "rewrite",
     title: "推敲: 長い一文を分ける",
     passage:
       "元の文: 「このアプリは、学習の記録を自動的に保存し、それをもとにあなたの得意と苦手を推定して、次に取り組むとよい課題を提案してくれるので、何をやればいいか迷ったときに便利です。」",
@@ -302,6 +313,7 @@ export const WRITE_TASKS: Task[] = [
     id: "write-012",
     domain: "WRITE",
     difficulty: 2,
+    taskType: "structure",
     title: "構成: 主張と理由を見分ける",
     passage:
       "文章: 「図書館の座席は予約制にすべきだ。試験前になると、荷物だけ置いて長時間離席する人が多く、座りたい人が座れないからだ。予約制なら、使う時間を決めて席を確保できる。」",

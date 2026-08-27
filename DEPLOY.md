@@ -123,7 +123,9 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `AUTH_GOOGLE_ID` | ○ | Google OAuth クライアント ID | 不要 |
 | `AUTH_GOOGLE_SECRET` | ○ | Google OAuth クライアントシークレット | 不要 |
 | `DEMO_LOGIN_ENABLED` | | デモ用フォールバックログイン。本番は `false` 推奨（Google が使えない緊急時のみ `true`） | 不要 |
-| `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」「初期状態に戻す」と `/api/demo/warm`（講評キャッシュ生成）。デモ当日は `true` | 不要 |
+| `DEMO_LOGIN_SECRET` | | デモログインの合言葉。設定すると入力必須（一致すれば既存アカウントにも入れる＝発表者用）。未設定なら新規作成のみ | 不要 |
+| `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」「初期状態に戻す」と `/api/demo/warm`（講評キャッシュ生成）。デモ当日は `true`、**恒久運用では `false`** | 不要 |
+| `ADMIN_EMAILS` | | 管理者メール（カンマ区切り）。`/api/demo/warm` はこのアドレスでログインしたユーザーだけ実行でき、1 回 20 課題・ヒント 1 段・同時 1 本に制限される | 不要 |
 | `AI_PROVIDER` | | `openai`（既定・推奨）/ `dify` / `anthropic` / `mock`。キー未設定なら自動で mock | 不要 |
 | `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・Leader・作問をすべて OpenAI Responses API で行う） | 不要 |
 | `OPENAI_MODEL` | | 役割指定の無い呼び出しの予備（既定 `gpt-5.4-mini`）。**実際に使うモデルは `src/config/trivium.config.ts` の `MODELS`**（採点・寸評・会話 `gpt-5.4-mini`、作問 `gpt-5.5`）で決まる | 不要 |

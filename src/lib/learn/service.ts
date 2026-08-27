@@ -8,19 +8,22 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "../prisma";
 import { learningAI, type DomainEvalOutput } from "../ai";
 import { MAX_HINTS, SUBSKILLS, toUserWording, type DomainKey } from "../domain";
-import { checkDeterministic, checkHeuristic, getTask, pickNextTask, tasksFor, type Task, type TaskPublic, toPublic } from "../tasks";
+import { checkDeterministic, checkHeuristic, getTask, pickNextTask, tasksFor, type Task, toPublic } from "../tasks";
 import { loadEvents, nextDifficultyFor, recomputeAll, subskillsOf } from "../profile";
 import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
-import { axesOf, computeDomainScore } from "../scoring";
-import { computeXp } from "../xp";
-import { notifyDailyDigestIfComplete } from "./digest";
+import { axesOf, computeDomainScore, DOMAIN_OF_AXIS } from "../scoring";
+import { xpBreakdown } from "../xp";
 import { updateLeaderMemory, updateMemoryAfterEvent } from "../memory";
 import { loadTaskPrefs } from "../task-prefs";
 import { taskAllowedByPrefs } from "../task-types";
+import type { FinalizeResult, SettledSubmitResult, SubmitOptions, SubmitResult } from "./types";
+
+export type { FinalizeResult, SettledSubmitResult, SubmitOptions, SubmitResult } from "./types";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
-const ATTEMPT_STALE_MS = 6 * 60 * 60 * 1000;
+/** 同じ課題の決着がこの時間内に 2 回来たら二重送信（LINE のボタン連打など）とみなして記録しない */
+const DUPLICATE_SETTLE_MS = 60 * 1000;
 
 // ---- タスク解決（静的 + 生成） ----
 
@@ -159,40 +162,6 @@ function weakestSubskill(subskills: Record<string, number>): string | null {
 
 // ---- 回答 ----
 
-export type SubmitResult =
-  | {
-      status: "retry";
-      task: TaskPublic;
-      feedback: string;
-      hint: string;
-      hintCount: number;
-      hintsRemaining: number;
-    }
-  | {
-      status: "success" | "failed";
-      task: TaskPublic;
-      feedback: string;
-      hint: "";
-      explanation: string;
-      /** free 課題の模範解答（決着後だけ見せる参考例） */
-      sampleAnswer?: string;
-      hintCount: number;
-      observations?: string[];
-      event: { id: string };
-      profile: { domain: DomainKey; before: number; after: number; confidence: string; summary: string; recommendedNext: string };
-      leader: { summary: string; recommendation: string } | null;
-      newAchievements: string[];
-    };
-
-export type SubmitOptions = {
-  answer: string;
-  latencyMs?: number;
-  giveUp?: boolean;
-  /** true なら決着後の再計算（finalize）を呼び出し側に任せる（LINE で先に返信したいとき） */
-  deferFinalize?: boolean;
-};
-
-type SettledSubmitResult = Extract<SubmitResult, { status: "success" | "failed" }>;
 type Settlement =
   | { status: "success"; feedback: string; observations: string[] }
   | { status: "failed"; feedback: string };
@@ -206,10 +175,9 @@ export async function submitAnswer(userId: string, taskId: string, opts: SubmitO
   if (!task) return { error: "unknown_task" };
   const answer = opts.answer;
 
-  // ヒント回数はサーバが持つ TaskAttempt が正本
+  // ヒント回数はサーバが持つ TaskAttempt が正本（時間が空いても受け取ったヒントの数は変わらない。決着時に消す）
   const attempt = await prisma.taskAttempt.findUnique({ where: { userId_taskId: { userId, taskId } } });
-  const stale = attempt ? Date.now() - attempt.updatedAt.getTime() > ATTEMPT_STALE_MS : false;
-  const hintCount = attempt && !stale ? Math.min(attempt.hintCount, MAX_HINTS) : 0;
+  const hintCount = attempt ? Math.min(attempt.hintCount, MAX_HINTS) : 0;
 
   if (opts.giveUp) {
     return settleAnswer(userId, task, answer, hintCount, opts, task.skillTags, {
@@ -266,8 +234,10 @@ async function settleAnswer(
   skillTags: string[],
   settlement: Settlement,
 ): Promise<SettledSubmitResult> {
-  const event = await record(userId, task, answer, settlement.status === "success", hintCount, opts.latencyMs, skillTags);
-  const finalized = await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
+  // 決着済み（正解済み）の課題への再挑戦と、同じ課題の二重送信は「練習モード」: 講評は返すが記録・XP・レベルは変えない
+  const practice = await isPractice(userId, task.id);
+  const event = practice ? null : await record(userId, task, answer, settlement.status === "success", hintCount, opts.latencyMs, skillTags);
+  const finalized = practice ? await finalizeStub(userId, task.domain) : await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
   const common = {
     task: toPublic(task),
     feedback: settlement.feedback,
@@ -275,13 +245,26 @@ async function settleAnswer(
     explanation: task.explanation,
     ...(task.kind === "free" && task.rubric?.sampleAnswer ? { sampleAnswer: task.rubric.sampleAnswer } : {}),
     hintCount,
-    event: { id: event.id },
+    event: { id: event?.id ?? "" },
+    ...(practice ? { practice: true } : {}),
     ...finalized,
   };
   if (settlement.status === "success") {
     return { status: "success", ...common, observations: settlement.observations };
   }
   return { status: "failed", ...common };
+}
+
+/**
+ * 記録しない決着かどうか: すでに正解済みの課題、または同じ課題の決着が直前（DUPLICATE_SETTLE_MS 以内）にある。
+ * 既知の正解を繰り返し送って XP・レベルを水増しする経路と、LINE のボタン連打による二重記録を塞ぐ。
+ */
+async function isPractice(userId: string, taskId: string): Promise<boolean> {
+  const recent = await prisma.learningEvent.findFirst({
+    where: { userId, taskId, OR: [{ success: true }, { createdAt: { gte: new Date(Date.now() - DUPLICATE_SETTLE_MS) } }] },
+    select: { id: true },
+  });
+  return recent !== null;
 }
 
 /** 選択式は (task, 回答, ヒント段階, 人格) で講評をキャッシュし、2回目以降は LLM を呼ばない */
@@ -331,14 +314,16 @@ async function evaluateWithCache(
     deterministicResult: deterministic,
     heuristicResult: heuristic,
     hintLevel: hintCount,
-    currentDomainProfile: {
-      score: profile?.score ?? 0,
-      subskills: subskillsOf(profile?.subskills ?? {}),
-      confidence: (profile?.confidence as "low" | "medium" | "high") ?? "low",
-      evidenceCount: profile?.evidenceCount ?? 0,
-      summary: profile?.summary ?? "",
-    },
-    // 選択式の講評は他の学習者とも共有されるキャッシュなので、個人の履歴は渡さない
+    // 選択式の講評は他の学習者とも共有されるキャッシュなので、個人のプロフィール（寸評・傾向）と履歴は渡さない
+    currentDomainProfile: cacheable
+      ? { score: 0, subskills: {}, confidence: "low", evidenceCount: 0, summary: "" }
+      : {
+          score: profile?.score ?? 0,
+          subskills: subskillsOf(profile?.subskills ?? {}),
+          confidence: (profile?.confidence as "low" | "medium" | "high") ?? "low",
+          evidenceCount: profile?.evidenceCount ?? 0,
+          summary: profile?.summary ?? "",
+        },
     recentBehavior: cacheable ? [] : recent.map((r) => `${r.taskId}: ${r.success ? "success" : "failure"} (hints=${r.hintCount}, difficulty=${r.difficulty})`),
     persona,
   });
@@ -388,55 +373,50 @@ async function record(
   return event;
 }
 
-export type FinalizeResult = {
-  profile: {
-    domain: DomainKey;
-    before: number;
-    after: number;
-    /** 到達レベル（0..10）の前後 */
-    levelBefore: number;
-    levelAfter: number;
-    confidence: string;
-    summary: string;
-    recommendedNext: string;
+/** 変化なしの結果（練習モード・finalize 延期時）。数値は保存値ではなく events から live で出す */
+async function finalizeStub(userId: string, domain: DomainKey): Promise<FinalizeResult> {
+  const [events, profile] = await Promise.all([loadEvents(userId), prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } })]);
+  const now = new Date();
+  const s = computeDomainScore(domain, events, now);
+  return {
+    profile: {
+      domain,
+      before: s.score,
+      after: s.score,
+      levelBefore: s.level,
+      levelAfter: s.level,
+      confidence: s.confidence,
+      summary: profile?.summary ?? "",
+      recommendedNext: profile?.recommendedNext ?? "",
+    },
+    xp: { ...xpBreakdown(events, events, now), gained: 0, task: 0, missionBonus: 0, streakBonus: 0, missionJustDone: false },
+    leader: null,
+    newAchievements: [],
   };
-  /** この決着で得た XP と合計・ランク */
-  xp: { gained: number; total: number; rank: string };
-  leader: { summary: string; recommendation: string } | null;
-  newAchievements: string[];
-};
-
-async function finalizeOrDefer(userId: string, domain: DomainKey, defer?: boolean): Promise<FinalizeResult> {
-  if (defer) {
-    const before = await prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } });
-    const score = before?.score ?? 0;
-    return {
-      profile: {
-        domain,
-        before: score,
-        after: score,
-        levelBefore: Math.floor(score / 10),
-        levelAfter: Math.floor(score / 10),
-        confidence: before?.confidence ?? "low",
-        summary: before?.summary ?? "",
-        recommendedNext: before?.recommendedNext ?? "",
-      },
-      xp: { gained: 0, total: 0, rank: "" },
-      leader: null,
-      newAchievements: [],
-    };
-  }
-  return finalize(userId, domain);
 }
 
-/** 決着後の再計算。profile/Leader を更新し、achievement とスナップショットを記録する */
+async function finalizeOrDefer(userId: string, domain: DomainKey, defer?: boolean): Promise<FinalizeResult> {
+  return defer ? finalizeStub(userId, domain) : finalize(userId, domain);
+}
+
+/**
+ * 決着後の再計算。profile/Leader を更新し、achievement とスナップショットを記録する。
+ * before/after・levelBefore/After・XP はすべて「直前の記録を除いた events」と「含めた events」を同じ時刻で集計して出す
+ * （保存値との比較だと、時間経過や前回の失敗した再計算の分が「この 1 問の変化」に混ざる）。
+ */
 export async function finalize(userId: string, domain: DomainKey): Promise<FinalizeResult> {
-  const before = await prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } });
-  // XP は決定論なので「直前の記録を除いた合計」と「含めた合計」の差が今回の獲得分
+  const now = new Date();
   const eventsAfter = await loadEvents(userId);
-  const xpAfter = computeXp(eventsAfter);
-  const xpBefore = computeXp(eventsAfter.slice(0, -1));
-  await recomputeAll(userId, domain);
+  const eventsBefore = eventsAfter.slice(0, -1);
+  const last = eventsAfter[eventsAfter.length - 1];
+  const scoreBefore = computeDomainScore(domain, eventsBefore, now);
+  const scoreAfter = computeDomainScore(domain, eventsAfter, now);
+  const xp = xpBreakdown(eventsBefore, eventsAfter, now);
+  // 決着した課題が関与した系統（複合課題なら複数）は寸評つきで再計算。他の系統も数値は更新される
+  const involved = last
+    ? (Object.entries(axesOf(last)) as [keyof typeof DOMAIN_OF_AXIS, number][]).filter(([, v]) => v > 0).map(([k]) => DOMAIN_OF_AXIS[k])
+    : [domain];
+  await recomputeAll(userId, involved.includes(domain) ? involved : [domain, ...involved]);
   const [after, leader, newAchievements] = await Promise.all([
     prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } }),
     prisma.leaderProfile.findUnique({ where: { userId } }),
@@ -458,21 +438,19 @@ export async function finalize(userId: string, domain: DomainKey): Promise<Final
     });
     await updateLeaderMemory(userId);
   })().catch((err) => console.warn("[memory] update failed:", (err as Error).message));
-  // Web からの回答でも「今日の3問」が揃えば LINE に総評を push（DailyDigest の unique で冪等）
-  void notifyDailyDigestIfComplete(userId).catch(() => undefined);
-  const levelAfter = computeDomainScore(domain, eventsAfter).level;
+  // 「今日の3問」の総評（digest）はここでは送らない。Web の API route と LINE の after() が finalize の後に順番を守って呼ぶ
   return {
     profile: {
       domain,
-      before: before?.score ?? 0,
-      after: after?.score ?? 0,
-      levelBefore: Math.floor((before?.score ?? 0) / 10),
-      levelAfter,
-      confidence: after?.confidence ?? "low",
+      before: scoreBefore.score,
+      after: scoreAfter.score,
+      levelBefore: scoreBefore.level,
+      levelAfter: scoreAfter.level,
+      confidence: scoreAfter.confidence,
       summary: after?.summary ?? "",
       recommendedNext: after?.recommendedNext ?? "",
     },
-    xp: { gained: Math.max(0, xpAfter.total - xpBefore.total), total: xpAfter.total, rank: xpAfter.rank.title },
+    xp,
     leader: leader ? { summary: leader.summary, recommendation: leader.recommendation } : null,
     newAchievements,
   };

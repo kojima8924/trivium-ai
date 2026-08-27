@@ -89,6 +89,28 @@ export async function saveLineState(lineUserId: string, state: LineState): Promi
   });
 }
 
+/** 「〜と話す」の宛先を note に記録する（`ask:<AGENT>@<epoch ms>`。30 分で無効） */
+export const ASK_NOTE_TTL_MS = 30 * 60 * 1000;
+export function withAskNote(state: LineState, agent: string, now: Date = new Date()): LineState {
+  return { ...state, note: `ask:${agent}@${now.getTime()}` };
+}
+/** note を落とす（純粋関数） */
+export function withoutNote(state: LineState): LineState {
+  const { note: _n, ...rest } = state;
+  void _n;
+  return rest;
+}
+/** 有効な「〜と話す」の宛先。無い・期限切れなら null */
+export function askedAgentOf(state: LineState, now: Date = new Date()): string | null {
+  const m = state.note?.match(/^ask:([A-Z]+)(?:@(\d+))?$/);
+  if (!m) return null;
+  const at = m[2] ? Number(m[2]) : NaN;
+  if (Number.isFinite(at) && now.getTime() - at > ASK_NOTE_TTL_MS) return null;
+  // 時刻なしの旧形式は期限切れ扱い（無期限に会話へ横取りされるのを防ぐ）
+  if (!m[2]) return null;
+  return m[1];
+}
+
 /** 難易度指定を記録する（純粋関数） */
 export function withPreferredDifficulty(state: LineState, difficulty: number | undefined, domain: DomainKey | null, now: Date = new Date()): LineState {
   const { preferredDifficulty: _d, preferredDifficultyDomain: _dm, preferredDifficultyAt: _at, ...rest } = state;

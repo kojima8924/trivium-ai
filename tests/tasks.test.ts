@@ -506,3 +506,32 @@ test("pickNextTask: allow で絞れる。絞った結果が空なら無視する
   const nothing = pickNextTask("CODE", 3, [], undefined, undefined, () => false);
   assert.ok(pool.some((t) => t.id === nothing.id), "全部除外なら通常の pool から選ぶ");
 });
+
+test("手書き課題の taskType は明示されている（設定画面の除外が効く）", () => {
+  const expect: Record<string, string> = {
+    "code-004": "debug",
+    "code-012": "algorithm",
+    "code-019": "math",
+    "code-016": "puzzle",
+    "write-011": "rewrite",
+    "write-005": "structure",
+    "read-005": "data",
+    "read-009": "critique",
+    "mix-012": "composite",
+  };
+  for (const [id, type] of Object.entries(expect)) assert.equal(getTask(id)?.taskType, type, id);
+  // 補完（inferTaskType）も skillTags を見る
+  assert.equal(inferTaskType({ domain: "CODE", kind: "choice", skillTags: ["debugging"], passage: "def f(x):\n    return x\nprint(f(1))" }), "debug");
+  assert.equal(inferTaskType({ domain: "CODE", kind: "choice", skillTags: ["algorithms"], passage: "手順 1: 並べる" }), "algorithm");
+  assert.equal(inferTaskType({ domain: "WRITE", kind: "free", skillTags: ["revision"] }), "rewrite");
+  assert.equal(inferTaskType({ domain: "WRITE", kind: "choice", skillTags: ["structure"] }), "structure");
+});
+
+test("手書き課題の difficulty は v2 スケール（デモ台本の code-006 は 8 のまま）", () => {
+  assert.equal(getTask("code-006")?.difficulty, 8);
+  assert.equal(getTask("read-009")?.difficulty, 6);
+  assert.equal(getTask("code-012")?.difficulty, 6);
+  assert.equal(getTask("write-001")?.difficulty, 4);
+  assert.deepEqual(getTask("mix-012")?.axes, { read: 5, write: 8, code: 7 });
+  assert.equal(getTask("mix-012")?.domain, "WRITE");
+});

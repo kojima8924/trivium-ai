@@ -96,39 +96,90 @@ export function confidenceFor(evidenceCount: number): Confidence {
 type AxisEvidence = { level: number; success: boolean; weight: number };
 
 /**
- * 失敗をどの系統に帰属させるか（ボトルネック）。
- * 各系統の「課題の難易度 − 現在の到達レベル」が最大の系統。同点なら全部。
+ * 降格のしきい値。到達済みのレベルは、その帯の正答率がこれを下回るまで維持する（ヒステリシス）。
+ * 昇格は SCORING.masteryThreshold（0.7）なので、2 勝 1 敗（0.667）でレベルが落ちることはない。
  */
-function bottleneckAxes(axes: Axes, levels: Record<keyof Axes, number>): (keyof Axes)[] {
+export const DEMOTION_THRESHOLD = 0.5;
+
+/**
+ * 失敗をどの系統に帰属させるか（ボトルネック）。
+ * 各系統の「課題の難易度 − 現在の到達レベル」が最大の系統。同点なら主系統（課題の domain）、
+ * 主系統が同点に含まれなければ難易度が最も高い系統、の 1 軸に絞る（複合課題の失敗が両軸を同時に落とさないように）。
+ */
+function bottleneckAxis(axes: Axes, levels: Record<keyof Axes, number>, primary: keyof Axes): (keyof Axes)[] {
   const involved = (Object.keys(axes) as (keyof Axes)[]).filter((k) => axes[k] > 0);
   if (involved.length <= 1) return involved;
   const gaps = involved.map((k) => ({ k, gap: axes[k] - levels[k] }));
   const max = Math.max(...gaps.map((g) => g.gap));
-  return gaps.filter((g) => g.gap === max).map((g) => g.k);
+  const tied = gaps.filter((g) => g.gap === max).map((g) => g.k);
+  if (tied.length === 1) return tied;
+  if (tied.includes(primary)) return [primary];
+  return [tied.sort((a, b) => axes[b] - axes[a])[0]];
 }
 
-function levelFromEvidence(items: AxisEvidence[]): { level: number; progress: number } {
-  // 難易度 d ごとに: pos = 成功で d_S ≥ d、neg = 失敗で d_F ≤ d + window
-  const rate = (d: number): { r: number; n: number } => {
-    let pos = 0;
-    let neg = 0;
-    for (const it of items) {
-      if (it.success && it.level >= d) pos += it.weight;
-      else if (!it.success && it.level <= d + SCORING.failureWindow) neg += it.weight;
+/**
+ * 難易度 d の帯の正答率。pos = 成功で d_S ≥ d、neg = 失敗で d_F ≤ d（否定証拠は上方向にだけ効く。
+ * 難易度 4 の失敗は「3 以下は解ける」という判定を傷つけない）。
+ *   r: 新しさ重み付きの正答率 / n: 重み付き証拠量（進捗用） / count: 減衰前の件数（レベル判定用。時間経過だけで到達レベルが消えない）
+ */
+function bandRate(items: AxisEvidence[], d: number): { r: number; n: number; count: number } {
+  let pos = 0;
+  let neg = 0;
+  let count = 0;
+  for (const it of items) {
+    if (it.success && it.level >= d) {
+      pos += it.weight;
+      count++;
+    } else if (!it.success && it.level <= d) {
+      neg += it.weight;
+      count++;
     }
-    const n = pos + neg;
-    return { r: n === 0 ? 0 : pos / n, n };
-  };
+  }
+  const n = pos + neg;
+  return { r: n === 0 ? 0 : pos / n, n, count };
+}
+
+/** 昇格ルール: 件数 ≥ minEvidence かつ正答率 ≥ masteryThreshold を満たす最大の d */
+function masteredLevel(items: AxisEvidence[]): number {
   let level = 0;
   for (let d = 1; d <= MAX_LEVEL; d++) {
-    const { r, n } = rate(d);
-    if (n >= SCORING.minEvidence && r >= SCORING.masteryThreshold) level = d;
+    const { r, count } = bandRate(items, d);
+    if (count >= SCORING.minEvidence && r >= SCORING.masteryThreshold) level = d;
+  }
+  return level;
+}
+
+/**
+ * 到達レベルと進捗。items は時系列順。
+ * 昇格は masteryThreshold で判定し、いったん到達したレベルは帯の正答率が DEMOTION_THRESHOLD を下回るまで維持する
+ * （1 回の失敗で 1〜2 段落ちないようにする）。
+ */
+function levelFromEvidence(items: AxisEvidence[]): { level: number; progress: number } {
+  let level = 0;
+  for (let i = 1; i <= items.length; i++) {
+    const prefix = items.slice(0, i);
+    const cand = masteredLevel(prefix);
+    if (cand >= level) {
+      level = cand;
+      continue;
+    }
+    // 降格判定: 既到達レベルから下へ、維持できる（正答率 ≥ DEMOTION_THRESHOLD）最大の帯を探す
+    let keep = 0;
+    for (let d = level; d >= 1; d--) {
+      const { r, count } = bandRate(prefix, d);
+      // 浮動小数の誤差で「ちょうど 0.5」が割れないよう、わずかな余裕を持たせる
+      if (count >= SCORING.minEvidence && r + 1e-9 >= DEMOTION_THRESHOLD) {
+        keep = d;
+        break;
+      }
+    }
+    level = Math.max(cand, keep);
   }
   if (level >= MAX_LEVEL) return { level, progress: 1 };
   // 次のレベルへの進捗（連続値）: 証拠量が minEvidence に近づくほど、正答率が threshold に近づくほど滑らかに上がる。
   // 1 問正解（重み 1.0）で約 67%、ヒントありの正解ならその分低く、失敗が混じれば正答率の分だけ下がる。
   // レベル判定を満たした瞬間に level が上がるので、progress は 0.99 で頭打ちにする
-  const next = rate(level + 1);
+  const next = bandRate(items, level + 1);
   const evidence = Math.min(1, next.n / SCORING.minEvidence);
   const mastery = Math.min(1, next.r / SCORING.masteryThreshold);
   const progress = Math.min(0.99, evidence * mastery);
@@ -152,15 +203,16 @@ export function computeLevels(events: ScorableEvent[], now: Date = new Date()): 
       code: levelFromEvidence(per.code),
     };
   };
-  // pass 1: 失敗は最も難しい系統（絶対値）に帰属 → 暫定レベル
-  const pass1 = evidence((_, axes) => {
+  // pass 1: 失敗は最も難しい系統（絶対値。同点なら主系統）に帰属 → 暫定レベル
+  const pass1 = evidence((e, axes) => {
     const involved = (Object.keys(axes) as (keyof Axes)[]).filter((k) => axes[k] > 0);
     const max = Math.max(...involved.map((k) => axes[k]));
-    return involved.filter((k) => axes[k] === max);
+    const tied = involved.filter((k) => axes[k] === max);
+    return tied.includes(AXIS_OF[e.domain]) ? [AXIS_OF[e.domain]] : tied.slice(0, 1);
   });
   const levels1 = { read: pass1.read.level, write: pass1.write.level, code: pass1.code.level };
-  // pass 2: 暫定レベルとの差が最大の系統に帰属
-  return evidence((_, axes) => bottleneckAxes(axes, levels1));
+  // pass 2: 暫定レベルとの差が最大の系統（1 軸）に帰属
+  return evidence((e, axes) => bottleneckAxis(axes, levels1, AXIS_OF[e.domain]));
 }
 
 function weightedMean(items: { value: number; weight: number }[]): number {
@@ -212,15 +264,33 @@ export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], n
   };
 }
 
-/** 次に出す難易度（1..10）: 到達レベル + 1 を基本に、直近の失敗が続けば据え置く */
+/** 履歴なしの初期難易度 */
+export const INITIAL_DIFFICULTY = 3;
+
+/**
+ * 次に出す難易度（1..10）。
+ *   基本: 到達レベル + 1。直近 3 件中 2 件失敗なら到達レベルに据え置く。
+ *   証拠が少なくレベルがまだ付かない間は直近の結果を優先する（初回の正解で 3 → 1 に落ちない）:
+ *     直近が成功（ヒントなし）→ その難易度 + 1 以上 / ヒントあり成功 → その難易度以上 /
+ *     失敗 1 回 → 直近の成功難易度で据え置き / 直近 3 件に成功が無ければ 失敗した難易度 − 失敗回数
+ */
 export function recommendDifficulty(domain: DomainKey, events: ScorableEvent[], now: Date = new Date()): number {
   const axis = AXIS_OF[domain];
   const own = events.filter((e) => axesOf(e)[axis] > 0);
-  if (own.length === 0) return 3;
+  if (own.length === 0) return INITIAL_DIFFICULTY;
   const { level } = computeLevels(events, now)[axis];
   const recent = [...own].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 3);
   const recentFails = recent.filter((e) => !e.success).length;
-  const target = recentFails >= 2 ? Math.max(1, level) : level + 1;
+  let target = recentFails >= 2 ? Math.max(1, level) : level + 1;
+  const latest = recent[0];
+  const lastSuccess = recent.find((e) => e.success);
+  if (lastSuccess) {
+    const d = axesOf(lastSuccess)[axis];
+    const floor = latest.success ? d + (latest.hintCount === 0 ? 1 : 0) : recentFails >= 2 ? d - 1 : d;
+    target = Math.max(target, floor);
+  } else if (latest && !latest.success) {
+    target = Math.max(target, axesOf(latest)[axis] - recentFails);
+  }
   return Math.min(MAX_LEVEL, Math.max(1, target));
 }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOMAIN_META, MAX_HINTS, type DomainKey } from "@/lib/domain";
 import type { TaskPublic } from "@/lib/tasks/types";
+import type { SubmitResult } from "@/lib/learn/types";
 import { ACHIEVEMENTS, achievementTitle } from "@/lib/achievement-defs";
 import { AchievementToast } from "@/components/AchievementToast";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
@@ -11,20 +12,8 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { moodForMark } from "@/lib/characters";
 import { formatScore } from "@/lib/scoring";
 
-type SubmitResponse =
-  | { status: "retry"; feedback: string; hint: string; hintCount: number; hintsRemaining: number }
-  | {
-      status: "success" | "failed";
-      feedback: string;
-      explanation: string;
-      sampleAnswer?: string;
-      hintCount: number;
-      observations?: string[];
-      profile: { domain: DomainKey; before: number; after: number; levelBefore: number; levelAfter: number; confidence: string; summary: string; recommendedNext: string };
-      xp?: { gained: number; total: number; rank: string };
-      leader: { summary: string; recommendation: string } | null;
-      newAchievements: string[];
-    };
+// /api/learn/submit のレスポンス型はサーバと共通（src/lib/learn/types.ts が唯一の定義）
+type SubmitResponse = SubmitResult;
 
 type Phase = "loading" | "answering" | "submitting" | "done" | "error";
 
