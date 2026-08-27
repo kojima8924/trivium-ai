@@ -178,8 +178,11 @@ test("ユーザー向け文言は CODE ではなく LOGIC", () => {
     assert.ok(!/CODE/.test(r.text), `CODE が残っている: ${r.text}`);
   }
   const labels = (welcomeReply(ctx()).quickReplies ?? []).map((a) => a.label);
-  assert.ok(labels.includes("LOGIC"));
-  assert.ok(labels.includes("LINEで1問"));
+  assert.ok(labels.includes("LOGICで1問"));
+  assert.ok(labels.includes("まず1問"));
+  assert.ok(labels.includes("使い方を見る"));
+  assert.ok(labels.includes("連携する"));
+  assert.match(welcomeReply(ctx()).text, /読み・書き・そろばん/);
 });
 
 test("quiz / generate を buildReply に直接渡しても壊れない（webhook が先に処理する前提の保険文言）", () => {

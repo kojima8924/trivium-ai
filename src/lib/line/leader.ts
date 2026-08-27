@@ -230,18 +230,35 @@ function domainButtons(appUrl: string, domain: DomainKey, headline: string): Lea
 }
 
 export function welcomeReply(ctx: LeaderContext): LeaderReply {
-  // 友だち追加直後は連携前なので、案内役は既定の名前（ミチ）で挨拶する（wave のキャラ吹き出し）
+  // 友だち追加直後の最初のメッセージ。連携前なので案内役は既定の名前（ミチ）で、
+  // コンセプト（読み・書き・そろばん → READ / WRITE / LOGIC、AI は答えを教えない）と始め方を一度に伝える。
+  // URL は Flex の本文だとタップできないので「使い方を見る」ボタン（Quick Reply）にする。
   const body = [
-    "はじめまして。Trivium の案内役（ADVISOR）よ。",
-    "READ / WRITE / LOGIC の3つで、あなたの「次の一歩」を一緒に決めるわ。",
+    "はじめまして。Trivium（トリビウム）の案内役、ミチよ。",
     "",
-    "AIは答えを渡さない。一段ずつヒントを出すだけ。",
+    "Trivium は「読み・書き・そろばん」を今の形にした学習サービス。",
+    "READ（読む）・WRITE（書く）・LOGIC（論理）の 3 つを、1 日 3 分・1 問ずつ。",
+    "AI は答えを教えない。ヒントを一段ずつ出して、あなたが自分で次の一歩を踏み出すのを手伝うだけ。",
+    "解いた記録は三角形の「能力プロフィール」になって、得意と伸ばしどころが見えてくるわ。",
     "",
-    "「今日の学習」で LINE 上の1問、「論理パズルを出して」で作問もできる。",
-    "質問や相談は、そのまま話しかけて。名前で呼べば担当（ヨミ・フミ・ロゴス）とも話せるわ。",
-    "まず「連携」と送って Web アカウントと繋ぐと、記録が残るから。",
+    "▼ 始め方",
+    "1. 「連携」と送って Web アカウントとつなぐ（記録が残る）",
+    "2. 下のメニューの READ / WRITE / LOGIC を押すと、この場で 1 問",
+    "3. 迷ったら「今日の学習」「軽めに」「難易度5」と送ってみて",
+    "",
+    "質問や相談は、そのまま話しかけて。ヨミ・フミ・ロゴスを名前で呼べば担当とも話せる。",
+    "難易度の目安や三角グラフの読み方は、下の「使い方を見る」から。",
   ].join("\n");
-  return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, { appUrl: ctx.appUrl, mood: "wave", quickReplies: domainQuickReplies(ctx.appUrl) });
+  return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, {
+    appUrl: ctx.appUrl,
+    mood: "wave",
+    quickReplies: [
+      { type: "message", label: "連携する", text: "連携" },
+      { type: "uri", label: "使い方を見る", uri: `${ctx.appUrl.replace(/\/$/, "")}/guide` },
+      { type: "postback", label: "まず1問", data: "action=today", displayText: "今日の学習" },
+      ...DOMAINS.map((d) => ({ type: "postback" as const, label: `${DOMAIN_META[d].label}で1問`, data: `action=quiz&domain=${d}`, displayText: `${DOMAIN_META[d].label}で1問` })),
+    ],
+  });
 }
 
 /** 連携解除の確認（テキストの「連携解除」では即解除せず、ボタンで確定させる） */
