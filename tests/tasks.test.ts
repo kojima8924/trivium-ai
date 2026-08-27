@@ -326,3 +326,50 @@ test("short タスク: ヒント本文に正解の値そのものが含まれな
     }
   }
 });
+
+test("LOGIC(CODE): Python を読めなくても解ける論理問題が 8 問以上ある", () => {
+  // passage に Python らしい記号（def / print( / for / =）が無い問題を「非 Python」とみなす
+  const isPython = (t: (typeof ALL_TASKS)[number]) => /def |print\(|for |=/.test(t.passage ?? "");
+  const logic = tasksFor("CODE").filter((t) => !isPython(t));
+  assert.ok(logic.length >= 8, `非 Python の LOGIC 問題が ${logic.length} 問しかない`);
+  // 4 つの subskill を非 Python 問題だけでも 2 問以上ずつカバーする
+  for (const skill of SUBSKILLS.CODE) {
+    const n = logic.filter((t) => t.skillTags.includes(skill)).length;
+    assert.ok(n >= 2, `非 Python の LOGIC 問題で subskill ${skill} が ${n} 問しかない`);
+  }
+  // LINE の Quick Reply で答えられるよう choice が 6 問以上
+  assert.ok(logic.filter((t) => t.kind === "choice").length >= 6);
+});
+
+test("LOGIC(CODE): 並び順パズル code-016 の答えは全順列の中で唯一", () => {
+  // 条件: A は先頭ではない / B は C より前 / C は最後尾ではない
+  const perms: string[][] = [];
+  const gen = (rest: string[], acc: string[]) => {
+    if (rest.length === 0) return perms.push(acc);
+    rest.forEach((x, i) => gen([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, x]));
+  };
+  gen(["A", "B", "C"], []);
+  const ok = perms.filter((p) => p[0] !== "A" && p.indexOf("B") < p.indexOf("C") && p[2] !== "C");
+  assert.equal(ok.length, 1);
+  const t = getTask("code-016")!;
+  assert.equal(t.choices![Number(t.answerKey![0])], ok[0].join(", "));
+});
+
+test("LOGIC(CODE): 追加した choice / short の正誤が checkDeterministic で判定できる", () => {
+  const cases: [string, string, boolean][] = [
+    ["code-017", "1", true], ["code-017", "0", false],
+    ["code-018", "0", true], ["code-018", "1", false],
+    ["code-019", "1", true], ["code-019", "2", false],
+    ["code-020", "7", true], ["code-020", "７回", true], ["code-020", "6", false],
+    ["code-021", "2", true], ["code-021", "3", false],
+    ["code-022", "2", true], ["code-022", "3", false],
+    ["code-023", "1", true], ["code-023", "2", false],
+    ["code-025", "1", true], ["code-025", "3", false],
+    ["code-026", "2", true], ["code-026", "0", false],
+    ["code-027", "6", true], ["code-027", "６回", true], ["code-027", "8", false],
+  ];
+  for (const [id, answer, expected] of cases) {
+    assert.equal(checkDeterministic(getTask(id)!, answer), expected, `${id} answer=${answer}`);
+  }
+});
+
