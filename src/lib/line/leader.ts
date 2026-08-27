@@ -4,6 +4,8 @@
 import type { messagingApi } from "@line/bot-sdk";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import type { LineState } from "./state";
+import { agentReply } from "./flex";
+import { PERSONA_DEFAULTS } from "@/config/trivium.config";
 
 // ---- 出力型（@line/bot-sdk の messagingApi.Message と互換な最小サブセット） ----
 
@@ -99,9 +101,15 @@ export function classifyIntent(raw: string): Intent {
   if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
   if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
   // 難易度指定（「codeで難易度8」「難易度8で出して」「logic 8」）は即・作問。domain 未指定なら文脈に任せる
+  // 難易度指定（「LOGICで難易度8」「難易度8」「logic 8」）は用意済みストックから即出題（quiz。±1 に無ければ handler 側で作問に切替）。
+  // 「作って」「作問」など明示語があるときだけ LLM 作問（generate）
   const difficulty = parseDifficulty(text);
   if (difficulty !== null && !/(履歴|プロフィール|連携)/.test(text)) {
-    return { kind: "generate", request: text.slice(0, 300), domain: domainInText(text), difficulty };
+    const domain = domainInText(text);
+    if (/(作って|つくって|作問|生成|新しい問題|新作|オリジナル)/.test(text)) {
+      return { kind: "generate", request: text.slice(0, 300), domain, difficulty };
+    }
+    return { kind: "quiz", domain, difficulty };
   }
   // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
   const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回|今日の学習|今日の1問|今日の一問|今日の問題)(ください|して|お願い(します)?)?[!！。]?$/;
@@ -191,18 +199,17 @@ function domainButtons(appUrl: string, domain: DomainKey, headline: string): Lea
 }
 
 export function welcomeReply(ctx: LeaderContext): LeaderReply {
-  return {
-    text: [
-      "はじめまして。Trivium の案内役（ADVISOR）です。",
-      "READ / WRITE / LOGIC の3つで、あなたの「次の一歩」を一緒に決めます。",
-      "",
-      "AIは答えを渡しません。一段ずつヒントを出します。",
-      "",
-      "「今日の学習」で LINE 上の1問、「論理パズルを出して」で作問もできます。",
-      "まず「連携」と送って Web アカウントと繋ぐと、記録が残ります。",
-    ].join("\n"),
-    quickReplies: domainQuickReplies(ctx.appUrl),
-  };
+  // 友だち追加直後は連携前なので、案内役は既定の名前（ミチ）で挨拶する（wave のキャラ吹き出し）
+  const body = [
+    "はじめまして。Trivium の案内役（ADVISOR）よ。",
+    "READ / WRITE / LOGIC の3つで、あなたの「次の一歩」を一緒に決めるわ。",
+    "",
+    "AIは答えを渡さない。一段ずつヒントを出すだけ。",
+    "",
+    "「今日の学習」で LINE 上の1問、「論理パズルを出して」で作問もできる。",
+    "まず「連携」と送って Web アカウントと繋ぐと、記録が残るから。",
+  ].join("\n");
+  return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, { appUrl: ctx.appUrl, mood: "wave", quickReplies: domainQuickReplies(ctx.appUrl) });
 }
 
 export function helpReply(ctx: LeaderContext): LeaderReply {
@@ -211,15 +218,16 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
       "できること:",
       "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）。「パス」で記録に残さず次へ",
       "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
-      "・「LOGICで難易度8」「難易度3で出して」→ その難易度（1〜10）で即作問。以後の「次」もその難易度",
+      "・「LOGICで難易度8」「難易度3」→ 用意済みの問題から即出題（無ければ作問）。「難易度8で作って」で作問。以後の「次」もその難易度",
       "・READ / WRITE / LOGIC → LINE で1問 or Web で解く",
       "・「今日のおすすめ」「10分だけ」→ 次の一歩を提案",
       "・「履歴」「プロフィール」→ Dashboard へ",
       "・「連携」→ Web アカウントと繋いで、記録に基づく提案にする",
       "",
       "じっくり書く課題は Web で。LINE では軽く1問ずつ進めましょう。",
+      `くわしい使い方（難易度の目安・三角グラフの読み方）: ${ctx.appUrl}/guide`,
     ].join("\n"),
-    quickReplies: domainQuickReplies(ctx.appUrl),
+    quickReplies: [{ type: "uri", label: "使い方ページを開く", uri: `${ctx.appUrl}/guide` }, ...domainQuickReplies(ctx.appUrl)],
   };
 }
 

@@ -253,6 +253,10 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
     await handlePass(lineUserId, replyToken, lu, params.get("task") ?? "");
     return;
   }
+  if (action === "help") {
+    await handleRuleBasedMessage(lineUserId, replyToken, "使い方", { kind: "help" }, lu);
+    return;
+  }
   if (action === "ask") {
     await handleAsk(lineUserId, replyToken, lu, params);
     return;

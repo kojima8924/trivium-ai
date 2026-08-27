@@ -107,18 +107,27 @@ export async function nextTask(
   // ただし狙いの難易度から 2 以上離れる課題は選ばない（「難易度8 のつもりが 2 が出る」を防ぐ）
   const weakest = weakestSubskill(subskillsOf(profile?.subskills ?? {}));
   const rank = (t: Task) => Math.abs(t.difficulty - targetDifficulty);
+  // 難易度距離が同じ課題は、ユーザーごとに決定論的にばらけさせる（全員が同じ順で同じ問題にならない。乱数は使わない）
+  const tieBreak = (a: Task, b: Task) => stableHash(`${userId}:${a.id}`) - stableHash(`${userId}:${b.id}`);
+  const byRank = (a: Task, b: Task) => rank(a) - rank(b) || tieBreak(a, b);
   const unseen = pool.filter((t) => !seen.has(t.id));
-  const preferred = weakest
-    ? unseen
-        .filter((t) => t.skillTags.includes(weakest) && rank(t) <= 1)
-        .sort((a, b) => rank(a) - rank(b))[0]
-    : undefined;
+  const preferred = weakest ? unseen.filter((t) => t.skillTags.includes(weakest) && rank(t) <= 1).sort(byRank)[0] : undefined;
   if (preferred) return { task: preferred, targetDifficulty };
   if (opts.kind) {
-    const next = unseen.sort((a, b) => rank(a) - rank(b))[0] ?? pool.sort((a, b) => rank(a) - rank(b))[0];
+    const next = unseen.sort(byRank)[0] ?? pool.sort(byRank)[0];
     if (next) return { task: next, targetDifficulty };
   }
-  return { task: pickNextTask(domain, targetDifficulty, history), targetDifficulty };
+  return { task: pickNextTask(domain, targetDifficulty, history, undefined, tieBreak), targetDifficulty };
+}
+
+/** 文字列 → 32bit の安定ハッシュ（FNV-1a）。出題順のばらけ用で、暗号用途ではない */
+function stableHash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
 }
 
 /** LINE の state.pendingTask がこの課題なら外す（決着した課題を LINE 上に残さない） */
@@ -157,6 +166,8 @@ export type SubmitResult =
       feedback: string;
       hint: "";
       explanation: string;
+      /** free 課題の模範解答（決着後だけ見せる参考例） */
+      sampleAnswer?: string;
       hintCount: number;
       observations?: string[];
       event: { id: string };
@@ -254,6 +265,7 @@ async function settleAnswer(
     feedback: settlement.feedback,
     hint: "" as const,
     explanation: task.explanation,
+    ...(task.kind === "free" && task.rubric?.sampleAnswer ? { sampleAnswer: task.rubric.sampleAnswer } : {}),
     hintCount,
     event: { id: event.id },
     ...finalized,

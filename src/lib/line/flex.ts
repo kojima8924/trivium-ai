@@ -4,7 +4,7 @@
 import type { messagingApi } from "@line/bot-sdk";
 import type { Recommendation } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
-import { characterHex, characterImageUrl } from "@/lib/characters";
+import { characterHex, characterImageUrl, type CharacterMood } from "@/lib/characters";
 import type { AgentKey } from "@/lib/persona";
 import type { XpSummary } from "@/lib/xp";
 import type { LeaderAction, LeaderReply } from "./leader";
@@ -335,6 +335,8 @@ export function agentReply(
     buttons?: LeaderReply["buttons"];
     suggestedDomain?: LeaderReply["suggestedDomain"];
     note?: string;
+    /** 表情差分（既定 normal） */
+    mood?: CharacterMood;
   },
 ): LeaderReply {
   const plain = opts.footer ? `${name}: ${body}
@@ -342,7 +344,7 @@ ${opts.footer}` : `${name}: ${body}`;
   return {
     text: plain,
     altText: body.slice(0, 100),
-    flex: buildAgentBubble({ agent, name, text: body, imageUrl: characterImageUrl(agent, opts.appUrl), footer: opts.footer }),
+    flex: buildAgentBubble({ agent, name, text: body, imageUrl: characterImageUrl(agent, opts.appUrl, "face", opts.mood ?? "normal"), footer: opts.footer }),
     quickReplies: opts.quickReplies,
     buttons: opts.buttons,
     suggestedDomain: opts.suggestedDomain,

@@ -3,11 +3,32 @@ import { CODE_TASKS } from "./code";
 import { COMPOSITE_TASKS } from "./composite";
 import { READ_TASKS } from "./read";
 import { WRITE_TASKS } from "./write";
+import { CODE_STOCK } from "./stock/code.generated";
+import { READ_STOCK } from "./stock/read.generated";
+import { WRITE_STOCK } from "./stock/write.generated";
 import type { Task } from "./types";
 
 export * from "./types";
 
-export const ALL_TASKS: Task[] = [...READ_TASKS, ...WRITE_TASKS, ...CODE_TASKS, ...COMPOSITE_TASKS];
+/** 手書きの課題（デモ台本が id に依存するので常に優先） */
+const HANDWRITTEN: Task[] = [...READ_TASKS, ...WRITE_TASKS, ...CODE_TASKS, ...COMPOSITE_TASKS];
+
+/** 生成・検証済みのストック（scripts/stock/gen_stock.mts）。手書きと id が重なるものは除外する */
+function mergeStock(base: Task[], stock: Task[]): Task[] {
+  const ids = new Set(base.map((t) => t.id));
+  const out = [...base];
+  for (const t of stock) {
+    if (ids.has(t.id)) {
+      console.warn(`[tasks] stock id "${t.id}" duplicates a handwritten task; skipped`);
+      continue;
+    }
+    ids.add(t.id);
+    out.push(t);
+  }
+  return out;
+}
+
+export const ALL_TASKS: Task[] = mergeStock(HANDWRITTEN, [...READ_STOCK, ...WRITE_STOCK, ...CODE_STOCK]);
 
 const byId = new Map(ALL_TASKS.map((t) => [t.id, t]));
 
@@ -22,12 +43,14 @@ export function tasksFor(domain: DomainKey): Task[] {
 /**
  * 次のタスクを選ぶ（決定論）。
  * 目標難易度に近く、未回答のものを優先。全て回答済みなら成功していないもの → 最も古いもの。
+ * tieBreak を渡すと、難易度距離が同じ課題の並びをそれで決める（ユーザーごとにばらけさせる用。省略時は定義順）。
  */
 export function pickNextTask(
   domain: DomainKey,
   targetDifficulty: number,
   history: { taskId: string; success: boolean; createdAt: Date }[],
   preferredTaskId?: string,
+  tieBreak?: (a: Task, b: Task) => number,
 ): Task {
   const pool = tasksFor(domain);
   if (preferredTaskId) {
@@ -40,11 +63,12 @@ export function pickNextTask(
     if (!prev || prev.createdAt < h.createdAt) done.set(h.taskId, h);
   }
   const rank = (t: Task) => Math.abs(t.difficulty - targetDifficulty);
-  const unseen = pool.filter((t) => !done.has(t.id)).sort((a, b) => rank(a) - rank(b));
+  const byRank = (a: Task, b: Task) => rank(a) - rank(b) || (tieBreak ? tieBreak(a, b) : 0);
+  const unseen = pool.filter((t) => !done.has(t.id)).sort(byRank);
   if (unseen.length > 0) return unseen[0];
   const failed = pool
     .filter((t) => done.get(t.id)?.success === false)
-    .sort((a, b) => rank(a) - rank(b));
+    .sort(byRank);
   if (failed.length > 0) return failed[0];
   return [...pool].sort(
     (a, b) => done.get(a.id)!.createdAt.getTime() - done.get(b.id)!.createdAt.getTime(),

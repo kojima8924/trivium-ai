@@ -6,13 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { getTask } from "@/lib/tasks";
 import { loadPersonas } from "@/lib/persona";
-import { pushFlex } from "@/lib/line/push";
+import { pushFlex, pushTo } from "@/lib/line/push";
 import { loadEvents } from "@/lib/profile";
 import { computeXp, dayKey, xpForEvent } from "@/lib/xp";
 import { computeLevels } from "@/lib/scoring";
 import { pickRecommendation, recommendationLine, weakestAxis } from "@/lib/recommend";
 import { XP } from "@/config/trivium.config";
-import { buildMissionFlex } from "@/lib/line/flex";
+import { agentReply, buildMissionFlex } from "@/lib/line/flex";
 
 const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
 
@@ -122,12 +122,26 @@ export async function notifyDailyDigestIfComplete(userId: string, now: Date = ne
       rows,
       dashboardUrl,
     });
+    // 1 通目: 今日の結果（テキスト）/ 2 通目: 案内役の総評（cheer のキャラ吹き出し）＋ミッション達成カード
+    const statsText = [`今日の3問、おつかれさまでした。`, ...rows, `+${todayXp + XP.dailyMissionBonus} XP（今日の課題 ${todayXp} / ミッション +${XP.dailyMissionBonus}）→ 合計 ${xp.total} XP・${xp.rank.title}・🔥 ${xp.streak} 日連続`].join("\n");
+    const leaderName = personas.LEADER.name;
+    const leaderBody = [
+      leader?.summary ? leader.summary.replace(new RegExp(`^${leaderName}: `), "") : "今日の3問、達成。…ま、まあ悪くないんじゃない。",
+      leader?.recommendation ? `明日のおすすめ: ${leader.recommendation}` : "",
+      rec ? `今日の 1 冊: ${recommendationLine(rec)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const appUrl = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
     for (const l of links) {
       // 直列に送る（1 件の失敗が残りに影響しないように）
-      await pushFlex(l.lineUserId, "今日の3問、達成！", flex, {
-        text,
-        quickReplies: [{ type: "uri", label: "Dashboard", uri: dashboardUrl }],
-      }).catch((err) => console.warn("[digest] push failed:", (err as Error).message));
+      await pushTo(l.lineUserId, { text: statsText }).catch((err) => console.warn("[digest] push failed:", (err as Error).message));
+      await pushFlex(
+        l.lineUserId,
+        "今日の3問、達成！",
+        flex,
+        agentReply("LEADER", leaderName, leaderBody, { appUrl, mood: "cheer", quickReplies: [{ type: "uri", label: "Dashboard", uri: dashboardUrl }] }),
+      ).catch((err) => console.warn("[digest] push failed:", (err as Error).message));
     }
     return true;
   } catch (err) {

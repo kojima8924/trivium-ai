@@ -142,7 +142,7 @@ export type GenerateTaskOutput = {
   prompt: string;
   choices: string[]; // choice のときのみ（4件）。それ以外は空
   answerKey: string[]; // choice: 正解 index の文字列 / short: 正解候補 / free: 空
-  rubric: { mustInclude: string[]; minLength: number; maxLength: number; criteria: string[] } | null;
+  rubric: { mustInclude: string[]; minLength: number; maxLength: number; criteria: string[]; sampleAnswer?: string } | null;
   hints: [string, string, string];
   explanation: string;
   skillTags: string[];

@@ -18,7 +18,18 @@ export async function POST(req: Request) {
   const limited = rateLimit(`reset:${userId}`, 6, 60_000);
   if (limited) return limited;
 
-  const [events] = await prisma.$transaction([
+  // LINE 側の「回答待ち」「パス済み」「難易度指定」も初期化する（初期化後に古い出題へ回答できてしまうのを防ぐ）
+  const lineUsers = await prisma.lineUser.findMany({ where: { userId }, select: { id: true, state: true } });
+  const lineUpdates = lineUsers.map((lu) => {
+    const { pendingTask: _p, passedTaskIds: _q, preferredDifficulty: _r, note: _n, ...rest } = (lu.state ?? {}) as Record<string, unknown>;
+    void _p;
+    void _q;
+    void _r;
+    void _n;
+    return prisma.lineUser.update({ where: { id: lu.id }, data: { state: rest as object } });
+  });
+  const results = await prisma.$transaction([
+    ...lineUpdates,
     prisma.learningEvent.deleteMany({ where: { userId } }),
     prisma.domainProfile.deleteMany({ where: { userId } }),
     prisma.leaderProfile.deleteMany({ where: { userId } }),
@@ -28,5 +39,6 @@ export async function POST(req: Request) {
     prisma.profileSnapshot.deleteMany({ where: { userId } }),
     prisma.dailyDigest.deleteMany({ where: { userId } }),
   ]);
+  const events = results[lineUpdates.length] as { count: number };
   return NextResponse.json({ ok: true, removedEvents: events.count });
 }

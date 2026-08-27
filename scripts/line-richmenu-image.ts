@@ -7,8 +7,8 @@
 // タップ領域は line-richmenu.ts 側で「幅を3等分・高さを2等分」した6セルなので、
 // 見た目のカードもその 6 セルの内側に収める（ズレるとボタンと絵柄が食い違う）。
 //
-//   上段: READ | WRITE | LOGIC       → Web の /learn/* を開く
-//   下段: 今日の学習 | 履歴 | PROFILE → postback（Leader が LINE 上で応答）
+//   上段: READ | WRITE | LOGIC       → LINE 上でその系統を 1 問
+//   下段: 使い方 | Dashboard | PROFILE → 使い方の案内 / メインサイトへ / 能力プロフィール
 //
 // 依存は sharp（devDependency）のみ。日本語は Windows の Noto Sans JP を SVG 経由で描画する。
 import sharp from "sharp";
@@ -72,19 +72,19 @@ function codeIcon(cx: number, cy: number, color: string): string {
   return `<text x="${cx}" y="${cy + 62}" text-anchor="middle" font-family="${MONO}" font-size="170" font-weight="700" fill="${color}">&lt;/&gt;</text>`;
 }
 
-/** 今日の学習: 円＋再生三角 */
-function todayIcon(cx: number, cy: number, color: string): string {
+/** 使い方: 円＋「?」 */
+function helpIcon(cx: number, cy: number, color: string): string {
   return `
     <circle cx="${cx}" cy="${cy}" r="86" fill="none" stroke="${color}" stroke-width="12" />
-    <path d="M ${cx - 26} ${cy - 44} L ${cx + 50} ${cy} L ${cx - 26} ${cy + 44} Z" fill="${color}" />`;
+    <text x="${cx}" y="${cy + 34}" text-anchor="middle" font-family="${JP}" font-size="110" font-weight="800" fill="${color}">?</text>`;
 }
 
-/** 履歴: 時計 */
-function clockIcon(cx: number, cy: number, color: string): string {
+/** Dashboard: 家＋矢印（外部サイトへ） */
+function homeIcon(cx: number, cy: number, color: string): string {
   return `
-    <circle cx="${cx}" cy="${cy}" r="86" fill="none" stroke="${color}" stroke-width="12" />
-    <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 50}" stroke="${color}" stroke-width="12" stroke-linecap="round" />
-    <line x1="${cx}" y1="${cy}" x2="${cx + 40}" y2="${cy + 14}" stroke="${color}" stroke-width="12" stroke-linecap="round" />`;
+    <path d="M ${cx - 90} ${cy + 10} L ${cx} ${cy - 80} L ${cx + 90} ${cy + 10}" fill="none" stroke="${color}" stroke-width="12" stroke-linejoin="round" />
+    <path d="M ${cx - 66} ${cy - 10} L ${cx - 66} ${cy + 86} L ${cx + 66} ${cy + 86} L ${cx + 66} ${cy - 10}" fill="none" stroke="${color}" stroke-width="12" stroke-linejoin="round" />
+    <path d="M ${cx - 18} ${cy + 86} L ${cx - 18} ${cy + 30} L ${cx + 18} ${cy + 30} L ${cx + 18} ${cy + 86}" fill="${color}" />`;
 }
 
 /** PROFILE: 三角形レーダー（アプリの能力プロフィールと同じ形） */
@@ -130,11 +130,11 @@ function actionCard(cell: Cell, label: string, sub: string, icon: (cx: number, c
 function buildSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="${W}" height="${H}" fill="${BG}" />
-  ${domainCard({ col: 0, row: 0 }, "#2563eb", "READ", "読む", bookIcon)}
-  ${domainCard({ col: 1, row: 0 }, "#d97706", "WRITE", "書く", penIcon)}
-  ${domainCard({ col: 2, row: 0 }, "#059669", "LOGIC", "論理", codeIcon)}
-  ${actionCard({ col: 0, row: 1 }, "今日の学習", "LINEで1問", todayIcon, "#F5F4EF")}
-  ${actionCard({ col: 1, row: 1 }, "履歴", "最近の学習を見る", clockIcon, "#F5F4EF")}
+  ${domainCard({ col: 0, row: 0 }, "#2563eb", "READ", "読む · LINEで1問", bookIcon)}
+  ${domainCard({ col: 1, row: 0 }, "#d97706", "WRITE", "書く · LINEで1問", penIcon)}
+  ${domainCard({ col: 2, row: 0 }, "#059669", "LOGIC", "論理 · LINEで1問", codeIcon)}
+  ${actionCard({ col: 0, row: 1 }, "使い方", "このサービスの使い方", helpIcon, "#F5F4EF")}
+  ${actionCard({ col: 1, row: 1 }, "Dashboard", "メインサイトへ", homeIcon, "#F5F4EF")}
   ${actionCard({ col: 2, row: 1 }, "PROFILE", "能力プロフィール", radarIcon, "#F5F4EF")}
 </svg>`;
 }

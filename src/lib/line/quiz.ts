@@ -170,21 +170,15 @@ export async function answerQuiz(
 
   if (result.status === "retry") {
     return {
-      reply: {
-        text: [
-          "🔺 △ もう一度",
-          `${name}: ${stripName(result.feedback, name)}`,
-          result.hint ? `\nヒント ${result.hintCount}/3: ${result.hint}` : "",
-          `\nもう一度選んでください。`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
+      reply: agentReply(task.domain, name, ["🔺 △ もう一度", stripName(result.feedback, name), result.hint ? `\nヒント ${result.hintCount}/3: ${result.hint}` : "", "\nもう一度選んでください。"].filter(Boolean).join("\n"), {
+        appUrl: appUrl(),
+        mood: "think",
         quickReplies: [
           ...choiceActions(task),
           { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
           { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
         ],
-      },
+      }),
       settled: null,
     };
   }
@@ -193,9 +187,11 @@ export async function answerQuiz(
   await saveLineState(lineUserId, withPendingTask(state, null));
   const head = result.status === "success" ? `⭕ ○ 正解（ヒント ${result.hintCount} 回）` : "❌ ✕ 今回は未達";
   return {
-    reply: {
-      text: [`${head}`, `${name}: ${stripName(result.feedback, name)}`, `\n解説: ${result.explanation}`, "\n（集計中…）"].join("\n"),
-    },
+    reply: agentReply(task.domain, name, [head, stripName(result.feedback, name), `\n解説: ${result.explanation}`].join("\n"), {
+      appUrl: appUrl(),
+      mood: result.status === "success" ? "happy" : "sad",
+      footer: "集計中…",
+    }),
     settled: { domain: task.domain, status: result.status },
   };
 }
@@ -260,11 +256,12 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
   if (withComment) {
     // commentEvery 問ごとに、系統の人格と案内役がキャラの吹き出しで一言ずつ
     const dn = personas[domain].name;
-    if (r.profile.summary) out.push(agentReply(domain, dn, stripName(r.profile.summary, dn), { appUrl: appUrl() }));
+    const up = r.profile.levelAfter > r.profile.levelBefore;
+    if (r.profile.summary) out.push(agentReply(domain, dn, stripName(r.profile.summary, dn), { appUrl: appUrl(), mood: up ? "cheer" : "normal" }));
     if (r.leader) {
       const ln = personas.LEADER.name;
       const body = [stripName(r.leader.summary, ln), r.leader.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : ""].filter(Boolean).join("\n");
-      out.push(agentReply("LEADER", ln, body, { appUrl: appUrl() }));
+      out.push(agentReply("LEADER", ln, body, { appUrl: appUrl(), mood: up ? "cheer" : "normal" }));
     }
   }
   out[out.length - 1] = { ...out[out.length - 1], quickReplies: todayActions() };

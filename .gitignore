@@ -46,3 +46,4 @@ next-env.d.ts
 # prisma generated client (postinstall で生成)
 /src/generated/
 .scratch/
+scripts/stock/out/

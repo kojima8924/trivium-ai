@@ -442,3 +442,36 @@ test("LOGIC(CODE): 追加した choice / short の正誤が checkDeterministic �
     assert.equal(checkDeterministic(getTask(id)!, answer), expected, `${id} answer=${answer}`);
   }
 });
+
+// ---- 生成ストック（scripts/stock/gen_stock.mts → src/lib/tasks/stock/*.generated.ts）の品質ゲート ----
+// 上の全タスク共通テスト（id 一意・4 択・difficulty 1〜10・skillTags・hints 3 段・バッククォート禁止）はストックにも効く。
+// ここではストック固有の規約（id 形式と難易度の整合・選択肢の重複・文字列の \n）だけを見る。ストックが空でも通る。
+
+const STOCK_ID = /^(read|write|code)-s(\d+)-(\d+)$/;
+
+test("ストック: id は <domain>-s<難易度>-<連番> 形式で、難易度が id と一致する", () => {
+  for (const t of ALL_TASKS.filter((x) => STOCK_ID.test(x.id))) {
+    const m = t.id.match(STOCK_ID)!;
+    assert.equal(m[1].toUpperCase(), t.domain, `${t.id}: domain`);
+    assert.equal(Number(m[2]), t.difficulty, `${t.id}: difficulty が id と一致しない`);
+  }
+});
+
+test("ストック: 選択肢が重複せず、表示文に文字列としての \\n を含まない", () => {
+  for (const t of ALL_TASKS.filter((x) => STOCK_ID.test(x.id))) {
+    const texts = [t.title, t.passage ?? "", t.prompt, ...(t.choices ?? []), ...t.hints, t.explanation];
+    for (const text of texts) assert.ok(!text.includes("\\n"), `${t.id}: 文字列としての \\n`);
+    if (t.kind === "choice") {
+      const norm = t.choices!.map((c) => c.replace(/\s+/g, ""));
+      assert.equal(new Set(norm).size, 4, `${t.id}: 選択肢が重複`);
+    }
+  }
+});
+
+test("pickNextTask: tieBreak で同じ難易度距離の並びを変えられる（省略時は定義順）", () => {
+  const pool = tasksFor("CODE").filter((t) => t.difficulty === 5);
+  if (pool.length < 2) return; // 同難易度が 2 問未満なら検証対象なし
+  const desc = (a: Task, b: Task) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  assert.equal(pickNextTask("CODE", 5, []).id, pool[0].id);
+  assert.equal(pickNextTask("CODE", 5, [], undefined, desc).id, [...pool].sort(desc)[0].id);
+});

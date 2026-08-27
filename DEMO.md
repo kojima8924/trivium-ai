@@ -107,7 +107,7 @@
 | 個人情報は？ | 保存は表示名とメールのみ。LLM には内部 ID だけ渡す。API key は全部 server-side |
 | 落ちたら？ | `LearningAIService` が Mock provider にフォールバック。`/api/health` の `ai.lastUsed` / `lastError` で確認可 |
 | LINE と Google は紐づく？ | LINE で「連携」→ ワンタイム URL（単回・15 分）→ Web でログイン中に承認。「連携解除」でいつでも解除。連携しなくても LINE 単体で使える |
-| 問題数は？ | 静的 63 問（READ / WRITE / LOGIC 単独 51 + 複合 12）＋ AI 作問。難易度は系統ごとに 1〜10 |
+| 問題数は？ | 手書き 63 問（READ / WRITE / LOGIC 単独 51 + 複合 12）＋ 難易度 1〜10 × 3 系統の生成・検証済みストック（`src/lib/tasks/stock/`。Python は実行で正解照合、他は独立ソルバー照合）＋ AI 作問。LINE で「LOGICで難易度8」と送るとストックから即出題 |
 | 初期状態に戻せる？ | Dashboard の「初期状態に戻す」で全消去（人格・LINE 連携は残る） |
 
 ## 壊れたときの逃げ道

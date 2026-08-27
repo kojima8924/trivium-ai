@@ -39,6 +39,9 @@ export default async function Home() {
               Google でログインして始める
             </Link>
           )}
+          <Link href="/guide" className="btn">
+            使い方を見る
+          </Link>
         </div>
       </section>
 

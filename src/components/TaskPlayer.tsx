@@ -7,6 +7,7 @@ import type { TaskPublic } from "@/lib/tasks/types";
 import { achievementTitle } from "@/lib/achievement-defs";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { CodeBlock } from "@/components/CodeBlock";
+import { moodForMark } from "@/lib/characters";
 
 type SubmitResponse =
   | { status: "retry"; feedback: string; hint: string; hintCount: number; hintsRemaining: number }
@@ -14,6 +15,7 @@ type SubmitResponse =
       status: "success" | "failed";
       feedback: string;
       explanation: string;
+      sampleAnswer?: string;
       hintCount: number;
       observations?: string[];
       profile: { domain: DomainKey; before: number; after: number; levelBefore: number; levelAfter: number; confidence: string; summary: string; recommendedNext: string };
@@ -169,7 +171,7 @@ export function TaskPlayer({
             <div key={i} className={m.kind === "me" ? "flex justify-end" : "flex items-end gap-2"}>
               {/* AI 側の吹き出しには担当キャラのアバターを添える（連続するときは最初だけ） */}
               {m.kind !== "me" && (
-                <div className="w-9 shrink-0">{(i === 0 || log[i - 1].kind === "me") && <CharacterAvatar agent={domain} size={36} />}</div>
+                <div className="w-9 shrink-0">{(i === 0 || log[i - 1].kind === "me") && <CharacterAvatar agent={domain} size={36} mood={moodForMark(m.mark ?? (m.kind === "hint" ? "△" : undefined))} />}</div>
               )}
               <div
                 className={
@@ -266,6 +268,12 @@ export function TaskPlayer({
             <div className="mb-1 text-[11px] font-semibold text-muted">解説</div>
             {result.explanation}
           </div>
+          {result.sampleAnswer && (
+            <div className="rounded-lg bg-bg p-3 text-sm leading-relaxed">
+              <div className="mb-1 text-[11px] font-semibold text-muted">参考答案（{result.sampleAnswer.length} 字）</div>
+              <p className="passage">{result.sampleAnswer}</p>
+            </div>
+          )}
           <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm">
             <span className="wordmark text-xs" style={{ color: meta.color }}>
               {meta.label}
@@ -285,7 +293,7 @@ export function TaskPlayer({
           <p className="text-xs leading-relaxed text-muted">{result.profile.summary}</p>
           {result.leader && (
             <div className="flex items-start gap-3 rounded-lg border border-line p-3 text-xs">
-              <CharacterAvatar agent="LEADER" size={40} />
+              <CharacterAvatar agent="LEADER" size={40} mood={result.profile.levelAfter > result.profile.levelBefore ? "cheer" : result.status === "success" ? "happy" : "normal"} />
               <div className="min-w-0 flex-1">
                 <div className="wordmark mb-1 text-[10px]">Advisor{leaderName ? ` · ${leaderName}` : ""}</div>
                 <p className="leading-relaxed">{result.leader.summary}</p>

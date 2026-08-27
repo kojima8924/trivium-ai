@@ -12,6 +12,10 @@ export async function Header() {
           <Image src="/brand/logo-wide.png" alt="Trivium" width={443} height={96} priority className="h-6 w-auto" />
         </Link>
         <nav className="flex shrink-0 items-center gap-1 text-sm sm:gap-2">
+          {/* 使い方はログイン前後どちらでも見られる */}
+          <Link href="/guide" className="flex min-h-11 items-center whitespace-nowrap px-2 text-muted hover:text-fg" aria-label="使い方ガイド">
+            使い方
+          </Link>
           {user ? (
             <>
               <Link href="/dashboard" className="btn h-9 min-h-0 px-3 py-1 text-sm">

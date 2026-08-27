@@ -28,6 +28,8 @@ export type Task = {
     minLength?: number;
     maxLength?: number;
     criteria: string[]; // AI へ渡す観点
+    /** 模範解答（成功後に参考例として見せる。字数指定の基準） */
+    sampleAnswer?: string;
   };
   /** 段階ヒント（1回目→2回目→3回目）。完成解は含めない */
   hints: string[];

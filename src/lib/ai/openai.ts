@@ -74,6 +74,7 @@ const generateSchema = z.object({
   rubric_criteria: z.array(z.string()).describe("kind=free の評価観点（2〜3件）。それ以外は空"),
   rubric_min_length: z.number().int().describe("kind=free の最小字数。それ以外は 0"),
   rubric_max_length: z.number().int().describe("kind=free の最大字数。それ以外は 0"),
+  model_answer: z.string().describe("kind=free のとき、お題に対する模範解答（prompt で求める字数の範囲内で実際に書く）。それ以外は空文字"),
   hints: z.array(z.string()).describe("段階ヒントを3つ。1つ目は問い返し、3つ目でも答えの値や完成文は書かない"),
   explanation: z.string().describe("成功後に見せる解説（答えを含んでよい。120字以内）"),
   skill_tags: z.array(z.string()).describe("allowed_skill_tags から1〜2個"),
@@ -130,6 +131,7 @@ const ROLE_GENERATE = [
   "- CODE（LOGIC）は Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。request の先頭にある【形式: …】の指定に必ず従う（『論理パズル』ならコードを出さない）。",
   "- passage にマークダウンのコードフェンス（```）や装飾を使わない。プレーンテキストのみ。",
   "- title に domain 名の接頭辞（『LOGIC:』『READ:』など）を付けない。",
+  "- free（記述）は先に model_answer（模範解答）を書き、prompt の字数指定はその長さに合わせる（模範解答より長い字数を要求しない）。目安: difficulty 1〜3 は 60〜100 字、4〜6 は 100〜160 字、7〜10 は 150〜240 字。",
   "- 改行は実際の改行にする。文字列として『\\n』と書かない（選択肢に複数行の出力を入れるときも同様）。",
   "- Python の出力予測問題は、コードを一行ずつ実際に実行した結果だけを正解にする（途中で変数の値を書き出して確かめる）。正解の選択肢は print の出力そのまま（Python の表記: 文字列はシングルクォート、タプルは丸括弧）。誤答の選択肢も『ありそうな誤り』にする。",
   "- 直近の題材（recent_titles）と重ならない題材にする。",
@@ -145,6 +147,21 @@ const runPythonSchema = z.object({
   stdout: z.string(),
   error: z.string(),
 });
+
+/** free 課題の rubric。模範解答があれば字数の上下限はその長さ（0.6〜1.6 倍）から決め、長すぎる要求を防ぐ */
+function freeRubric(out: z.infer<typeof generateSchema>): NonNullable<GenerateTaskOutput["rubric"]> {
+  const sample = out.model_answer.trim();
+  const n = sample.length;
+  const minLength = n >= 30 ? Math.max(30, Math.round(n * 0.6)) : out.rubric_min_length || 40;
+  const maxLength = n >= 30 ? Math.max(minLength + 40, Math.round(n * 1.6)) : out.rubric_max_length || 300;
+  return {
+    mustInclude: out.rubric_must_include,
+    minLength,
+    maxLength,
+    criteria: out.rubric_criteria.length ? out.rubric_criteria : ["設問の要求に答えているか"],
+    ...(sample ? { sampleAnswer: sample } : {}),
+  };
+}
 
 function personaText(p?: PersonaPrompt): string {
   if (!p) return "";
@@ -444,12 +461,7 @@ export class OpenAIProvider implements LearningAIProvider {
       prompt: out.prompt,
       choices: [],
       answerKey: [],
-      rubric: {
-        mustInclude: out.rubric_must_include,
-        minLength: out.rubric_min_length || 40,
-        maxLength: out.rubric_max_length || 400,
-        criteria: out.rubric_criteria.length ? out.rubric_criteria : ["設問の要求に答えているか"],
-      },
+      rubric: freeRubric(out),
       hints,
       explanation: out.explanation,
       skillTags: skillTags.length ? skillTags : [input.allowedSkillTags[0]],
