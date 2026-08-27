@@ -22,7 +22,6 @@ export class MockProvider implements LearningAIProvider {
   readonly name = "mock";
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
-    const domain = MODE_TO_DOMAIN[input.mode];
     const success = input.deterministicResult === true;
     const hintIdx = Math.min(input.hintLevel, input.task.hints.length - 1);
     const nextHint = input.task.hints[hintIdx] ?? "もう一度、問題文の条件を一つずつ確認してみましょう。";
@@ -70,7 +69,6 @@ export class MockProvider implements LearningAIProvider {
       skillTags: [],
       recommendedNextDifficulty: Math.max(1, input.task.difficulty - (input.hintLevel >= 2 ? 1 : 0)),
     };
-    void domain;
   }
 
   async interpretDomain(input: DomainInterpretInput): Promise<DomainInterpretOutput> {

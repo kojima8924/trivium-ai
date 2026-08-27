@@ -1,26 +1,103 @@
 @import "tailwindcss";
 
+/* Trivium テーマ: clean / intelligent / slightly playful。過剰なアニメーションはしない。 */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #fafaf7;
+  --bg-elev: #ffffff;
+  --fg: #1c1c1a;
+  --muted: #6b6b66;
+  --line: #e6e4dc;
+  --accent: #1f2937;
+  --read: #2563eb;
+  --write: #d97706;
+  --code: #059669;
+  --ok: #059669;
+  --ng: #dc2626;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-read: var(--read);
+  --color-write: var(--write);
+  --color-code: var(--code);
+  --color-ok: var(--ok);
+  --color-ng: var(--ng);
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #111110;
+    --bg-elev: #1a1a18;
+    --fg: #f2f1ec;
+    --muted: #a3a29b;
+    --line: #2c2c29;
+    --accent: #e5e7eb;
   }
 }
 
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100dvh;
+}
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  padding: 0.65rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--fg);
+  transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  min-height: 44px;
+}
+.btn:hover { border-color: var(--fg); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn-primary:hover { opacity: 0.9; }
+
+.wordmark {
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+pre.codeblock {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.passage {
+  white-space: pre-wrap;
+  line-height: 1.8;
 }
