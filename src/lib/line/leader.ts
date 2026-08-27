@@ -41,6 +41,8 @@ export type LeaderContext = {
 
 export type Intent =
   | { kind: "domain"; domain: DomainKey }
+  | { kind: "quiz"; domain: DomainKey | null }
+  | { kind: "generate"; request: string }
   | { kind: "link" }
   | { kind: "unlink" }
   | { kind: "today" }
@@ -55,6 +57,15 @@ export type Intent =
 
 const toHalfWidth = (s: string) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 
+/** 「read」「論理」などの語を domain に写す */
+export function domainOf(word: string): DomainKey | null {
+  const w = word.toLowerCase();
+  if (/^(read|リード|読解)$/.test(w)) return "READ";
+  if (/^(write|ライト|作文)$/.test(w)) return "WRITE";
+  if (/^(logic|code|ロジック|論理)$/.test(w)) return "CODE";
+  return null;
+}
+
 export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
@@ -62,9 +73,19 @@ export function classifyIntent(raw: string): Intent {
   if (/(連携(を)?(解除|やめ|外し|切)|解除|unlink)/.test(text)) return { kind: "unlink" };
   if (/(連携|リンク|link|同期|アカウント)/i.test(lower)) return { kind: "link" };
   if (/^(help|ヘルプ|使い方|できること|\?|？)$/.test(lower) || /使い方|ヘルプ|help/.test(lower)) return { kind: "help" };
+  // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
+  const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回)(ください|して|お願い(します)?)?[!！。]?$/;
+  const quizWithDomain = text.match(/^(read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(で|の)?\s*(1問|一問|出題|問題|クイズ)/i);
+  if (quizWithDomain) return { kind: "quiz", domain: domainOf(quizWithDomain[1]) };
+  if (quizCmd.test(text)) return { kind: "quiz", domain: null };
+  // 自由文の作問依頼（「論理パズルを出して」「短い読解を1問」など）
+  if (/(出して|だして|ちょうだい|お願い|作って|つくって|作問|パズル|クイズ|問題を|問題が|1問|一問|出題して)/.test(text) && text.length >= 4) {
+    return { kind: "generate", request: text.slice(0, 300) };
+  }
+
   if (/(read|リード|読(む|み|解)|読書)/i.test(lower) && !/書/.test(text)) return { kind: "domain", domain: "READ" };
   if (/(write|ライト|書(く|き)|作文|文章)/i.test(lower)) return { kind: "domain", domain: "WRITE" };
-  if (/(code|コード|プログラ|python|パイソン|バグ)/i.test(lower)) return { kind: "domain", domain: "CODE" };
+  if (/(logic|ロジック|論理|code|コード|プログラ|python|パイソン|バグ)/i.test(lower)) return { kind: "domain", domain: "CODE" };
   if (/(履歴|きろく|記録|ログ|これまで)/.test(text)) return { kind: "history" };
   if (/(プロフィール|profile|能力|レーダー|得意|苦手|分析)/i.test(lower)) return { kind: "profile" };
   const min = text.match(/(\d+)\s*分/);
@@ -86,13 +107,13 @@ export function pickBalancedDomain(state: LineState): { domain: DomainKey; reaso
   const least = sorted[0];
   const most = sorted[sorted.length - 1];
   if (counts[most] > counts[least] && counts[most] > 0) {
-    return { domain: least, reason: `最近${most}が多かったので、今日は${least}にしてみますか？` };
+    return { domain: least, reason: `最近${DOMAIN_META[most].label}が多かったので、今日は${DOMAIN_META[least].label}にしてみますか？` };
   }
   if (state.lastDomain) {
     const next = DOMAINS[(DOMAINS.indexOf(state.lastDomain) + 1) % DOMAINS.length];
-    return { domain: next, reason: `前回は${state.lastDomain}でした。今日は${next}で切り口を変えてみましょう。` };
+    return { domain: next, reason: `前回は${DOMAIN_META[state.lastDomain].label}でした。今日は${DOMAIN_META[next].label}で切り口を変えてみましょう。` };
   }
-  return { domain: "CODE", reason: "まずは短い出力予測から。3分で1問、様子を見てみましょう。" };
+  return { domain: "CODE", reason: "まずは短い論理問題から。3分で1問、様子を見てみましょう。" };
 }
 
 // ---- 返信の組み立て ----
@@ -107,8 +128,18 @@ function dashboardUrl(appUrl: string): string {
 
 function domainQuickReplies(appUrl: string): LeaderAction[] {
   return [
-    ...DOMAINS.map((d) => ({ type: "uri" as const, label: d, uri: learnUrl(appUrl, d) })),
+    ...DOMAINS.map((d) => ({ type: "uri" as const, label: DOMAIN_META[d].label, uri: learnUrl(appUrl, d) })),
+    { type: "postback", label: "LINEで1問", data: "action=today", displayText: "今日の学習" },
     { type: "uri", label: "PROFILE", uri: dashboardUrl(appUrl) },
+  ];
+}
+
+/** 「LINE で1問」と「Web で解く」の2択（domain 指定） */
+export function quizOrWebActions(appUrl: string, domain: DomainKey): LeaderAction[] {
+  const m = DOMAIN_META[domain];
+  return [
+    { type: "postback", label: "LINEで1問", data: `action=quiz&domain=${domain}`, displayText: `${m.label}を LINE で1問` },
+    { type: "uri", label: "Webで解く", uri: learnUrl(appUrl, domain) },
   ];
 }
 
@@ -133,11 +164,12 @@ export function welcomeReply(ctx: LeaderContext): LeaderReply {
   return {
     text: [
       "はじめまして。Trivium の Leader です。",
-      "READ / WRITE / CODE の3つで、あなたの「次の一歩」を一緒に決めます。",
+      "READ / WRITE / LOGIC の3つで、あなたの「次の一歩」を一緒に決めます。",
       "",
       "AIは答えを渡しません。一段ずつヒントを出します。",
       "",
-      "「10分だけ」「今日のおすすめ」のように話しかけるか、下のメニューから選んでください。",
+      "「今日の学習」で LINE 上の1問、「論理パズルを出して」で作問もできます。",
+      "まず「連携」と送って Web アカウントと繋ぐと、記録が残ります。",
     ].join("\n"),
     quickReplies: domainQuickReplies(ctx.appUrl),
   };
@@ -147,13 +179,14 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
   return {
     text: [
       "できること:",
-      "・READ / WRITE / CODE → その課題ページへ案内",
-      "・「今日のおすすめ」→ 最近の偏りから1つ提案",
-      "・「10分だけ」「軽く」→ 短い課題を提案",
+      "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）",
+      "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
+      "・READ / WRITE / LOGIC → LINE で1問 or Web で解く",
+      "・「今日のおすすめ」「10分だけ」→ 次の一歩を提案",
       "・「履歴」「プロフィール」→ Dashboard へ",
       "・「連携」→ Web アカウントと繋いで、記録に基づく提案にする",
       "",
-      "課題そのものは Web で取り組みます。ここでは方向だけ決めましょう。",
+      "じっくり書く課題は Web で。LINE では軽く1問ずつ進めましょう。",
     ].join("\n"),
     quickReplies: domainQuickReplies(ctx.appUrl),
   };
@@ -211,11 +244,23 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
     case "domain": {
       const m = DOMAIN_META[intent.domain];
       return {
-        text: `${m.label}（${m.ja}）ですね。${m.tagline}。\n1問だけでも記録に残ります。`,
-        buttons: domainButtons(appUrl, intent.domain, "Web で1問取り組みましょう"),
+        text: `${m.label}（${m.ja}）ですね。${m.tagline}。\nLINE で1問（選択式）か、Web でじっくり解くか選んでください。`,
+        quickReplies: quizOrWebActions(appUrl, intent.domain),
         suggestedDomain: intent.domain,
       };
     }
+
+    // quiz / generate は DB と LLM が要るので webhook 側（src/lib/line/quiz.ts）が処理する。ここは保険の文言
+    case "quiz":
+      return {
+        text: "出題の準備ができませんでした。「今日の学習」を押すか、もう一度「1問」と送ってください。",
+        quickReplies: domainQuickReplies(appUrl),
+      };
+    case "generate":
+      return {
+        text: "作問の準備ができませんでした。「論理パズルを出して」のように、もう一度送ってください。",
+        quickReplies: domainQuickReplies(appUrl),
+      };
 
     case "history":
       return {
@@ -238,7 +283,7 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
           ? [scoreLine ? `現在のプロフィール:\n${scoreLine}` : "", `総合寸評:\n${web}`, "詳しい三角形は Dashboard で。"]
               .filter(Boolean)
               .join("\n\n")
-          : "能力プロフィールは Dashboard の三角形で見られます。READ / WRITE / CODE の評価と、総合寸評、次のおすすめが並びます。\n（「連携」と送ると、ここでも数値を確認できます）",
+          : "能力プロフィールは Dashboard の三角形で見られます。READ / WRITE / LOGIC の評価と、総合寸評、次のおすすめが並びます。\n（「連携」と送ると、ここでも数値を確認できます）",
         buttons: {
           title: "PROFILE",
           text: "三角形プロフィールと総合寸評",
@@ -274,8 +319,8 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
         ? { domain: ctx.leaderProfile.recommendedDomain, reason: ctx.leaderProfile.recommendation || "Web 側の分析に基づく提案です。" }
         : pickBalancedDomain(state);
       return {
-        text: `今日のおすすめは ${pick.domain} です。\n${pick.reason}${linkHint(ctx)}`,
-        buttons: domainButtons(appUrl, pick.domain, "今日の1問"),
+        text: `今日のおすすめは ${DOMAIN_META[pick.domain].label} です。\n${pick.reason}${linkHint(ctx)}`,
+        quickReplies: quizOrWebActions(appUrl, pick.domain),
         suggestedDomain: pick.domain,
       };
     }
@@ -283,7 +328,7 @@ export function buildReply(userText: string, ctx: LeaderContext): LeaderReply {
     case "unknown":
     default:
       return {
-        text: "ここでは方向だけ決めましょう。「おすすめ」「10分だけ」「READ / WRITE / CODE」のどれかで話しかけてください。",
+        text: "「今日の学習」で1問、「論理パズルを出して」で作問、「READ / WRITE / LOGIC」で領域を選べます。迷ったら「おすすめ」と送ってください。",
         quickReplies: domainQuickReplies(appUrl),
       };
   }
@@ -305,6 +350,7 @@ export function buildPostbackReply(data: string, ctx: LeaderContext): LeaderRepl
     case "read":
     case "write":
     case "code":
+    case "logic":
       return buildReply(action.toUpperCase(), ctx);
     default:
       return helpReply(ctx);

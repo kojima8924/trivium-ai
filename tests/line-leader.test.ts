@@ -1,7 +1,7 @@
 // LINE の Leader 会話ロジック（純粋関数）のテスト
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPostbackReply, buildReply, classifyIntent, helpReply, welcomeReply } from "../src/lib/line/leader";
+import { buildPostbackReply, buildReply, classifyIntent, domainOf, helpReply, quizOrWebActions, welcomeReply } from "../src/lib/line/leader";
 import type { LeaderContext } from "../src/lib/line/leader";
 
 const APP = "https://trivium.example.com";
@@ -124,4 +124,63 @@ test("welcome / help は Web リンク付きで、答えを教えない旨を含
   assert.match(welcomeReply(ctx()).text, /ヒント/);
   assert.ok((welcomeReply(ctx()).quickReplies ?? []).length > 0);
   assert.match(helpReply(ctx()).text, /連携/);
+});
+
+// ---- LINE 上の出題 / 作問（意図分類は純粋関数。実際の出題は webhook 側） ----
+
+test("意図分類: 短いコマンドは quiz、自由文の依頼は generate", () => {
+  assert.deepEqual(classifyIntent("1問"), { kind: "quiz", domain: null });
+  assert.deepEqual(classifyIntent("出題して"), { kind: "quiz", domain: null });
+  assert.deepEqual(classifyIntent("もう1問"), { kind: "quiz", domain: null });
+  assert.deepEqual(classifyIntent("READで1問"), { kind: "quiz", domain: "READ" });
+  assert.deepEqual(classifyIntent("論理 1問"), { kind: "quiz", domain: "CODE" });
+  assert.equal(classifyIntent("論理パズルを出して").kind, "generate");
+  assert.equal(classifyIntent("短い読解を1問ください").kind, "generate");
+  assert.equal(classifyIntent("Pythonの問題を作って").kind, "generate");
+  assert.equal((classifyIntent("論理パズルを出して") as { request: string }).request, "論理パズルを出して");
+});
+
+test("意図分類: generate より連携/解除/ヘルプが優先される", () => {
+  assert.equal(classifyIntent("連携をお願い").kind, "link");
+  assert.equal(classifyIntent("使い方を教えて").kind, "help");
+});
+
+test("domainOf: LOGIC/論理/code は内部キー CODE に写る", () => {
+  assert.equal(domainOf("LOGIC"), "CODE");
+  assert.equal(domainOf("論理"), "CODE");
+  assert.equal(domainOf("code"), "CODE");
+  assert.equal(domainOf("read"), "READ");
+  assert.equal(domainOf("作文"), "WRITE");
+  assert.equal(domainOf("xyz"), null);
+});
+
+test("domain の返信は「LINEで1問」(postback) と「Webで解く」(uri) の2択", () => {
+  const r = buildReply("LOGIC", ctx());
+  const kinds = (r.quickReplies ?? []).map((a) => a.type);
+  assert.deepEqual(kinds, ["postback", "uri"]);
+  const pb = r.quickReplies?.[0] as { data: string };
+  assert.equal(pb.data, "action=quiz&domain=CODE");
+  assert.equal(r.suggestedDomain, "CODE");
+});
+
+test("quizOrWebActions は domain ごとに正しい postback と URL を作る", () => {
+  const a = quizOrWebActions(APP, "READ");
+  assert.equal((a[0] as { data: string }).data, "action=quiz&domain=READ");
+  assert.equal((a[1] as { uri: string }).uri, `${APP}/learn/read`);
+  const b = quizOrWebActions(APP, "CODE");
+  assert.equal((b[1] as { uri: string }).uri, `${APP}/learn/logic`);
+});
+
+test("ユーザー向け文言は CODE ではなく LOGIC", () => {
+  for (const r of [welcomeReply(ctx()), helpReply(ctx()), buildReply("今日のおすすめ", ctx({ state: { counts: { READ: 3, WRITE: 3, CODE: 0 } } }))]) {
+    assert.ok(!/CODE/.test(r.text), `CODE が残っている: ${r.text}`);
+  }
+  const labels = (welcomeReply(ctx()).quickReplies ?? []).map((a) => a.label);
+  assert.ok(labels.includes("LOGIC"));
+  assert.ok(labels.includes("LINEで1問"));
+});
+
+test("quiz / generate を buildReply に直接渡しても壊れない（webhook が先に処理する前提の保険文言）", () => {
+  assert.match(buildReply("1問", ctx()).text, /今日の学習/);
+  assert.match(buildReply("パズルを出して", ctx()).text, /作問/);
 });

@@ -13,6 +13,8 @@ export type LineState = {
   counts?: Record<DomainKey, number>;
   /** 自由メモ（「5分だけ」などの直近の文脈） */
   note?: string;
+  /** LINE 上で出題中の課題（回答待ち） */
+  pendingTask?: { taskId: string; domain: DomainKey; sentAt: string };
 };
 
 export function emptyCounts(): Record<DomainKey, number> {
@@ -35,6 +37,17 @@ export function parseLineState(json: unknown): LineState {
     state.counts = counts;
   }
   if (typeof o.note === "string") state.note = o.note.slice(0, 200);
+  if (o.pendingTask && typeof o.pendingTask === "object" && !Array.isArray(o.pendingTask)) {
+    const t = o.pendingTask as Record<string, unknown>;
+    if (
+      typeof t.taskId === "string" &&
+      typeof t.domain === "string" &&
+      (DOMAINS as readonly string[]).includes(t.domain) &&
+      typeof t.sentAt === "string"
+    ) {
+      state.pendingTask = { taskId: t.taskId, domain: t.domain as DomainKey, sentAt: t.sentAt };
+    }
+  }
   return state;
 }
 
@@ -54,6 +67,14 @@ export async function saveLineState(lineUserId: string, state: LineState): Promi
     where: { lineUserId },
     data: { state: { ...state } },
   });
+}
+
+/** 出題中の課題を記録/解除する（純粋関数） */
+export function withPendingTask(state: LineState, pending: LineState["pendingTask"] | null, now: Date = new Date()): LineState {
+  const next: LineState = { ...state };
+  if (pending) next.pendingTask = { ...pending, sentAt: pending.sentAt || now.toISOString() };
+  else delete next.pendingTask;
+  return next;
 }
 
 /** domain を案内したときに呼ぶ（純粋関数: 新しい state を返す） */

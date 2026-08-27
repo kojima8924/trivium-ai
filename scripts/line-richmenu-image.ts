@@ -7,7 +7,7 @@
 // タップ領域は line-richmenu.ts 側で「幅を3等分・高さを2等分」した6セルなので、
 // 見た目のカードもその 6 セルの内側に収める（ズレるとボタンと絵柄が食い違う）。
 //
-//   上段: READ | WRITE | CODE        → Web の /learn/* を開く
+//   上段: READ | WRITE | LOGIC       → Web の /learn/* を開く
 //   下段: 今日の学習 | 履歴 | PROFILE → postback（Leader が LINE 上で応答）
 //
 // 依存は sharp（devDependency）のみ。日本語は Windows の Noto Sans JP を SVG 経由で描画する。
@@ -67,7 +67,7 @@ function penIcon(cx: number, cy: number, color: string): string {
           stroke="${color}" stroke-width="${5 * s}" stroke-linecap="round" opacity="0.5" />`;
 }
 
-/** CODE: </> */
+/** LOGIC: </> */
 function codeIcon(cx: number, cy: number, color: string): string {
   return `<text x="${cx}" y="${cy + 62}" text-anchor="middle" font-family="${MONO}" font-size="170" font-weight="700" fill="${color}">&lt;/&gt;</text>`;
 }
@@ -132,8 +132,8 @@ function buildSvg(): string {
   <rect width="${W}" height="${H}" fill="${BG}" />
   ${domainCard({ col: 0, row: 0 }, "#2563eb", "READ", "読む", bookIcon)}
   ${domainCard({ col: 1, row: 0 }, "#d97706", "WRITE", "書く", penIcon)}
-  ${domainCard({ col: 2, row: 0 }, "#059669", "CODE", "コード", codeIcon)}
-  ${actionCard({ col: 0, row: 1 }, "今日の学習", "次の一歩を提案", todayIcon, "#F5F4EF")}
+  ${domainCard({ col: 2, row: 0 }, "#059669", "LOGIC", "論理", codeIcon)}
+  ${actionCard({ col: 0, row: 1 }, "今日の学習", "LINEで1問", todayIcon, "#F5F4EF")}
   ${actionCard({ col: 1, row: 1 }, "履歴", "最近の学習を見る", clockIcon, "#F5F4EF")}
   ${actionCard({ col: 2, row: 1 }, "PROFILE", "能力プロフィール", radarIcon, "#F5F4EF")}
 </svg>`;

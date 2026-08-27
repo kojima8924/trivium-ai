@@ -9,8 +9,8 @@
 //   NEXT_PUBLIC_APP_URL         … Web アプリの公開URL（各ボタンのリンク先）
 //
 // 構成（2500×1686, 2行×3列）:
-//   上段: READ | WRITE | CODE       → URI action（Web の /learn/*）
-//   下段: 今日の学習 | 履歴 | PROFILE → postback action（action=today / history / profile）
+//   上段: READ | WRITE | LOGIC      → URI action（Web の /learn/*）
+//   下段: 今日の学習 | 履歴 | PROFILE → postback action（action=today = LINE 上で1問 / history / profile）
 //
 // 画像:
 //   public/line/richmenu.png があればそれを使う（2500×1686 推奨）。
@@ -24,7 +24,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { messagingApi } from "@line/bot-sdk";
 
-const RICH_MENU_NAME = "trivium-main-v1";
+const RICH_MENU_NAME = "trivium-main-v2";
 const W = 2500;
 const H = 1686;
 
@@ -69,7 +69,7 @@ function generateFallbackPng(): Buffer {
   const accents: number[][] = [
     [37, 99, 235], // READ
     [217, 119, 6], // WRITE
-    [5, 150, 105], // CODE
+    [5, 150, 105], // LOGIC
   ];
   const rowH = H / 2;
   const colW = W / 3;
@@ -143,7 +143,7 @@ async function main() {
     areas: [
       { bounds: cell(0, 0), action: { type: "uri", label: "READ", uri: `${appUrl}/learn/read` } },
       { bounds: cell(1, 0), action: { type: "uri", label: "WRITE", uri: `${appUrl}/learn/write` } },
-      { bounds: cell(2, 0), action: { type: "uri", label: "CODE", uri: `${appUrl}/learn/code` } },
+      { bounds: cell(2, 0), action: { type: "uri", label: "LOGIC", uri: `${appUrl}/learn/logic` } },
       { bounds: cell(0, 1), action: { type: "postback", label: "今日の学習", data: "action=today", displayText: "今日の学習" } },
       { bounds: cell(1, 1), action: { type: "postback", label: "履歴", data: "action=history", displayText: "履歴" } },
       { bounds: cell(2, 1), action: { type: "postback", label: "PROFILE", data: "action=profile", displayText: "PROFILE" } },

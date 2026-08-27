@@ -13,6 +13,7 @@ import { loadEvents, nextDifficultyFor, recomputeAll, subskillsOf } from "../pro
 import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
 import { computeDomainScore } from "../scoring";
+import { notifyDailyDigestIfComplete } from "./digest";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 const ATTEMPT_STALE_MS = 6 * 60 * 60 * 1000;
@@ -352,6 +353,8 @@ export async function finalize(userId: string, domain: DomainKey): Promise<Final
     evaluateAchievements(userId),
   ]);
   await snapshot(userId);
+  // Web からの回答でも「今日の3問」が揃えば LINE に総評を push（DailyDigest の unique で冪等）
+  void notifyDailyDigestIfComplete(userId).catch(() => undefined);
   return {
     profile: {
       domain,
