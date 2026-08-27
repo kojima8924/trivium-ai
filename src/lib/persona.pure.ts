@@ -10,7 +10,9 @@ const ADDRESSABLE_AGENTS = ["READ", "WRITE", "CODE", "LEADER"] as const;
 
 /** 領域語・役割語。aliases に含まれていても呼びかけには使わない */
 const DOMAIN_WORDS = new Set(
-  ["read", "write", "logic", "code", "leader", "リード", "ライト", "ロジック", "論理", "読む", "書く", "案内役", "リーダー"].map((w) => w.toLowerCase()),
+  ["read", "write", "logic", "code", "leader", "advisor", "リード", "ライト", "ロジック", "論理", "読む", "書く", "案内役", "リーダー", "アドバイザー"].map((w) =>
+    w.toLowerCase(),
+  ),
 );
 
 const HONORIFIC = "(?:さん|くん|ちゃん|先生|せんせい)?";
@@ -55,7 +57,7 @@ export function detectAddressedAgent(text: string, personas: Record<AddressableA
   if (!t) return null;
   const candidates = ADDRESSABLE_AGENTS.map((agent) => ({ agent, ...addressNamesFor(agent, personas[agent].name) }));
   // 優先順: 名前（文頭）→ 名前（〜に聞く）→ 別名（文頭）→ 別名（〜に聞く）。
-  // 名前を別名より先に見るのは、READ の別名「リード」と LEADER の名前「リード」のような衝突で名前を勝たせるため
+  // 名前を別名より先に見るのは、READ の別名「リード」とユーザーが付けた名前「リード」のような衝突で名前を勝たせるため
   for (const c of candidates) if (c.primary.some((n) => matchHead(t, n))) return c.agent;
   for (const c of candidates) if (c.primary.some((n) => matchAsk(t, n))) return c.agent;
   for (const c of candidates) if (c.secondary.some((n) => matchHead(t, n))) return c.agent;

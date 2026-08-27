@@ -15,10 +15,10 @@ import { loadEvents } from "@/lib/profile";
 import { computeXp, xpForEvent } from "@/lib/xp";
 import { computeLevels } from "@/lib/scoring";
 import { XP, LINE } from "@/config/trivium.config";
-import { buildProfileFlex } from "./flex";
+import { agentReply, buildProfileFlex } from "./flex";
 import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
-import { saveLineState, withPendingTask, type LineState } from "./state";
+import { saveLineState, withPassedTask, withPendingTask, type LineState } from "./state";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
 
@@ -63,38 +63,40 @@ function choiceActions(task: Task): LeaderAction[] {
 }
 
 /** 課題 → LINE の出題メッセージ（選択肢は Quick Reply。本文にも A〜D を列挙して全文が読めるようにする） */
-function quizReply(task: Task, personaName: string): LeaderReply {
+function quizReply(task: Task, personaName: string, preface?: string): LeaderReply {
   const m = DOMAIN_META[task.domain];
   const choices = (task.choices ?? []).map((c, i) => `${LETTERS[i]}. ${c}`).join("\n");
-  const text = [
+  const body = [
+    preface ?? "",
     `【${m.label}】${task.title}（難易度 ${task.difficulty}）`,
     task.passage ? `\n${task.passage}` : "",
     `\n${task.prompt}`,
     choices ? `\n${choices}` : "",
-    `\n— ${personaName}: 下のボタンで答えてください。`,
   ]
     .filter((s) => s !== "")
     .join("\n");
-  return {
-    text,
+  return agentReply(task.domain, personaName, body, {
+    appUrl: appUrl(),
+    footer: "下のボタンで答えてください（パスは記録に残りません）",
     quickReplies: [
       ...choiceActions(task),
+      { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
       { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
     ],
-  };
+  });
 }
 
 /** choice 以外（short / free）は Web で解いてもらう */
 function webTaskReply(task: Task, personaName: string): LeaderReply {
   const m = DOMAIN_META[task.domain];
-  return {
-    text: `【${m.label}】${task.title}（難易度 ${task.difficulty}）\n\n${task.prompt}\n\n— ${personaName}: この形式は Web で取り組みましょう。下のボタンから開けます。`,
+  return agentReply(task.domain, personaName, `【${m.label}】${task.title}（難易度 ${task.difficulty}）\n\n${task.prompt}\n\nこの形式は Web で取り組みましょう。下のボタンから開けます。`, {
+    appUrl: appUrl(),
     buttons: {
       title: `${m.label} — ${task.title}`.slice(0, 40),
       text: "Web で解く（記録に残ります）",
       actions: [{ type: "uri", label: "Web で解く", uri: learnUrl(task.domain, task.id) }],
     },
-  };
+  });
 }
 
 /**
@@ -108,7 +110,7 @@ export async function staticQuizAvailable(
   difficulty: number,
 ): Promise<{ domain: DomainKey; available: boolean }> {
   const d = domain ?? (await pickQuizDomain(userId, state));
-  const { task } = await nextTask(userId, d, { kind: "choice", targetDifficulty: difficulty });
+  const { task } = await nextTask(userId, d, { kind: "choice", targetDifficulty: difficulty, excludeTaskIds: state.passedTaskIds });
   const seen = await prisma.learningEvent.count({ where: { userId, taskId: task.id } });
   return { domain: d, available: seen === 0 && Math.abs(task.difficulty - difficulty) <= 1 };
 }
@@ -122,18 +124,18 @@ export async function startQuiz(
   lineUserId: string,
   state: LineState,
   domain: DomainKey | null,
-  opts: { difficulty?: number } = {},
+  opts: { difficulty?: number; preface?: string } = {},
 ): Promise<LeaderReply> {
   const d = domain ?? (await pickQuizDomain(userId, state));
   // 本人が難易度を指定していれば（「難易度8」→「次」）、推薦ではなくその難易度を狙う
   const targetDifficulty = opts.difficulty ?? state.preferredDifficulty;
   const [{ task }, personas] = await Promise.all([
-    nextTask(userId, d, { kind: "choice", targetDifficulty }),
+    nextTask(userId, d, { kind: "choice", targetDifficulty, excludeTaskIds: state.passedTaskIds }),
     loadPersonas(userId),
   ]);
   console.log(`[line] quiz domain=${d} target=${targetDifficulty ?? "auto"} task=${task.id} d=${task.difficulty}`);
   await saveLineState(lineUserId, withPendingTask(state, { taskId: task.id, domain: d, sentAt: new Date().toISOString() }));
-  return quizReply(task, personas[d].name);
+  return quizReply(task, personas[d].name, opts.preface);
 }
 
 type AnswerOutcome = {
@@ -177,7 +179,11 @@ export async function answerQuiz(
         ]
           .filter(Boolean)
           .join("\n"),
-        quickReplies: [...choiceActions(task), { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" }],
+        quickReplies: [
+          ...choiceActions(task),
+          { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
+          { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
+        ],
       },
       settled: null,
     };
@@ -194,6 +200,18 @@ export async function answerQuiz(
   };
 }
 
+/**
+ * パス（postback action=pass）。記録は付けず、しばらく再出題しない。同じ系統・同じ難易度指定で次の 1 問を出す。
+ */
+export async function passQuiz(userId: string, lineUserId: string, state: LineState, taskId: string): Promise<LeaderReply> {
+  const pending = state.pendingTask;
+  const domain = pending?.domain ?? null;
+  const next = withPendingTask(withPassedTask(state, taskId), null);
+  await saveLineState(lineUserId, next);
+  console.log(`[line] pass task=${taskId} domain=${domain ?? "-"}`);
+  return startQuiz(userId, lineUserId, next, domain, { preface: "⏭ パス。次はこちら。" });
+}
+
 /** ギブアップ（postback action=giveup） */
 export async function giveUpQuiz(userId: string, lineUserId: string, state: LineState, taskId: string): Promise<AnswerOutcome> {
   const task = await resolveTask(userId, taskId);
@@ -208,7 +226,7 @@ export async function giveUpQuiz(userId: string, lineUserId: string, state: Line
 }
 
 /** 決着後の再計算 → push 用メッセージ（after() の中で呼ぶ）。 */
-export async function settleAndBuildPush(userId: string, domain: DomainKey): Promise<LeaderReply> {
+export async function settleAndBuildPush(userId: string, domain: DomainKey): Promise<LeaderReply[]> {
   // 決着前の状態（この 1 件を除いた集計）をミッション達成の判定に使う
   const now = new Date();
   const eventsBefore = await loadEvents(userId);
@@ -237,16 +255,20 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
       ? `${m.label} Lv.${r.profile.levelBefore} → Lv.${r.profile.levelAfter} レベルアップ（${scoreLine(r.profile.before, r.profile.after)}）`
       : `${m.label} Lv.${r.profile.levelAfter}（${scoreLine(r.profile.before, r.profile.after)}）`;
   const withComment = events.length > 0 && events.length % LINE.commentEvery === 0;
-  const lines = [
-    levelLine,
-    xpLine,
-    r.newAchievements.length ? `🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : "",
-    withComment && r.profile.summary ? `\n${personas[domain].name}: ${stripName(r.profile.summary, personas[domain].name)}` : "",
-    withComment && r.leader ? `\n${personas.LEADER.name}: ${stripName(r.leader.summary, personas.LEADER.name)}` : "",
-    withComment && r.leader?.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : "",
-  ].filter(Boolean);
-
-  return { text: lines.join("\n"), quickReplies: todayActions() };
+  const lines = [levelLine, xpLine, r.newAchievements.length ? `🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : ""].filter(Boolean);
+  const out: LeaderReply[] = [{ text: lines.join("\n") }];
+  if (withComment) {
+    // commentEvery 問ごとに、系統の人格と案内役がキャラの吹き出しで一言ずつ
+    const dn = personas[domain].name;
+    if (r.profile.summary) out.push(agentReply(domain, dn, stripName(r.profile.summary, dn), { appUrl: appUrl() }));
+    if (r.leader) {
+      const ln = personas.LEADER.name;
+      const body = [stripName(r.leader.summary, ln), r.leader.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : ""].filter(Boolean).join("\n");
+      out.push(agentReply("LEADER", ln, body, { appUrl: appUrl() }));
+    }
+  }
+  out[out.length - 1] = { ...out[out.length - 1], quickReplies: todayActions() };
+  return out;
 }
 
 const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;

@@ -69,7 +69,7 @@ export default async function Home() {
         <ol className="list-decimal space-y-1 pl-5">
           <li>READ / WRITE / LOGIC の短い課題に取り組む（誤答なら AI が一段だけヒント）</li>
           <li>行動が learning event として記録され、各 domain の能力プロフィールが決定論的に更新される</li>
-          <li>LEADER が3つの domain を横断して総合寸評と「次の一歩」を提案する</li>
+          <li>ADVISOR が3つの domain を横断して総合寸評と「次の一歩」を提案する</li>
         </ol>
         <p className="mt-3 text-xs">skills are local, learner is global.</p>
       </section>

@@ -8,9 +8,9 @@
 ```
 LINE / Web
    ↓
-LEADER（リード）              … 学習者全体を見る案内役（global learner model）
+ADVISOR（ミチ）               … 学習者全体を見る案内役（global learner model。内部キーは LEADER）
    ↓
-READ / WRITE / LOGIC          … 系統ごとの課題を 1 問ずつ（skills are local）。人格: アオイ / フミ / ケイ
+READ / WRITE / LOGIC          … 系統ごとの課題を 1 問ずつ（skills are local）。人格: ヨミ / フミ / ロゴス
    ↓
 learning events               … 生ログ（episodic memory）。難易度ベクトル {read, write, code} 付き
    ↓
@@ -24,7 +24,7 @@ leader profile / leader memory … 総合寸評と、4 つのメモを束ねた�
 next learning recommendation   … Web の「次の一歩」、LINE の出題・会話・総評
 ```
 
-**skills are local, learner is global.** 各系統は自分の学習記録・到達レベル・観点別の証拠・観察メモだけを持つ。LEADER は各系統の要約とメモだけを読み、学習者全体の傾向と次の一歩を判断する。LEADER が個々の課題の採点に口を出すことはない。
+**skills are local, learner is global.** 各系統は自分の学習記録・到達レベル・観点別の証拠・観察メモだけを持つ。ADVISOR は各系統の要約とメモだけを読み、学習者全体の傾向と次の一歩を判断する。ADVISOR が個々の課題の採点に口を出すことはない。
 
 ## 運営設定は 1 か所: `src/config/trivium.config.ts`
 
@@ -126,7 +126,7 @@ LINE webhook        ─┘     │
 | `AnthropicProvider` | `anthropic.ts` | Claude API。任意・非推奨（Issue #7 で整理予定） |
 | `MockProvider` | `mock.ts` | ルールベース。常にフォールバック先。定型の作問も持つ |
 
-正答後は系統の寸評（interpretDomain）と LEADER を **並列** に生成する（LEADER の数値は events から決定論的に再計算するので保存順に依存しない）。
+正答後は系統の寸評（interpretDomain）と ADVISOR を **並列** に生成する（ADVISOR の数値は events から決定論的に再計算するので保存順に依存しない）。
 
 ## LOGIC 領域について
 
@@ -136,12 +136,12 @@ LINE webhook        ─┘     │
 
 ```
 message / postback（署名検証 → LineUser upsert）
-  ├─ 「今日の学習」/「1問」/「READで1問」 … quiz.ts: LEADER の推薦系統で選択式を Quick Reply 出題（連携必須）
+  ├─ 「今日の学習」/「1問」/「READで1問」 … quiz.ts: ADVISOR の推薦系統で選択式を Quick Reply 出題（連携必須）
   ├─ 選択肢タップ                          … quiz.ts: 決定論採点 → 講評 reply → after() で finalize → Lv / +XP / 一言を push
   ├─ 「論理パズル出して」                  … generate.ts: 「作っています…」→ after() で作問 → 出題（short/free は Web へ）
   ├─ 「連携」/「連携解除」                  … link.ts: ワンタイム URL（単回・15 分）
   ├─ PROFILE                              … flex.ts: 到達レベル・XP・ミッション・streak の Flex カード
-  └─ それ以外の自由文                      … chat.ts: 呼びかけで人格を判定（無ければ LEADER）→ メモ・記録・10 往復・現在日時を渡して会話
+  └─ それ以外の自由文                      … chat.ts: 呼びかけで人格を判定（無ければ ADVISOR）→ メモ・記録・10 往復・現在日時を渡して会話
 今日の 3 問がそろった瞬間                 … digest.ts: 総評＋XP＋今日の 1 冊を push（DailyDigest で 1 日 1 回）
 ```
 

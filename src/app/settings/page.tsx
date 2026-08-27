@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AGENTS, AGENT_LABELS, DEFAULT_PERSONAS, TONES, loadPersonas, resetPersonas, savePersona, type AgentKey, type ToneKey } from "@/lib/persona";
 import { DOMAIN_VAR } from "@/components/dashboard/shared";
+import { CharacterAvatar } from "@/components/CharacterAvatar";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ function isTone(v: unknown): v is ToneKey {
   return typeof v === "string" && Object.prototype.hasOwnProperty.call(TONES, v);
 }
 
-// AI の人格設定（READ / WRITE / LOGIC / LEADER）。名前・口調・一人称・補足をユーザーごとに上書きできる。
+// AI の人格設定（READ / WRITE / LOGIC / ADVISOR）。名前・口調・一人称・補足をユーザーごとに上書きできる。
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
   const session = await auth();
   const userId = session?.user?.id;
@@ -61,7 +62,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div>
           <h1 className="text-lg font-bold">AI の人格</h1>
           <p className="text-xs text-muted">
-            READ / WRITE / LOGIC の講評と、LEADER の総合寸評の文体に反映されます。答えを教えない・一段ヒントという方針は変わりません。
+            READ / WRITE / LOGIC の講評と、ADVISOR の総合寸評の文体に反映されます。答えを教えない・一段ヒントという方針は変わりません。
           </p>
         </div>
         <Link href="/dashboard" className="shrink-0 text-xs text-muted hover:text-fg">
@@ -81,10 +82,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           return (
             <form key={agent} action={save} className="card flex flex-col gap-3 p-4" style={{ borderTopColor: AGENT_COLOR[agent], borderTopWidth: 3 }}>
               <input type="hidden" name="agent" value={agent} />
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="wordmark text-sm" style={{ color: AGENT_COLOR[agent] }}>
-                  {AGENT_LABELS[agent]}
-                </h2>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <CharacterAvatar agent={agent} size={56} />
+                  <h2 className="wordmark text-sm" style={{ color: AGENT_COLOR[agent] }}>
+                    {AGENT_LABELS[agent]}
+                  </h2>
+                </div>
                 <span className="text-[11px] text-muted">既定: {DEFAULT_PERSONAS[agent].name}</span>
               </div>
               <label className="flex flex-col gap-1 text-xs text-muted">

@@ -209,7 +209,7 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
 | 変数 | 内容 |
 |---|---|
 | `workflow` | 常に `leader` |
-| `policy` / `persona` | 上と同じ（persona は LEADER の人格） |
+| `policy` / `persona` | 上と同じ（persona は ADVISOR＝内部キー LEADER の人格） |
 | `domains` | 3 domain の要約 JSON 配列（domain, score, subskills, confidence, evidenceCount, summary, observations, recommendedNext, eventsLast7Days） |
 | `total_events` | 学習記録の総数 |
 | `last_event` | 直近の学習イベント JSON（domain, taskTitle, difficulty, success, hintCount, minutesAgo）。無ければ空文字 |
@@ -351,7 +351,7 @@ curl -s -w ' %{http_code}
 2. トップページ → Google でログイン → Dashboard が表示される（別ブラウザ/端末で同じ Google アカウントでログインしても同じプロフィールが出る）
 3. Dashboard の **デモデータを投入**（`DEMO_SEED_ENABLED=true` のとき）で三角形が埋まる
    - CLI から入れる場合はコンテナ内で `npm run seed:demo -- --email <ログインしたメール>`（Coolify の Terminal 機能）。ただし standalone イメージには `tsx` が無いので、基本は Dashboard のボタンを使う
-4. LOGIC（`/learn/logic`）を 1 問解いて、learning event → 到達レベル・XP → LEADER 寸評が更新されることを確認
+4. LOGIC（`/learn/logic`）を 1 問解いて、learning event → 到達レベル・XP → ADVISOR 寸評が更新されることを確認
 5. LINE で「連携」→ 連携後に Rich Menu「今日の学習」で選択式が届き、答えると記録が付くことを確認
 
 ## 8. ロールバックとよくある失敗

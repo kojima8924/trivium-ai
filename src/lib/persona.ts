@@ -1,4 +1,7 @@
 // AI の人格（READ / WRITE / CODE(LOGIC) / LEADER）。
+// 表示名: CODE は LOGIC、LEADER は ADVISOR（内部キー・DB は据え置き。AGENT_LABELS / AGENT_NAMES を通して表示する）。
+// 表示名: CODE は LOGIC、LEADER は ADVISOR（内部キー・DB は据え置き。AGENT_LABELS / AGENT_NAMES を通して表示する）。
+// 表示名: CODE は LOGIC、LEADER は ADVISOR（内部キー・DB は据え置き。AGENT_LABELS / AGENT_NAMES を通して表示する）。
 // 呼びかけ判定の純粋部分は persona.pure.ts に置く。
 // 既定と口調プリセットは src/config/trivium.config.ts に置き、ユーザーごとの上書きを DB（AgentPersona）に保存する。
 // prompt に載せる整形（PersonaPrompt）と、講評キャッシュのキー（personaKey）をここで作る。
@@ -37,7 +40,15 @@ export const AGENT_LABELS: Record<AgentKey, string> = {
   READ: "READ（読む）",
   WRITE: "WRITE（書く）",
   CODE: "LOGIC（論理）",
-  LEADER: "LEADER（総合）",
+  LEADER: "ADVISOR（案内）",
+};
+
+/** 短い表示名（内部キー CODE→LOGIC、LEADER→ADVISOR） */
+export const AGENT_NAMES: Record<AgentKey, string> = {
+  READ: "READ",
+  WRITE: "WRITE",
+  CODE: "LOGIC",
+  LEADER: "ADVISOR",
 };
 
 function isTone(v: string): v is ToneKey {
@@ -90,7 +101,7 @@ export function toPrompt(cfg: PersonaConfig): PersonaPrompt {
   };
 }
 
-/** domain 用と Leader 用をまとめて prompt 形式で取る */
+/** domain 用と ADVISOR（LEADER）用をまとめて prompt 形式で取る */
 export async function personaPrompts(userId: string): Promise<Record<AgentKey, PersonaPrompt>> {
   const cfgs = await loadPersonas(userId);
   return {

@@ -46,7 +46,7 @@ export default async function LinkPage({
       <div>
         <h1 className="text-xl font-bold">LINE と連携しますか？</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          連携すると、LINE の Leader があなたの学習記録（READ / WRITE / CODE の集計と直近の行動）にもとづいて次の一歩を提案します。
+          連携すると、LINE の ADVISOR があなたの学習記録（READ / WRITE / CODE の集計と直近の行動）にもとづいて次の一歩を提案します。
         </p>
       </div>
 

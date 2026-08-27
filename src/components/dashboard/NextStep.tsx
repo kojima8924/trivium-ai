@@ -32,7 +32,7 @@ export function NextStep({ recommendation, recommendedDomain, totalEvents }: Pro
         <h2 id="next-step-heading" className="text-sm font-bold">
           次の一歩
         </h2>
-        <span className="text-[11px] text-muted">Leader からの提案</span>
+        <span className="text-[11px] text-muted">ADVISOR からの提案</span>
       </div>
 
       <p className="mt-2 text-base leading-relaxed font-medium">{body}</p>

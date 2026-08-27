@@ -27,11 +27,14 @@ export function toAction(a: LeaderAction): messagingApi.Action {
 /** LeaderReply → LINE のメッセージ配列（text + quickReply / buttons テンプレート） */
 export function toMessages(r: LeaderReply): messagingApi.Message[] {
   const messages: messagingApi.Message[] = [];
-  const text: messagingApi.TextMessage = { type: "text", text: r.text.slice(0, 5000) };
+  // キャラの吹き出し（flex）があればそれを本文にする。無ければ従来のテキスト
+  const main: messagingApi.FlexMessage | messagingApi.TextMessage = r.flex
+    ? { type: "flex", altText: (r.altText ?? r.text).slice(0, 400) || " ", contents: r.flex }
+    : { type: "text", text: r.text.slice(0, 5000) };
   if (r.quickReplies?.length) {
-    text.quickReply = { items: r.quickReplies.slice(0, 13).map((a) => ({ type: "action", action: toAction(a) })) };
+    main.quickReply = { items: r.quickReplies.slice(0, 13).map((a) => ({ type: "action", action: toAction(a) })) };
   }
-  messages.push(text);
+  messages.push(main);
   if (r.buttons) {
     messages.push({
       type: "template",

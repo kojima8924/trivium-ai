@@ -84,7 +84,7 @@ export async function resolveTask(userId: string, taskId: string): Promise<Task 
 export async function nextTask(
   userId: string,
   domain: DomainKey,
-  opts: { preferredTaskId?: string; kind?: Task["kind"]; targetDifficulty?: number } = {},
+  opts: { preferredTaskId?: string; kind?: Task["kind"]; targetDifficulty?: number; excludeTaskIds?: string[] } = {},
 ): Promise<{ task: Task; targetDifficulty: number }> {
   if (opts.preferredTaskId) {
     const t = await resolveTask(userId, opts.preferredTaskId);
@@ -99,6 +99,7 @@ export async function nextTask(
   const explicit = opts.targetDifficulty !== undefined;
   const targetDifficulty = explicit ? Math.min(10, Math.max(1, Math.round(opts.targetDifficulty as number))) : recommended;
   const seen = new Set(history.map((h) => h.taskId));
+  for (const id of opts.excludeTaskIds ?? []) seen.add(id);
   let pool = tasksFor(domain);
   if (opts.kind) pool = pool.filter((t) => t.kind === opts.kind);
 
@@ -118,6 +119,19 @@ export async function nextTask(
     if (next) return { task: next, targetDifficulty };
   }
   return { task: pickNextTask(domain, targetDifficulty, history), targetDifficulty };
+}
+
+/** LINE の state.pendingTask がこの課題なら外す（決着した課題を LINE 上に残さない） */
+async function clearLinePendingTask(userId: string, taskId: string): Promise<void> {
+  const rows = await prisma.lineUser.findMany({ where: { userId }, select: { id: true, state: true } });
+  for (const row of rows) {
+    const state = (row.state ?? {}) as Record<string, unknown>;
+    const pending = state.pendingTask as { taskId?: string } | undefined;
+    if (!pending || pending.taskId !== taskId) continue;
+    const { pendingTask: _drop, ...rest } = state;
+    void _drop;
+    await prisma.lineUser.update({ where: { id: row.id }, data: { state: rest as object } });
+  }
 }
 
 function weakestSubskill(subskills: Record<string, number>): string | null {
@@ -348,6 +362,8 @@ async function record(
       skillTags: skillTags.filter((t) => (SUBSKILLS[task.domain] as readonly string[]).includes(t)),
     },
   });
+  // LINE で出題中のままの課題を Web で解いた場合、LINE 側の「回答待ち」を解除する（戻ったとき古い問題が残らない）
+  await clearLinePendingTask(userId, task.id).catch((err) => console.warn("[learn] clear LINE pending failed:", (err as Error).message));
   await prisma.taskAttempt.deleteMany({ where: { userId, taskId: task.id } });
   return event;
 }

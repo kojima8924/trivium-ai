@@ -17,6 +17,8 @@ export type LineState = {
   pendingTask?: { taskId: string; domain: DomainKey; sentAt: string };
   /** 直近に本人が指定した難易度（1〜10）。「次」「もう1問」でも文脈として引き継ぐ */
   preferredDifficulty?: number;
+  /** LINE で「パス」した課題（記録は付けず、しばらく再出題しない。直近 50 件） */
+  passedTaskIds?: string[];
 };
 
 export function emptyCounts(): Record<DomainKey, number> {
@@ -41,6 +43,9 @@ export function parseLineState(json: unknown): LineState {
   if (typeof o.note === "string") state.note = o.note.slice(0, 200);
   if (typeof o.preferredDifficulty === "number" && o.preferredDifficulty >= 1 && o.preferredDifficulty <= 10) {
     state.preferredDifficulty = Math.round(o.preferredDifficulty);
+  }
+  if (Array.isArray(o.passedTaskIds)) {
+    state.passedTaskIds = o.passedTaskIds.filter((x): x is string => typeof x === "string").slice(-50);
   }
   if (o.pendingTask && typeof o.pendingTask === "object" && !Array.isArray(o.pendingTask)) {
     const t = o.pendingTask as Record<string, unknown>;
@@ -72,6 +77,12 @@ export async function saveLineState(lineUserId: string, state: LineState): Promi
     where: { lineUserId },
     data: { state: { ...state } },
   });
+}
+
+/** 「パス」した課題を記録する（純粋関数。直近 50 件） */
+export function withPassedTask(state: LineState, taskId: string): LineState {
+  const ids = [...(state.passedTaskIds ?? []).filter((id) => id !== taskId), taskId].slice(-50);
+  return { ...state, passedTaskIds: ids };
 }
 
 /** 出題中の課題を記録/解除する（純粋関数） */

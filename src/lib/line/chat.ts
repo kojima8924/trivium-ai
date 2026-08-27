@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { learningAI, type ChatTurnInput } from "@/lib/ai";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { getAllMemories, getMemory } from "@/lib/memory";
+import { agentReply } from "./flex";
 import { loadPersonas, personaPrompts, type AgentKey } from "@/lib/persona";
 import { getDashboardData } from "@/lib/profile";
 import type { LeaderAction, LeaderReply } from "./leader";
@@ -134,7 +135,10 @@ export async function chatReply(
         ? [{ type: "postback", label: "LINEで1問", data: "action=today", displayText: "今日の学習" }]
         : [];
   const merged = [...offer, ...suggest, ...quick].filter((a, i, arr) => arr.findIndex((b) => b.label === a.label) === i);
-  return { text, quickReplies: merged.slice(0, 13), suggestedDomain: r.suggestDomain ?? undefined };
+  // 人格の返答はキャラの吹き出し（Flex）で。text にも「名前: 本文」を残す（ログ・フォールバック用）
+  const body = r.text.startsWith(`${name}: `) ? r.text.slice(name.length + 2) : r.text;
+  void text;
+  return agentReply(r.agent, name, body, { appUrl, quickReplies: merged.slice(0, 13), suggestedDomain: r.suggestDomain ?? undefined });
 }
 
 /** 「〜に聞く」を押した直後の案内（次の発話をその人格宛てにする） */

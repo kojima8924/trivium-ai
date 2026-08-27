@@ -28,6 +28,7 @@ import {
   generatingReply,
   giveUpQuiz,
   needLinkReply,
+  passQuiz,
   settleAndBuildPush,
   startQuiz,
   staticQuizAvailable,
@@ -248,6 +249,10 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
     await handleAnswer(lineUserId, replyToken, lu, action, params, scheduleAfter);
     return;
   }
+  if (action === "pass") {
+    await handlePass(lineUserId, replyToken, lu, params.get("task") ?? "");
+    return;
+  }
   if (action === "ask") {
     await handleAsk(lineUserId, replyToken, lu, params);
     return;
@@ -256,6 +261,24 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
 }
 
 /** 回答・ギブアップ。決着返信の後に集計し、push する順序を守る。 */
+/** パス: 出題中の課題と一致するときだけ受け付け、記録せずに次の 1 問を出す */
+async function handlePass(lineUserId: string, replyToken: string, lu: LineUser, taskId: string): Promise<void> {
+  if (!lu.userId) {
+    await replyTo(replyToken, needLinkReply());
+    return;
+  }
+  const pending = lu.state.pendingTask;
+  if (!pending || pending.taskId !== taskId) {
+    await replyTo(replyToken, {
+      text: "その問題は終わっています。「今日の学習」で新しい問題を出します。",
+      quickReplies: [{ type: "postback", label: "今日の学習", data: "action=today", displayText: "今日の学習" }],
+    });
+    return;
+  }
+  const reply = await passQuiz(lu.userId, lineUserId, lu.state, taskId);
+  await replyTo(replyToken, reply);
+}
+
 async function handleAnswer(
   lineUserId: string,
   replyToken: string,
@@ -296,8 +319,10 @@ async function handleAnswer(
   const { domain } = outcome.settled;
   scheduleAfter(async () => {
     try {
-      const reply = await settleAndBuildPush(userId, domain);
-      await pushTo(lineUserId, reply).catch((err) => console.warn("[line] push failed:", (err as Error).message));
+      const replies = await settleAndBuildPush(userId, domain);
+      for (const reply of replies) {
+        await pushTo(lineUserId, reply).catch((err) => console.warn("[line] push failed:", (err as Error).message));
+      }
       // 今日の 3 問がそろった瞬間のミッション Flex は日次総評（digest）に一本化する（二重送信を避ける）
       await notifyDailyDigestIfComplete(userId);
     } catch (err) {

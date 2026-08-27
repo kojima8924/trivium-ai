@@ -4,7 +4,10 @@
 import type { messagingApi } from "@line/bot-sdk";
 import type { Recommendation } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
+import { characterHex, characterImageUrl } from "@/lib/characters";
+import type { AgentKey } from "@/lib/persona";
 import type { XpSummary } from "@/lib/xp";
+import type { LeaderAction, LeaderReply } from "./leader";
 
 // LINE の Flex は CSS 変数が使えないので、ライトテーマの domain 色を固定で使う
 const COLOR: Record<DomainKey, string> = { READ: "#1d4ed8", WRITE: "#b45309", CODE: "#047857" };
@@ -259,6 +262,91 @@ export function buildMissionFlex(input: FlexMissionInput): messagingApi.FlexBubb
       spacing: "sm",
       contents: footerButtons,
     },
+  };
+}
+
+// ---- キャラの吹き出し（LINE スタンプ風。左に丸いアイコン、右に名前と本文） ----
+
+export type AgentBubbleInput = {
+  agent: AgentKey;
+  /** 人格の表示名（ユーザーが改名していればその名前） */
+  name: string;
+  text: string;
+  /** 絶対 HTTPS URL（characterImageUrl(agent, appUrl)） */
+  imageUrl: string;
+  /** 名前の色。省略時は系統色 */
+  accent?: string;
+  /** 下段の小さな補足（「Lv.7 → Lv.8 · +30 XP」など） */
+  footer?: string;
+};
+
+const AGENT_TEXT_MAX = 2000;
+
+/** キャラの吹き出し 1 つ（FlexBubble） */
+export function buildAgentBubble(input: AgentBubbleInput): messagingApi.FlexBubble {
+  const accent = input.accent ?? characterHex(input.agent);
+  const body = input.text.trim().slice(0, AGENT_TEXT_MAX) || " ";
+  const rightContents: Component[] = [
+    text(input.name.slice(0, 20) || " ", { size: "xs", weight: "bold", color: accent }),
+    text(body, { size: "sm", margin: "xs" }),
+  ];
+  if (input.footer) rightContents.push(text(input.footer.slice(0, 200), { size: "xxs", color: MUTED, margin: "sm" }));
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "horizontal",
+      paddingAll: "12px",
+      spacing: "md",
+      contents: [
+        {
+          // 丸いアイコン。box に cornerRadius を付け、中の image を cover で切り抜く
+          type: "box",
+          layout: "vertical",
+          width: "64px",
+          height: "64px",
+          cornerRadius: "32px",
+          borderWidth: "2px",
+          borderColor: accent,
+          backgroundColor: "#ffffff",
+          flex: 0,
+          contents: [{ type: "image", url: input.imageUrl, size: "full", aspectRatio: "1:1", aspectMode: "cover" }],
+        },
+        { type: "box", layout: "vertical", flex: 1, contents: rightContents },
+      ],
+    },
+  };
+}
+
+/**
+ * text と flex の両方を持つ LeaderReply を返すヘルパー。
+ * push/reply 側は flex があればそれを送り、無ければ text を送る（flex が使えない経路でも文面が失われない）。
+ */
+export function agentReply(
+  agent: AgentKey,
+  name: string,
+  body: string,
+  opts: {
+    /** env.appUrl / LeaderContext.appUrl（画像の絶対 URL を組み立てる） */
+    appUrl: string;
+    quickReplies?: LeaderAction[];
+    footer?: string;
+    buttons?: LeaderReply["buttons"];
+    suggestedDomain?: LeaderReply["suggestedDomain"];
+    note?: string;
+  },
+): LeaderReply {
+  const plain = opts.footer ? `${name}: ${body}
+${opts.footer}` : `${name}: ${body}`;
+  return {
+    text: plain,
+    altText: body.slice(0, 100),
+    flex: buildAgentBubble({ agent, name, text: body, imageUrl: characterImageUrl(agent, opts.appUrl), footer: opts.footer }),
+    quickReplies: opts.quickReplies,
+    buttons: opts.buttons,
+    suggestedDomain: opts.suggestedDomain,
+    note: opts.note,
   };
 }
 

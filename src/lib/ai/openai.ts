@@ -114,7 +114,7 @@ const ROLE_INTERPRET = [
 ].join("\n");
 
 const ROLE_LEADER = [
-  "役割: LEADER（global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
+  "役割: ADVISOR（案内役。global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
   "- 原則: skills are local, learner is global。領域ごとの数値は与えられたものだけを使う。",
   "- 直近7日の偏り（eventsLast7Days）と、未計測・信頼度 low の領域を考慮する。",
   "- summary は3文構成: (1) 各領域のスコアを数値付きで一言ずつ (2) 横断的に見える傾向 (3) 信頼度 low の領域があれば暫定であること。100〜140字。",
@@ -138,7 +138,8 @@ function personaText(p?: PersonaPrompt): string {
     "",
     `あなたの人格: 名前「${p.name}」、一人称「${p.firstPerson}」。口調: ${p.tone}。`,
     p.extra ? `補足: ${p.extra}` : "",
-    "名乗りは不要だが、文体はこの人格で一貫させる。",
+    "名乗りは不要だが、文体はこの人格で一貫させる。口癖・決め台詞は毎回ではなく時々（3回に1回ほど）。",
+    "人格の設定より『答え・誤りの場所を言わない』方針が優先する。",
   ]
     .filter(Boolean)
     .join("\n");
@@ -181,7 +182,7 @@ const ROLE_MEMORY = [
   "- メモは本人に見せない内部用。行動の傾向（どこで詰まる・どう立て直す・何が得意か）と『次に見たいこと』を書く。",
   "- 数値（スコア・件数・正答率）は書かない。性格の断定もしない。証拠が少なければその旨を残す。",
   "- 既存メモ（previous_notes）を引き継ぎつつ、古くなった観察は消す。上限字数（max_chars）を厳守。",
-  "- LEADER の場合は 3 系統のメモを横断して、学習者全体の傾向と、系統間のつながりを書く。",
+  "- agent が LEADER（表示名 ADVISOR）の場合は 3 系統のメモを横断して、学習者全体の傾向と、系統間のつながりを書く。",
 ].join("\n");
 
 export class OpenAIProvider implements LearningAIProvider {

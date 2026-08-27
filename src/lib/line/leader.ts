@@ -1,6 +1,7 @@
 // LINE 表面に出す「Leader」の会話ロジック（ルールベース・純粋関数）。
 // LINE では課題を解かせない。軽い会話・今日のおすすめ・曖昧な要求への応答 → Web へ誘導する。
 // server-only を付けない（テストから直接 import できるように prisma / env に依存しない）。
+import type { messagingApi } from "@line/bot-sdk";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import type { LineState } from "./state";
 
@@ -21,6 +22,10 @@ export type LeaderReply = {
   suggestedDomain?: DomainKey;
   /** state.note に残すメモ */
   note?: string;
+  /** キャラの吹き出し（Flex）。あれば text の代わりにこれを送る（quickReplies はこちらに付く） */
+  flex?: messagingApi.FlexContainer;
+  /** flex 送信時の通知文。省略時は text の先頭 */
+  altText?: string;
 };
 
 export type LeaderContext = {
@@ -188,7 +193,7 @@ function domainButtons(appUrl: string, domain: DomainKey, headline: string): Lea
 export function welcomeReply(ctx: LeaderContext): LeaderReply {
   return {
     text: [
-      "はじめまして。Trivium の Leader です。",
+      "はじめまして。Trivium の案内役（ADVISOR）です。",
       "READ / WRITE / LOGIC の3つで、あなたの「次の一歩」を一緒に決めます。",
       "",
       "AIは答えを渡しません。一段ずつヒントを出します。",
@@ -204,7 +209,7 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
   return {
     text: [
       "できること:",
-      "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）",
+      "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）。「パス」で記録に残さず次へ",
       "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
       "・「LOGICで難易度8」「難易度3で出して」→ その難易度（1〜10）で即作問。以後の「次」もその難易度",
       "・READ / WRITE / LOGIC → LINE で1問 or Web で解く",

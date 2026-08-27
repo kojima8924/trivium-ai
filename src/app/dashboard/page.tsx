@@ -13,6 +13,7 @@ import { HistoryList } from "@/components/dashboard/HistoryList";
 import { renderNow } from "@/components/dashboard/shared";
 import { AchievementList } from "@/components/dashboard/AchievementList";
 import { XpCard } from "@/components/dashboard/XpCard";
+import { CharacterAvatar } from "@/components/CharacterAvatar";
 
 export const dynamic = "force-dynamic";
 
@@ -74,11 +75,12 @@ export default async function DashboardPage() {
       {/* 2.5 XP（行動の積み上げ。能力図とは別の指標） */}
       <XpCard xp={data.xp} />
 
-      {/* 3. Leader の見立て */}
+      {/* 3. ADVISOR（LEADER）の見立て */}
       <section className="card p-4 sm:p-5" aria-labelledby="leader-heading">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 id="leader-heading" className="wordmark text-sm">
-            Leader
+          <h2 id="leader-heading" className="wordmark flex items-center gap-2 text-sm">
+            <CharacterAvatar agent="LEADER" size={32} />
+            ADVISOR
           </h2>
           <span className="text-[11px] text-muted">global learner model</span>
         </div>
@@ -97,7 +99,7 @@ export default async function DashboardPage() {
             )}
           </>
         ) : (
-          <p className="text-sm text-muted">まだ分析がありません。1問取り組むと、Leader が全体像を見立てます。</p>
+          <p className="text-sm text-muted">まだ分析がありません。1問取り組むと、ADVISOR が全体像を見立てます。</p>
         )}
       </section>
 

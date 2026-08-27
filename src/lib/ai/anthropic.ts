@@ -93,7 +93,7 @@ const SYSTEM_INTERPRET = [
 const SYSTEM_LEADER = [
   SYSTEM_COMMON,
   "",
-  "役割: LEADER（global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
+  "役割: ADVISOR（案内役。global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
   "- 原則: skills are local, learner is global。領域ごとの数値は与えられたものだけを使う。",
   "- 直近7日の偏り（eventsLast7Days）と、未計測・信頼度 low の領域を必ず考慮する。",
   "- recommendation は『DOMAIN: 具体的な課題の方向（難易度や subskill を含む）』の形で1文。recommended_domain はそれと一致させる。",

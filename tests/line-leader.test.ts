@@ -191,17 +191,17 @@ test("quiz / generate を buildReply に直接渡しても壊れない（webhook
 
 test("宛先判定: 呼びかけで人格が決まり、無ければ null（案内役に回る）", () => {
   const p = PERSONA_DEFAULTS;
-  assert.equal(detectAddressedAgent("ケイ、順番の問題が苦手", p), "CODE");
-  assert.equal(detectAddressedAgent("アオイ、要旨ってどう掴む？", p), "READ");
+  assert.equal(detectAddressedAgent("ロゴス、順番の問題が苦手", p), "CODE");
+  assert.equal(detectAddressedAgent("ヨミ、要旨ってどう掴む？", p), "READ");
   assert.equal(detectAddressedAgent("フミに聞きたいんだけど", p), "WRITE");
-  assert.equal(detectAddressedAgent("リード、今日は何をやろう", p), "LEADER");
+  assert.equal(detectAddressedAgent("ミチ、今日は何をやろう", p), "LEADER");
   assert.equal(detectAddressedAgent("眠いけど何かやりたい", p), null);
 });
 
 test("呼びかけ付きの文は意図分類が quiz/domain に当たっても、宛先判定で人格に届く（webhook は宛先を優先）", () => {
   // 「問題」「python」は出題/領域の語なので意図分類はコマンド寄りになるが、宛先があれば chat に回る
-  assert.notEqual(classifyIntent("ケイ、順番の問題が苦手").kind, "unknown");
-  assert.equal(detectAddressedAgent("ケイ、順番の問題が苦手", PERSONA_DEFAULTS), "CODE");
+  assert.notEqual(classifyIntent("ロゴス、順番の問題が苦手").kind, "unknown");
+  assert.equal(detectAddressedAgent("ロゴス、順番の問題が苦手", PERSONA_DEFAULTS), "CODE");
   // 宛先も定型コマンドも無い雑談は unknown → 案内役（LEADER）に回る
   assert.equal(classifyIntent("昨日の会議で言われたことがまだ引っかかってる").kind, "unknown");
   assert.equal(detectAddressedAgent("昨日の会議で言われたことがまだ引っかかってる", PERSONA_DEFAULTS), null);
@@ -209,7 +209,7 @@ test("呼びかけ付きの文は意図分類が quiz/domain に当たっても�
 
 // ---- 呼びかけ判定（persona.pure.ts）: 名前限定・部分一致なし ----
 
-const PERSONAS = { READ: { name: "アオイ" }, WRITE: { name: "フミ" }, CODE: { name: "ケイ" }, LEADER: { name: "リード" } } as const;
+const PERSONAS = { READ: { name: "ヨミ" }, WRITE: { name: "フミ" }, CODE: { name: "ロゴス" }, LEADER: { name: "ミチ" } } as const;
 
 test("呼びかけ: 出題・作問・領域の依頼は呼びかけ扱いにならない", () => {
   for (const t of ["論理パズルを出して", "READで1問", "LOGIC", "READ", "WRITE", "論理", "読む", "案内役に聞きたい"]) {
@@ -218,16 +218,16 @@ test("呼びかけ: 出題・作問・領域の依頼は呼びかけ扱いにな
 });
 
 test("呼びかけ: 名前＋区切り、名前＋に聞く、は呼びかけ", () => {
-  assert.equal(detectAddressedAgent("ケイ、これ教えて", PERSONAS), "CODE");
-  assert.equal(detectAddressedAgent("アオイに聞きたい", PERSONAS), "READ");
+  assert.equal(detectAddressedAgent("ロゴス、これ教えて", PERSONAS), "CODE");
+  assert.equal(detectAddressedAgent("ヨミに聞きたい", PERSONAS), "READ");
   assert.equal(detectAddressedAgent("フミさん これどう？", PERSONAS), "WRITE");
-  assert.equal(detectAddressedAgent("リード", PERSONAS), "LEADER");
-  assert.equal(detectAddressedAgent("kei, what do you think", PERSONAS), "CODE");
-  assert.equal(detectAddressedAgent("今日はリードに相談したい", PERSONAS), "LEADER");
+  assert.equal(detectAddressedAgent("ミチ", PERSONAS), "LEADER");
+  assert.equal(detectAddressedAgent("logos, what do you think", PERSONAS), "CODE");
+  assert.equal(detectAddressedAgent("今日はミチに相談したい", PERSONAS), "LEADER");
 });
 
 test("呼びかけ: 部分一致で誤爆しない", () => {
-  for (const t of ["とけいがほしい", "already", "読むのが好き", "けいかくを立てたい", "ふみきりを渡った"]) {
+  for (const t of ["とけいがほしい", "already", "読むのが好き", "みちしるべを探す", "ふみきりを渡った", "よみがえる"]) {
     assert.equal(detectAddressedAgent(t, PERSONAS), null, `${t} が呼びかけ扱いになっている`);
   }
 });
@@ -235,7 +235,7 @@ test("呼びかけ: 部分一致で誤爆しない", () => {
 test("呼びかけ: ユーザーが改名した名前も拾う", () => {
   const renamed = { ...PERSONAS, CODE: { name: "タロウ" } };
   assert.equal(detectAddressedAgent("タロウ、教えて", renamed), "CODE");
-  assert.equal(detectAddressedAgent("ケイ、教えて", renamed), "CODE"); // 既定名も残す
+  assert.equal(detectAddressedAgent("ロゴス、教えて", renamed), "CODE"); // 既定名も残す
 });
 
 test("意図分類: 「今日の学習」はおすすめではなく出題（quiz）", () => {

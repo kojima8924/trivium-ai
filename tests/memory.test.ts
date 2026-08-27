@@ -39,13 +39,13 @@ test("trimHistory: 往復が少なければそのまま", () => {
 
 test("detectAddressedAgent: 名前・名前系の別名で宛先が決まり、領域語は呼びかけにならない", () => {
   const p = PERSONA_DEFAULTS;
-  assert.equal(detectAddressedAgent("ケイ、この問題ってどう考える？", p), "CODE");
-  assert.equal(detectAddressedAgent("アオイに聞きたい。読解のコツは？", p), "READ");
+  assert.equal(detectAddressedAgent("ロゴス、この問題ってどう考える？", p), "CODE");
+  assert.equal(detectAddressedAgent("ヨミに聞きたい。読解のコツは？", p), "READ");
   assert.equal(detectAddressedAgent("フミさん、文章を短くするには", p), "WRITE");
-  assert.equal(detectAddressedAgent("リード、今日なにやる？", p), "LEADER");
+  assert.equal(detectAddressedAgent("ミチ、今日なにやる？", p), "LEADER");
   // 領域語（LOGIC / 論理 / READ …）は出題・作問の依頼と衝突するので呼びかけには使わない
   assert.equal(detectAddressedAgent("LOGIC の人、順番の問題むずかしい", p), null);
-  assert.equal(detectAddressedAgent("けい、順番の問題むずかしい", p), "CODE");
+  assert.equal(detectAddressedAgent("ろごす、順番の問題むずかしい", p), "CODE");
   assert.equal(detectAddressedAgent("今日は疲れたけど何かやりたい", p), null);
 });
 
