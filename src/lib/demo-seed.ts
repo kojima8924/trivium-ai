@@ -11,24 +11,29 @@ type SeedSpec = { domain: DomainKey; daysAgo: number; success: boolean; hintCoun
 
 // 「一回の失敗で断定しない」ことを示すため、失敗も適度に混ぜる
 const SPECS: SeedSpec[] = [
-  // CODE: 強い（トレース/アルゴリズム）。設計の言語化はやや弱い
+  // CODE: 強い（トレース/アルゴリズム/デバッグ）。設計の言語化はやや弱い
   { domain: "CODE", daysAgo: 10, success: true, hintCount: 0, tags: ["tracing"], difficulty: 2 },
   { domain: "CODE", daysAgo: 9, success: true, hintCount: 0, tags: ["tracing"], difficulty: 3 },
   { domain: "CODE", daysAgo: 8, success: true, hintCount: 1, tags: ["debugging", "tracing"], difficulty: 3 },
-  { domain: "CODE", daysAgo: 6, success: true, hintCount: 0, tags: ["algorithms", "tracing"], difficulty: 4 },
+  { domain: "CODE", daysAgo: 7, success: true, hintCount: 0, tags: ["tracing", "algorithms"], difficulty: 4 },
+  { domain: "CODE", daysAgo: 6, success: true, hintCount: 0, tags: ["algorithms", "debugging"], difficulty: 4 },
   { domain: "CODE", daysAgo: 5, success: true, hintCount: 0, tags: ["debugging"], difficulty: 3 },
+  { domain: "CODE", daysAgo: 4, success: true, hintCount: 0, tags: ["tracing"], difficulty: 4 },
   { domain: "CODE", daysAgo: 3, success: true, hintCount: 1, tags: ["design"], difficulty: 3 },
   { domain: "CODE", daysAgo: 2, success: true, hintCount: 0, tags: ["algorithms", "debugging"], difficulty: 4 },
   { domain: "CODE", daysAgo: 1, success: false, hintCount: 3, tags: ["design"], difficulty: 3 },
-  // READ: 安定。批判的読解は改善余地
+  // READ: 要旨把握・推論は安定。批判的読解（複数視点の比較）は改善余地
   { domain: "READ", daysAgo: 10, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 2 },
   { domain: "READ", daysAgo: 8, success: true, hintCount: 0, tags: ["inference"], difficulty: 3 },
-  { domain: "READ", daysAgo: 7, success: true, hintCount: 1, tags: ["comprehension"], difficulty: 3 },
+  { domain: "READ", daysAgo: 7, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 3 },
+  { domain: "READ", daysAgo: 6, success: true, hintCount: 1, tags: ["inference"], difficulty: 4 },
   { domain: "READ", daysAgo: 5, success: false, hintCount: 3, tags: ["critical_reading", "inference"], difficulty: 4 },
   { domain: "READ", daysAgo: 4, success: true, hintCount: 0, tags: ["inference"], difficulty: 3 },
+  { domain: "READ", daysAgo: 3, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 3 },
   { domain: "READ", daysAgo: 2, success: true, hintCount: 2, tags: ["critical_reading", "inference"], difficulty: 4 },
   // WRITE: 構成はできるが、反論検討・推敲が少ない
   { domain: "WRITE", daysAgo: 9, success: true, hintCount: 1, tags: ["structure", "reasoning"], difficulty: 2 },
+  { domain: "WRITE", daysAgo: 7, success: true, hintCount: 0, tags: ["structure", "reasoning"], difficulty: 2 },
   { domain: "WRITE", daysAgo: 6, success: true, hintCount: 2, tags: ["reasoning", "structure"], difficulty: 3 },
   { domain: "WRITE", daysAgo: 4, success: false, hintCount: 3, tags: ["revision", "clarity"], difficulty: 3 },
   { domain: "WRITE", daysAgo: 1, success: true, hintCount: 2, tags: ["structure", "reasoning"], difficulty: 3 },
