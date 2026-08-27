@@ -36,6 +36,8 @@ export type Task = {
   /** 成功後にだけ表示する解説 */
   explanation: string;
   skillTags: string[];
+  /** 問題タイプ（src/lib/task-types.ts のキー。複合課題は "composite"）。省略時は読み込み時に補完される */
+  taskType?: string;
 };
 
 export type TaskPublic = Omit<Task, "answerKey" | "hints" | "explanation" | "rubric">;

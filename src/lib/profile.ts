@@ -9,6 +9,7 @@ import { computeDomainScore, computeLevels, recommendDifficulty, type DomainScor
 import { getTask } from "./tasks";
 import { computeXp, type XpSummary } from "./xp";
 import { personaPrompts } from "./persona";
+import { carryTaskPrefs } from "./task-prefs";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 
@@ -147,12 +148,16 @@ export async function recomputeLeaderProfile(userId: string, context?: string, p
         minutesAgo: Math.round((Date.now() - last.createdAt.getTime()) / 60_000),
       }
     : undefined;
-  const personas = await personaPrompts(userId);
+  const [personas, existingPrefs] = await Promise.all([
+    personaPrompts(userId),
+    prisma.leaderProfile.findUnique({ where: { userId }, select: { preferences: true } }),
+  ]);
   const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context, persona: personas.LEADER });
   const data = {
     summary: toUserWording(out.summary),
     interests: out.interests.map(toUserWording),
-    preferences: { ...out.preferences, recommendedDomain: out.recommendedDomain },
+    // 出題設定（excludedTaskTypes / excludeComposite）は学習者の設定なので、AI の出力で上書きせず引き継ぐ
+    preferences: carryTaskPrefs(existingPrefs?.preferences, { ...out.preferences, recommendedDomain: out.recommendedDomain }) as Prisma.InputJsonValue,
     observations: out.observations.map(toUserWording),
     recommendation: toUserWording(out.recommendation),
   };

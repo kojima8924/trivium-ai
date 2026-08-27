@@ -259,3 +259,12 @@ test("難易度指定はストックから即出題（quiz）。「作って」�
   assert.equal(classifyIntent("10分だけ").kind, "short_time");
   assert.equal(classifyIntent("履歴").kind, "history");
 });
+
+test("「軽めに」「難しめ」は推薦難易度から ∓2 の出題（指定難易度の文脈はリセット）", () => {
+  assert.deepEqual(classifyIntent("writeで軽めに"), { kind: "quiz", domain: "WRITE", difficultyDelta: -2 });
+  assert.deepEqual(classifyIntent("やさしいのを1問"), { kind: "quiz", domain: null, difficultyDelta: -2 });
+  assert.deepEqual(classifyIntent("難しめで"), { kind: "quiz", domain: null, difficultyDelta: 2 });
+  assert.deepEqual(classifyIntent("LOGICで歯ごたえのある問題"), { kind: "quiz", domain: "CODE", difficultyDelta: 2 });
+  // 会話文は拾わない
+  assert.notEqual(classifyIntent("簡単に説明してほしいんだけど、二分探索って何？").kind, "quiz");
+});

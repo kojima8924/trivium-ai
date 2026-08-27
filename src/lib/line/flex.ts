@@ -4,6 +4,7 @@
 import type { messagingApi } from "@line/bot-sdk";
 import type { Recommendation } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
+import { formatScore } from "@/lib/scoring";
 import { characterHex, characterImageUrl, type CharacterMood } from "@/lib/characters";
 import type { AgentKey } from "@/lib/persona";
 import type { XpSummary } from "@/lib/xp";
@@ -75,7 +76,7 @@ function domainRows(domains: FlexProfileInput["domains"]): Component[] {
           contents: [
             text(m.label, { size: "xs", weight: "bold", color: COLOR[d.domain], flex: 3 }),
             text(measured ? `Lv.${d.level}` : "未計測", { size: "xs", color: MUTED, align: "center", flex: 2 }),
-            text(measured ? String(d.score) : "–", { size: "sm", weight: "bold", align: "end", flex: 2 }),
+            text(measured ? formatScore(d.score) : "–", { size: "sm", weight: "bold", align: "end", flex: 2 }),
           ],
         },
         bar(measured ? d.score / 100 : 0, COLOR[d.domain]),

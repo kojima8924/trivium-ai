@@ -9,6 +9,8 @@ import {
   checkDeterministic,
   checkHeuristic,
   toPublic,
+  inferTaskType,
+  isComposite,
   type Task,
 } from "../src/lib/tasks";
 import { DOMAINS, SUBSKILLS } from "../src/lib/domain";
@@ -474,4 +476,32 @@ test("pickNextTask: tieBreak で同じ難易度距離の並びを変えられる
   const desc = (a: Task, b: Task) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
   assert.equal(pickNextTask("CODE", 5, []).id, pool[0].id);
   assert.equal(pickNextTask("CODE", 5, [], undefined, desc).id, [...pool].sort(desc)[0].id);
+});
+
+test("inferTaskType: 手書き課題にも問題タイプが補完される", () => {
+  for (const t of ALL_TASKS) assert.ok(t.taskType, `${t.id} に taskType が無い`);
+  // READ は skillTags から
+  assert.equal(inferTaskType({ domain: "READ", kind: "choice", skillTags: ["comprehension"], passage: "本文" }), "summary");
+  assert.equal(inferTaskType({ domain: "READ", kind: "choice", skillTags: ["inference"], passage: "本文" }), "inference");
+  assert.equal(inferTaskType({ domain: "READ", kind: "choice", skillTags: ["critical_reading", "inference"], passage: "本文" }), "critique");
+  // WRITE は kind から
+  assert.equal(inferTaskType({ domain: "WRITE", kind: "choice", skillTags: ["clarity"] }), "revision");
+  assert.equal(inferTaskType({ domain: "WRITE", kind: "free", skillTags: ["structure"] }), "argument");
+  // CODE は passage が Python かどうか
+  assert.equal(inferTaskType({ domain: "CODE", kind: "choice", skillTags: ["tracing"], passage: "x = 1\nprint(x)" }), "python");
+  assert.equal(inferTaskType({ domain: "CODE", kind: "choice", skillTags: ["tracing"], passage: "A は B より前に並ぶ。" }), "puzzle");
+  // 複合は axes から
+  assert.equal(inferTaskType({ domain: "READ", kind: "choice", skillTags: ["inference"], axes: { read: 4, code: 3 } }), "composite");
+  // 明示があればそのまま
+  assert.equal(inferTaskType({ domain: "CODE", kind: "choice", skillTags: [], taskType: "math" }), "math");
+  // 手書きの複合課題はすべて composite、複合でない課題は composite にならない
+  for (const t of ALL_TASKS) assert.equal(t.taskType === "composite", isComposite(t), t.id);
+});
+
+test("pickNextTask: allow で絞れる。絞った結果が空なら無視する", () => {
+  const pool = tasksFor("CODE");
+  const python = pickNextTask("CODE", 3, [], undefined, undefined, (t) => t.taskType === "python");
+  assert.equal(python.taskType, "python");
+  const nothing = pickNextTask("CODE", 3, [], undefined, undefined, () => false);
+  assert.ok(pool.some((t) => t.id === nothing.id), "全部除外なら通常の pool から選ぶ");
 });

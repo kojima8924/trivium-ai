@@ -29,11 +29,12 @@ import {
   giveUpQuiz,
   needLinkReply,
   passQuiz,
+  resolveQuizTarget,
   settleAndBuildPush,
   startQuiz,
   staticQuizAvailable,
 } from "./quiz";
-import { loadLineUser, noteSuggestion, saveLineState, withPendingTask, type LineState } from "./state";
+import { loadLineUser, noteSuggestion, saveLineState, withPendingTask, withPreferredDifficulty, type LineState } from "./state";
 
 type LineUser = Awaited<ReturnType<typeof loadLineUser>>;
 type AfterScheduler = (task: () => void | Promise<void>) => void;
@@ -93,7 +94,7 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 
   // (3) 既知の意図
   if (intent.kind === "quiz") {
-    await handleQuiz(lineUserId, replyToken, lu, intent.domain, intent.difficulty, scheduleAfter);
+    await handleQuiz(lineUserId, replyToken, lu, intent.domain, intent.difficulty, scheduleAfter, intent.difficultyDelta);
     return;
   }
   if (intent.kind === "generate") {
@@ -164,23 +165,26 @@ async function handleQuiz(
   domain: DomainKey | null,
   difficulty?: number,
   scheduleAfter?: AfterScheduler,
+  difficultyDelta?: number,
 ): Promise<void> {
   if (!lu.userId) {
     await replyTo(replyToken, needLinkReply());
     return;
   }
-  const state = difficulty !== undefined ? { ...lu.state, preferredDifficulty: difficulty } : lu.state;
-  const target = difficulty ?? state.preferredDifficulty;
+  // 目標難易度: 明示指定 > 「軽めに/難しめ」(推薦 ∓2) > 有効な直近指定（同じ系統・3 時間以内） > 推薦
+  const { domain: d, target, state } = await resolveQuizTarget(lu.userId, lu.state, domain, { difficulty, delta: difficultyDelta });
+  if (state !== lu.state) await saveLineState(lineUserId, state);
   // 指定難易度の近くに用意済みの課題が無ければ、その難易度で作問に切り替える（文脈を無視した易しい出題を防ぐ）
   if (target !== undefined && scheduleAfter) {
-    const { domain: d, available } = await staticQuizAvailable(lu.userId, state, domain, target);
+    const { available } = await staticQuizAvailable(lu.userId, state, d, target);
     if (!available) {
       const request = `${DOMAIN_META[d].label}で難易度${target}の問題`;
       await handleGenerate(lineUserId, replyToken, { ...lu, state }, request, scheduleAfter, { domain: d, difficulty: target });
       return;
     }
   }
-  const reply = await startQuiz(lu.userId, lineUserId, state, domain, { difficulty });
+  const preface = difficultyDelta !== undefined ? (difficultyDelta < 0 ? "軽めにしました。" : "難しめにしました。") : undefined;
+  const reply = await startQuiz(lu.userId, lineUserId, state, d, { difficulty: target, preface });
   await replyTo(replyToken, reply);
 }
 
@@ -198,8 +202,8 @@ async function handleGenerate(
     return;
   }
   const userId = lu.userId;
-  // 難易度指定は文脈として保存（以後の「次」「もう1問」もその難易度で出す）
-  const state: LineState = opts.difficulty !== undefined ? { ...lu.state, preferredDifficulty: opts.difficulty } : lu.state;
+  // 難易度指定は文脈として保存（以後の「次」「もう1問」もその難易度で出す。同じ系統・3 時間以内だけ）
+  const state: LineState = opts.difficulty !== undefined ? withPreferredDifficulty(lu.state, opts.difficulty, opts.domain ?? null) : lu.state;
   if (opts.difficulty !== undefined) await saveLineState(lineUserId, state);
   if (rateLimit(`line-generate:${userId}`, GENERATE_LIMIT.count, GENERATE_LIMIT.windowMs)) {
     await replyTo(replyToken, {

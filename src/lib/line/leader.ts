@@ -48,7 +48,7 @@ export type LeaderContext = {
 
 export type Intent =
   | { kind: "domain"; domain: DomainKey }
-  | { kind: "quiz"; domain: DomainKey | null; difficulty?: number }
+  | { kind: "quiz"; domain: DomainKey | null; difficulty?: number; difficultyDelta?: number }
   | { kind: "generate"; request: string; domain?: DomainKey | null; difficulty?: number }
   | { kind: "link" }
   | { kind: "unlink" }
@@ -110,6 +110,14 @@ export function classifyIntent(raw: string): Intent {
       return { kind: "generate", request: text.slice(0, 300), domain, difficulty };
     }
     return { kind: "quiz", domain, difficulty };
+  }
+  // 「writeで軽めに」「やさしいのを1問」「難しめで」→ 推薦難易度から ∓2 した出題（指定難易度の文脈はリセット）
+  const delta = /(軽め|軽い|やさし|易し|簡単|かんたん|入門|初級|易しめ)/.test(text) ? -2 : /(難しめ|むずかし|難し|歯ごたえ|ハード|上級|骨のある)/.test(text) ? 2 : null;
+  if (delta !== null && !/(履歴|プロフィール|連携|説明|教えて)/.test(text)) {
+    const domain = domainInText(text);
+    if (domain || /(問|出題|クイズ|やりたい|やる|お願い|ちょうだい|で$|に$|の$)/.test(text) || text.length <= 8) {
+      return { kind: "quiz", domain, difficultyDelta: delta };
+    }
   }
   // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
   const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回|今日の学習|今日の1問|今日の一問|今日の問題)(ください|して|お願い(します)?)?[!！。]?$/;

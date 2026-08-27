@@ -13,12 +13,13 @@ import { loadPersonas } from "@/lib/persona";
 import type { Task } from "@/lib/tasks";
 import { loadEvents } from "@/lib/profile";
 import { computeXp, xpForEvent } from "@/lib/xp";
-import { computeLevels } from "@/lib/scoring";
+import { computeLevels, formatScore } from "@/lib/scoring";
+import { ACHIEVEMENTS, TIER_LABEL } from "@/lib/achievement-defs";
 import { XP, LINE } from "@/config/trivium.config";
 import { agentReply, buildProfileFlex } from "./flex";
 import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
-import { saveLineState, withPassedTask, withPendingTask, type LineState } from "./state";
+import { activePreferredDifficulty, saveLineState, withPassedTask, withPendingTask, withPreferredDifficulty, type LineState } from "./state";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
 
@@ -100,6 +101,30 @@ function webTaskReply(task: Task, personaName: string): LeaderReply {
 }
 
 /**
+ * 出題の目標難易度を決める。
+ *   difficulty（「難易度8」）: その値を使い、系統つきで state に記録する
+ *   delta（「軽めに」= -2 / 「難しめ」= +2）: 推薦難易度 ± delta。指定難易度の文脈はリセット
+ *   どちらも無し: 有効な難易度指定（同じ系統・3 時間以内）があればそれ、無ければ推薦（undefined）
+ */
+export async function resolveQuizTarget(
+  userId: string,
+  state: LineState,
+  domain: DomainKey | null,
+  opts: { difficulty?: number; delta?: number },
+): Promise<{ domain: DomainKey; target: number | undefined; state: LineState }> {
+  const d = domain ?? (await pickQuizDomain(userId, state));
+  if (opts.difficulty !== undefined) {
+    return { domain: d, target: opts.difficulty, state: withPreferredDifficulty(state, opts.difficulty, domain) };
+  }
+  if (opts.delta !== undefined) {
+    const { targetDifficulty: rec } = await nextTask(userId, d, { kind: "choice", excludeTaskIds: state.passedTaskIds });
+    const target = Math.min(10, Math.max(1, rec + opts.delta));
+    return { domain: d, target, state: withPreferredDifficulty(state, undefined, null) };
+  }
+  return { domain: d, target: activePreferredDifficulty(state, d), state };
+}
+
+/**
  * 指定難易度 ±1 に未回答の選択式課題が用意されているか。
  * 無ければ呼び出し側が作問（generate）に切り替える（WRITE の選択式は難易度 3 までしか無い、など）。
  */
@@ -127,8 +152,8 @@ export async function startQuiz(
   opts: { difficulty?: number; preface?: string } = {},
 ): Promise<LeaderReply> {
   const d = domain ?? (await pickQuizDomain(userId, state));
-  // 本人が難易度を指定していれば（「難易度8」→「次」）、推薦ではなくその難易度を狙う
-  const targetDifficulty = opts.difficulty ?? state.preferredDifficulty;
+  // 本人が難易度を指定していれば（「難易度8」→「次」）、推薦ではなくその難易度を狙う（同じ系統・3 時間以内だけ）
+  const targetDifficulty = opts.difficulty ?? activePreferredDifficulty(state, d);
   const [{ task }, personas] = await Promise.all([
     nextTask(userId, d, { kind: "choice", targetDifficulty, excludeTaskIds: state.passedTaskIds }),
     loadPersonas(userId),
@@ -145,8 +170,9 @@ type AnswerOutcome = {
 };
 
 function scoreLine(before: number, after: number): string {
-  if (after === before) return `${before}（変化なし）`;
-  return `${before} → ${after}（${after > before ? "+" : ""}${after - before}）`;
+  const diff = Math.round((after - before) * 10) / 10;
+  if (Math.abs(diff) < 0.05) return `${formatScore(before)}（変化なし）`;
+  return `${formatScore(before)} → ${formatScore(after)}（${diff > 0 ? "+" : ""}${diff.toFixed(1)}）`;
 }
 
 /** 回答（postback action=answer）を処理する。返信内容と、決着時の後処理情報を返す */
@@ -251,8 +277,17 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
       ? `${m.label} Lv.${r.profile.levelBefore} → Lv.${r.profile.levelAfter} レベルアップ（${scoreLine(r.profile.before, r.profile.after)}）`
       : `${m.label} Lv.${r.profile.levelAfter}（${scoreLine(r.profile.before, r.profile.after)}）`;
   const withComment = events.length > 0 && events.length % LINE.commentEvery === 0;
-  const lines = [levelLine, xpLine, r.newAchievements.length ? `🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : ""].filter(Boolean);
+  const lines = [levelLine, xpLine].filter(Boolean);
   const out: LeaderReply[] = [{ text: lines.join("\n") }];
+  // 実績解除は目立つように、案内役（cheer）の独立した 1 通を先頭に置く
+  if (r.newAchievements.length) {
+    const ln = personas.LEADER.name;
+    const body = ["🏅 実績解除！", ...r.newAchievements.map((k) => {
+      const a = ACHIEVEMENTS[k];
+      return a ? `${a.emoji} ${a.title}（${TIER_LABEL[a.tier]}）\n${a.description}` : k;
+    })].join("\n");
+    out.unshift(agentReply("LEADER", ln, body, { appUrl: appUrl(), mood: "cheer" }));
+  }
   if (withComment) {
     // commentEvery 問ごとに、系統の人格と案内役がキャラの吹き出しで一言ずつ
     const dn = personas[domain].name;
@@ -282,18 +317,6 @@ export async function buildProfileCard(userId: string, displayName: string): Pro
     return { domain: d, score: p?.score ?? 0, level: levels[AXIS_KEY[d]].level, evidenceCount: p?.evidenceCount ?? 0 };
   });
   return buildProfileFlex({ name: displayName, xp, domains, dashboardUrl: `${appUrl()}/dashboard` });
-}
-
-function achievementLabel(key: string): string {
-  const map: Record<string, string> = {
-    first_step: "最初の一歩",
-    no_hint: "ノーヒント",
-    comeback: "立て直し",
-    trivium: "TRIVIUM",
-    ten_events: "継続",
-    hard_clear: "高難度クリア",
-  };
-  return map[key] ?? key;
 }
 
 /** 講評の先頭に人格名が二重に付かないようにする（Mock は "名前: " を付けて返す） */

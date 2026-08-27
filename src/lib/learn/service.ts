@@ -16,6 +16,8 @@ import { axesOf, computeDomainScore } from "../scoring";
 import { computeXp } from "../xp";
 import { notifyDailyDigestIfComplete } from "./digest";
 import { updateLeaderMemory, updateMemoryAfterEvent } from "../memory";
+import { loadTaskPrefs } from "../task-prefs";
+import { taskAllowedByPrefs } from "../task-types";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 const ATTEMPT_STALE_MS = 6 * 60 * 60 * 1000;
@@ -90,18 +92,24 @@ export async function nextTask(
     const t = await resolveTask(userId, opts.preferredTaskId);
     if (t && t.domain === domain) return { task: t, targetDifficulty: t.difficulty };
   }
-  const [history, recommended, profile] = await Promise.all([
+  const [history, recommended, profile, prefs] = await Promise.all([
     prisma.learningEvent.findMany({ where: { userId, domain }, select: { taskId: true, success: true, createdAt: true } }),
     nextDifficultyFor(userId, domain),
     prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } }, select: { subskills: true } }),
+    loadTaskPrefs(userId),
   ]);
   // 本人の明示指定（LINE「難易度8」）があれば推薦より優先する
   const explicit = opts.targetDifficulty !== undefined;
   const targetDifficulty = explicit ? Math.min(10, Math.max(1, Math.round(opts.targetDifficulty as number))) : recommended;
   const seen = new Set(history.map((h) => h.taskId));
   for (const id of opts.excludeTaskIds ?? []) seen.add(id);
+  // 出題設定（/settings で外した問題タイプ・複合問題）を反映。絞った結果が空なら設定を無視する（出題不能を避ける）
+  const allow = (t: Task) => taskAllowedByPrefs(t, prefs);
   let pool = tasksFor(domain);
   if (opts.kind) pool = pool.filter((t) => t.kind === opts.kind);
+  const allowedPool = pool.filter(allow);
+  if (allowedPool.length > 0) pool = allowedPool;
+  else if (pool.length > 0) console.warn(`[learn] task prefs exclude every ${domain}${opts.kind ? `/${opts.kind}` : ""} task; ignoring prefs`);
 
   // 弱い subskill を含む未回答の課題を優先（推薦文と出題を整合させる）。
   // ただし狙いの難易度から 2 以上離れる課題は選ばない（「難易度8 のつもりが 2 が出る」を防ぐ）
@@ -117,7 +125,7 @@ export async function nextTask(
     const next = unseen.sort(byRank)[0] ?? pool.sort(byRank)[0];
     if (next) return { task: next, targetDifficulty };
   }
-  return { task: pickNextTask(domain, targetDifficulty, history, undefined, tieBreak), targetDifficulty };
+  return { task: pickNextTask(domain, targetDifficulty, history, undefined, tieBreak, allow), targetDifficulty };
 }
 
 /** 文字列 → 32bit の安定ハッシュ（FNV-1a）。出題順のばらけ用で、暗号用途ではない */

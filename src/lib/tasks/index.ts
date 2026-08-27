@@ -4,11 +4,44 @@ import { COMPOSITE_TASKS } from "./composite";
 import { READ_TASKS } from "./read";
 import { WRITE_TASKS } from "./write";
 import { CODE_STOCK } from "./stock/code.generated";
+import { MIX_STOCK } from "./stock/mix.generated";
 import { READ_STOCK } from "./stock/read.generated";
 import { WRITE_STOCK } from "./stock/write.generated";
+import { COMPOSITE_TYPE, isCompositeAxes } from "../task-types";
 import type { Task } from "./types";
 
 export * from "./types";
+
+/** Python らしい passage か（LOGIC の手書き課題の taskType 補完用） */
+function looksLikePythonPassage(passage: string | undefined): boolean {
+  if (!passage) return false;
+  return /^\s*(def |for |while |import |print\(|[a-zA-Z_]\w*\s*=\s*)/m.test(passage) && /(print\(|def |return )/.test(passage);
+}
+
+/** 複合課題（axes が 2 系統以上で正、または taskType が composite） */
+export function isComposite(task: Pick<Task, "axes" | "taskType">): boolean {
+  return task.taskType === COMPOSITE_TYPE.key || isCompositeAxes(task.axes);
+}
+
+/**
+ * taskType を補完する（手書き課題には付いていない）。
+ *   複合（axes 2 系統以上）→ composite / READ → skillTags から / WRITE → kind から / CODE → passage が Python か
+ */
+export function inferTaskType(task: Pick<Task, "domain" | "kind" | "skillTags" | "passage" | "axes" | "taskType">): string {
+  if (task.taskType) return task.taskType;
+  if (isCompositeAxes(task.axes)) return COMPOSITE_TYPE.key;
+  if (task.domain === "READ") {
+    if (task.skillTags.includes("critical_reading")) return "critique";
+    if (task.skillTags.includes("inference")) return "inference";
+    return "summary";
+  }
+  if (task.domain === "WRITE") return task.kind === "free" ? "argument" : "revision";
+  return looksLikePythonPassage(task.passage) ? "python" : "puzzle";
+}
+
+function withTaskType(tasks: Task[]): Task[] {
+  return tasks.map((t) => (t.taskType ? t : { ...t, taskType: inferTaskType(t) }));
+}
 
 /** 手書きの課題（デモ台本が id に依存するので常に優先） */
 const HANDWRITTEN: Task[] = [...READ_TASKS, ...WRITE_TASKS, ...CODE_TASKS, ...COMPOSITE_TASKS];
@@ -28,7 +61,7 @@ function mergeStock(base: Task[], stock: Task[]): Task[] {
   return out;
 }
 
-export const ALL_TASKS: Task[] = mergeStock(HANDWRITTEN, [...READ_STOCK, ...WRITE_STOCK, ...CODE_STOCK]);
+export const ALL_TASKS: Task[] = withTaskType(mergeStock(HANDWRITTEN, [...READ_STOCK, ...WRITE_STOCK, ...CODE_STOCK, ...MIX_STOCK]));
 
 const byId = new Map(ALL_TASKS.map((t) => [t.id, t]));
 
@@ -44,6 +77,7 @@ export function tasksFor(domain: DomainKey): Task[] {
  * 次のタスクを選ぶ（決定論）。
  * 目標難易度に近く、未回答のものを優先。全て回答済みなら成功していないもの → 最も古いもの。
  * tieBreak を渡すと、難易度距離が同じ課題の並びをそれで決める（ユーザーごとにばらけさせる用。省略時は定義順）。
+ * allow を渡すと pool をそれで絞る（出題設定で外した問題タイプの除外用）。絞った結果が空なら無視する。
  */
 export function pickNextTask(
   domain: DomainKey,
@@ -51,8 +85,11 @@ export function pickNextTask(
   history: { taskId: string; success: boolean; createdAt: Date }[],
   preferredTaskId?: string,
   tieBreak?: (a: Task, b: Task) => number,
+  allow?: (t: Task) => boolean,
 ): Task {
-  const pool = tasksFor(domain);
+  const all = tasksFor(domain);
+  const filtered = allow ? all.filter(allow) : all;
+  const pool = filtered.length > 0 ? filtered : all;
   if (preferredTaskId) {
     const t = byId.get(preferredTaskId);
     if (t && t.domain === domain) return t;

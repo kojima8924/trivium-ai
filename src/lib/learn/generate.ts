@@ -11,6 +11,8 @@ import type { Task } from "../tasks";
 import { personaPrompts } from "../persona";
 import { nextDifficultyFor } from "../profile";
 import { looksLikePython, normalizeGenerated, normalizeOutput } from "./generate.pure";
+import { loadTaskPrefs } from "../task-prefs";
+import { allowedTaskTypes, FREE_TASK_TYPES, taskTypeLabel } from "../task-types";
 
 export type GenerateRequest = {
   request: string;
@@ -18,7 +20,36 @@ export type GenerateRequest = {
   domain?: DomainKey;
   kind?: Task["kind"];
   difficulty?: number;
+  /** 問題タイプ（src/lib/task-types.ts のキー）。省略時は依頼文から推定し、決まらなければ出題設定で許可されたタイプから選ぶ */
+  taskType?: string;
 };
+
+/** 依頼文から問題タイプを推定する（決定論）。判定できなければ null */
+export function inferTaskTypeFromRequest(domain: DomainKey, text: string): string | null {
+  const t = text.toLowerCase();
+  if (domain === "READ") {
+    if (/(語彙|言い換え|意味|表現)/.test(t)) return "vocabulary";
+    if (/(表|グラフ|データ|数値|図)/.test(t)) return "data";
+    if (/(批判|前提|反例|飛躍|妥当)/.test(t)) return "critique";
+    if (/(推論|推測|読み取|暗示)/.test(t)) return "inference";
+    if (/(要旨|要点|主張|要約)/.test(t)) return "summary";
+    return null;
+  }
+  if (domain === "WRITE") {
+    if (/(要約)/.test(t)) return "summary";
+    if (/(書き換え|言い換え|書き直|敬語|短く)/.test(t)) return "rewrite";
+    if (/(意見|主張|賛成|反対|作文|エッセイ)/.test(t)) return "argument";
+    if (/(並べ替え|順序|接続|構成|段落)/.test(t)) return "structure";
+    if (/(推敲|直し|明確|冗長|わかりやす)/.test(t)) return "revision";
+    return null;
+  }
+  if (/(バグ|不具合|直して|間違い|エラー)/.test(t) && /(python|パイソン|コード|プログラ)/i.test(t)) return "debug";
+  if (/(python|パイソン|コード|プログラ|出力予測|関数)/i.test(t)) return "python";
+  if (/(数列|場合の数|確率|比率|割合|計算|数的)/.test(t)) return "math";
+  if (/(手順|アルゴリズム|最短|フローチャート|擬似コード)/.test(t)) return "algorithm";
+  if (/(パズル|推理|論理|条件)/.test(t)) return "puzzle";
+  return null;
+}
 
 type VerifyResult = { result: "skip" | "ok" } | { result: "fixed"; index: number } | { result: "mismatch"; stdout: string };
 
@@ -80,7 +111,13 @@ export function inferLogicStyle(text: string): "python" | "logic" | null {
 
 export async function generateTaskForUser(userId: string, req: GenerateRequest): Promise<{ task: Task; domain: DomainKey }> {
   const domain = req.domain ?? inferDomain(req.request) ?? "CODE";
-  const kind = req.kind ?? inferKind(req.request);
+  // 問題タイプ: 明示 > 依頼文からの推定（本人の希望なので出題設定より優先） > 出題設定で許可されたタイプの先頭
+  const prefs = await loadTaskPrefs(userId);
+  const inferredType = req.taskType ?? inferTaskTypeFromRequest(domain, req.request);
+  const kindHint = req.kind ?? (inferredType ? (FREE_TASK_TYPES[domain].includes(inferredType) ? "free" : inferKind(req.request)) : inferKind(req.request));
+  const taskType = inferredType ?? allowedTaskTypes(domain, prefs, kindHint)[0] ?? allowedTaskTypes(domain, prefs)[0] ?? undefined;
+  // 記述式タイプ（意見文・要約・書き換え）は free、それ以外は依頼文の形式指定に従う
+  const kind: Task["kind"] = req.kind ?? (taskType && FREE_TASK_TYPES[domain].includes(taskType) ? "free" : inferKind(req.request));
   // 明示指定（「難易度8」）はそのまま使う。無指定なら推薦値に「やさしめ／難しめ」の語で ±1
   const clamp = (n: number) => Math.min(10, Math.max(1, Math.round(n)));
   const difficulty =
@@ -93,14 +130,22 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
     personaPrompts(userId),
   ]);
 
-  // LOGIC は「Python」か「論理パズル（コード不可）」かを先頭で明示する
-  const style = domain === "CODE" ? inferLogicStyle(req.request) : null;
+  // LOGIC は「Python」か「論理パズル（コード不可）」かを先頭で明示する（問題タイプが決まっていればそれに従う）
+  const style =
+    domain === "CODE"
+      ? taskType === "python" || taskType === "debug"
+        ? "python"
+        : taskType === "puzzle" || taskType === "math" || taskType === "algorithm"
+          ? "logic"
+          : inferLogicStyle(req.request)
+      : null;
+  const typed = taskType ? `【タイプ: ${taskTypeLabel(domain, taskType)}】` : "";
   const styled =
     style === "logic"
-      ? `【形式: 論理パズル・推論問題（プログラムコードは使わない）】${req.request}`
+      ? `${typed}【形式: 論理パズル・推論問題（プログラムコードは使わない）】${req.request}`
       : style === "python"
-        ? `【形式: 短い Python コードの読解】${req.request}`
-        : req.request;
+        ? `${typed}【形式: 短い Python コードの読解${taskType === "debug" ? "（期待と違う動作の原因行を問う）" : ""}】${req.request}`
+        : `${typed}${req.request}`;
 
   const gen = async () =>
     normalizeGenerated(
@@ -156,7 +201,8 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
       hints: out.hints,
       explanation: out.explanation,
       skillTags: out.skillTags.filter((t) => (SUBSKILLS[domain] as readonly string[]).includes(t)),
-      request: req.request.slice(0, 300),
+      // 問題タイプは列が無いので request に添えて保存する（[type:python] のように先頭に付ける）
+      request: `${taskType ? `[type:${taskType}] ` : ""}${req.request}`.slice(0, 300),
     },
   });
 
@@ -174,6 +220,7 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
     hints: out.hints,
     explanation: out.explanation,
     skillTags: row.skillTags,
+    taskType,
   };
   return { task, domain };
 }

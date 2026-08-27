@@ -131,7 +131,7 @@ model DomainProfile {
   id              String   @id @default(cuid())
   userId          String
   domain          Domain
-  score           Int      @default(0) // 0..100 集計値(evidence)
+  score           Float    @default(0) // 0..100 集計値(evidence)。小数 1 桁（到達レベル×10 + 進捗）
   subskills       Json     @default("{}") // { comprehension: 78, ... }
   confidence      String   @default("low") // low | medium | high
   evidenceCount   Int      @default(0)
@@ -269,9 +269,9 @@ model DailyDigest {
 model ProfileSnapshot {
   id        String   @id @default(cuid())
   userId    String
-  read      Int
-  write     Int
-  code      Int
+  read      Float
+  write     Float
+  code      Float
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

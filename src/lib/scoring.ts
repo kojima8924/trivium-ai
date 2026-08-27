@@ -5,7 +5,8 @@
 //   - 成功は関与する全系統に「その難易度以下は解ける」証拠を与える
 //   - 失敗は「相対的に最も難しかった系統（ボトルネック）」だけに、その難易度付近の否定証拠を与える
 //   - 到達レベル L = 「難易度 d 以上の正答率が threshold 以上」を満たす最大の d（それ未満は 100% とみなす）
-//   - 表示スコア（0〜100）= L×10 + 次のレベルへの進捗×10
+//   - 表示スコア（0〜100、小数 1 桁）= L×10 + 次のレベルへの進捗×10
+//     進捗は「次のレベル帯の証拠量（minEvidence に対する割合）× 正答率（threshold に対する割合）」で連続的に増える
 //   - subskill（観点別 0〜100）は従来どおり基礎点×難易度×新しさの重み付き平均（証拠バー用）
 import { SCORING } from "@/config/trivium.config";
 import { type Confidence, type DomainKey, DOMAINS, SUBSKILLS } from "./domain";
@@ -26,7 +27,7 @@ export type ScorableEvent = {
 
 export type DomainScore = {
   domain: DomainKey;
-  /** 0..100（到達レベル×10 + 進捗） */
+  /** 0..100（到達レベル×10 + 進捗。小数 1 桁） */
   score: number;
   /** 到達レベル 0..10 */
   level: number;
@@ -41,6 +42,16 @@ export type DomainScore = {
 };
 
 export const MAX_LEVEL = 10;
+
+/** 表示用: 小数 1 桁（72.4）。Dashboard / LINE / 結果カードで統一して使う */
+export function formatScore(score: number): string {
+  return (Math.round(score * 10) / 10).toFixed(1);
+}
+
+/** 小数 1 桁に丸める */
+export function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
 const AXIS_OF: Record<DomainKey, keyof Axes> = { READ: "read", WRITE: "write", CODE: "code" };
 export const DOMAIN_OF_AXIS: Record<keyof Axes, DomainKey> = { read: "READ", write: "WRITE", code: "CODE" };
 
@@ -113,9 +124,14 @@ function levelFromEvidence(items: AxisEvidence[]): { level: number; progress: nu
     const { r, n } = rate(d);
     if (n >= SCORING.minEvidence && r >= SCORING.masteryThreshold) level = d;
   }
-  const next = level < MAX_LEVEL ? rate(level + 1) : { r: 1, n: 1 };
-  // 次レベルの証拠が 1 件分にも満たないときは進捗を出さない（Lv0 なのに 99% と見えないように）
-  const progress = level >= MAX_LEVEL ? 1 : next.n < 1 ? 0 : Math.min(0.99, next.r);
+  if (level >= MAX_LEVEL) return { level, progress: 1 };
+  // 次のレベルへの進捗（連続値）: 証拠量が minEvidence に近づくほど、正答率が threshold に近づくほど滑らかに上がる。
+  // 1 問正解（重み 1.0）で約 67%、ヒントありの正解ならその分低く、失敗が混じれば正答率の分だけ下がる。
+  // レベル判定を満たした瞬間に level が上がるので、progress は 0.99 で頭打ちにする
+  const next = rate(level + 1);
+  const evidence = Math.min(1, next.n / SCORING.minEvidence);
+  const mastery = Math.min(1, next.r / SCORING.masteryThreshold);
+  const progress = Math.min(0.99, evidence * mastery);
   return { level, progress };
 }
 
@@ -177,7 +193,7 @@ export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], n
   }
 
   const evidenceCount = own.length;
-  const score = evidenceCount === 0 ? 0 : Math.min(100, Math.round(levels.level * 10 + levels.progress * 10));
+  const score = evidenceCount === 0 ? 0 : Math.min(100, round1(levels.level * 10 + levels.progress * 10));
   const successRate = evidenceCount === 0 ? 0 : own.filter((e) => e.success).length / evidenceCount;
   const avgHints = evidenceCount === 0 ? 0 : own.reduce((a, e) => a + e.hintCount, 0) / evidenceCount;
   const avgDifficulty = evidenceCount === 0 ? 0 : own.reduce((a, e) => a + axesOf(e)[axis], 0) / evidenceCount;

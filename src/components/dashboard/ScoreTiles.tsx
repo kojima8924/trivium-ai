@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DOMAIN_META } from "@/lib/domain";
 import type { DashboardData } from "@/lib/profile";
+import { formatScore } from "@/lib/scoring";
 import { CONFIDENCE_TEXT, DOMAIN_VAR, eventsToNextConfidence } from "./shared";
 
 /**
@@ -22,7 +23,7 @@ export function ScoreTiles({ domains }: { domains: DashboardData["domains"] }) {
               style={{ outlineColor: DOMAIN_VAR[d.domain] }}
               aria-label={
                 measured
-                  ? `${DOMAIN_META[d.domain].label} スコア ${d.score}、到達レベル ${d.level}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
+                  ? `${DOMAIN_META[d.domain].label} スコア ${formatScore(d.score)}、到達レベル ${d.level}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
                   : `${DOMAIN_META[d.domain].label} は未計測`
               }
             >
@@ -32,7 +33,7 @@ export function ScoreTiles({ domains }: { domains: DashboardData["domains"] }) {
               <span
                 className={`text-3xl leading-tight font-bold tabular-nums ${measured && uncertain ? "text-muted" : ""}`}
               >
-                {measured ? d.score : "–"}
+                {measured ? formatScore(d.score) : "–"}
               </span>
               <span className="text-[10px] leading-tight text-muted">
                 {measured ? (

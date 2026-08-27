@@ -1,15 +1,16 @@
-// 問題ストック生成・検証スクリプト
+// 問題ストック生成・検証スクリプト v2（問題タイプ付き・難易度 1〜10 を「誰でも解ける〜非常に難しい」に再設計・複合問題）
 //
-//   npx tsx scripts/stock/gen_stock.mts                 # 3 系統すべて（difficulty 1〜10）
-//   npx tsx scripts/stock/gen_stock.mts --domain code   # 1 系統だけ
-//   npx tsx scripts/stock/gen_stock.mts --emit-only     # 生成せず out/*.json から .generated.ts を書き出す
+//   npx tsx scripts/stock/gen_stock.mts                       # READ / WRITE / CODE / MIX すべて
+//   npx tsx scripts/stock/gen_stock.mts --domain code,mix     # 一部だけ
+//   npx tsx scripts/stock/gen_stock.mts --emit-only           # 生成せず out/*.json から .generated.ts を書き出す
 //
-// 生成: OpenAI Responses API（MODELS.generate 相当の gpt-5.5）。
+// 生成: OpenAI Responses API（gpt-5.5）。問題タイプは src/lib/task-types.ts のキーと一致させる。
 // 検証（合格したものだけ採用）:
-//   - 構造: 4 択・重複なし・answer_index 0..3・hints 3 段・explanation あり・コードフェンス無し
-//   - Python 出力予測: ローカルの python で実際に実行し、正解の選択肢と照合（別の選択肢が一致すれば index を修正、どれも一致しなければ不採用）
+//   - 構造: 4 択・重複なし・answer_index 0..3・hints 3 段・explanation あり・バッククォート無し
+//   - python / debug: ローカルの python で実際に実行（python は正解の選択肢と照合。別の選択肢が一致すれば index を修正）
 //   - それ以外の 4 択: 正解を伏せた独立ソルバー（gpt-5.5）が同じ答えに到達し、曖昧さ・ヒントの答えバレが無いこと
-//   - WRITE の自由記述: レビュー担当（gpt-5.4-mini）が 5 段階で 4 以上
+//   - 記述（free）: 模範解答の長さが目安内、ヒントが完成解になっていない、レビュー担当（gpt-5.4-mini）が 5 段階で 4 以上
+//   - 難易度: LOGIC はソルバー評価との差が大きいものを弾く。READ / WRITE / MIX は「明らかに難しすぎ」だけ弾く
 // 進捗は scripts/stock/out/<DOMAIN>.json にチェックポイントし、再実行時は済んだスロットを飛ばす。
 import OpenAI from "openai";
 import { z } from "zod";
@@ -27,24 +28,48 @@ const STOCK_DIR = path.join(ROOT, "src/lib/tasks/stock");
 const GEN_MODEL = "gpt-5.5";
 const SOLVER_MODEL = "gpt-5.5";
 const REVIEW_MODEL = "gpt-5.4-mini";
-const CONCURRENCY = 6;
+const CONCURRENCY = 8;
 const MAX_ATTEMPTS = 3;
 
-type Domain = "READ" | "WRITE" | "CODE";
+type Domain = "READ" | "WRITE" | "CODE" | "MIX";
+type Axis = "READ" | "WRITE" | "CODE";
 type Kind = "choice" | "short" | "free";
-type SubType = "choice" | "free" | "python" | "logic";
 
-const SUBSKILLS: Record<Domain, string[]> = {
+const SUBSKILLS: Record<Axis, string[]> = {
   READ: ["comprehension", "inference", "critical_reading"],
   WRITE: ["structure", "clarity", "reasoning", "revision"],
   CODE: ["tracing", "debugging", "algorithms", "design"],
 };
 
-/** 難易度ごとのスロット数（系統 × サブタイプ） */
-const PLAN: Record<Domain, Partial<Record<SubType, number>>> = {
-  READ: { choice: 5 },
-  WRITE: { choice: 4, free: 2 },
-  CODE: { python: 3, logic: 3 },
+/** 問題タイプ（src/lib/task-types.ts のキーと一致） */
+type TypeSpec = { key: string; kind: Kind; count: number; label: string; axes: Axis[]; primary: Axis };
+const PLAN: Record<Domain, TypeSpec[]> = {
+  READ: [
+    { key: "summary", kind: "choice", count: 2, label: "要旨把握（本文の主張・要点を選ぶ）", axes: ["READ"], primary: "READ" },
+    { key: "inference", kind: "choice", count: 2, label: "推論（書かれていないことを根拠から推し量る）", axes: ["READ"], primary: "READ" },
+    { key: "critique", kind: "choice", count: 1, label: "批判的読解（前提・反例・論理の飛躍を見抜く）", axes: ["READ"], primary: "READ" },
+    { key: "vocabulary", kind: "choice", count: 1, label: "語彙・表現（文脈での語の意味・言い換え）", axes: ["READ"], primary: "READ" },
+    { key: "data", kind: "choice", count: 1, label: "図表・データ読解（文章で示された表や数値を読む。表は行ごとに『項目: 値』で書く）", axes: ["READ"], primary: "READ" },
+  ],
+  WRITE: [
+    { key: "revision", kind: "choice", count: 2, label: "推敲（冗長・曖昧・ねじれを直した最も明確な文を選ぶ）", axes: ["WRITE"], primary: "WRITE" },
+    { key: "structure", kind: "choice", count: 2, label: "構成（文や段落の順序・接続詞・主張と根拠の対応を選ぶ）", axes: ["WRITE"], primary: "WRITE" },
+    { key: "argument", kind: "free", count: 1, label: "意見文（お題に意見と理由を書く）", axes: ["WRITE"], primary: "WRITE" },
+    { key: "summary", kind: "free", count: 1, label: "要約（passage の文章を指定字数で要約する）", axes: ["WRITE"], primary: "WRITE" },
+    { key: "rewrite", kind: "free", count: 1, label: "書き換え（指定の条件で文を書き直す: 敬語に／短く／読み手を変えて／結論を先に 等）", axes: ["WRITE"], primary: "WRITE" },
+  ],
+  CODE: [
+    { key: "python", kind: "choice", count: 3, label: "Python 読解（短いコードの出力を予測。passage はコードのみ）", axes: ["CODE"], primary: "CODE" },
+    { key: "debug", kind: "choice", count: 1, label: "Python バグ発見（passage は期待どおり動かないコードのみ。prompt に『期待する出力』を明記し、原因の行または正しい修正を選ばせる）", axes: ["CODE"], primary: "CODE" },
+    { key: "puzzle", kind: "choice", count: 2, label: "論理パズル（条件から一意に決まる答えを推理。コード不可）", axes: ["CODE"], primary: "CODE" },
+    { key: "math", kind: "choice", count: 1, label: "数的推理（数列・場合の数・比率・速さなど。計算は暗算〜筆算で済む範囲）", axes: ["CODE"], primary: "CODE" },
+    { key: "algorithm", kind: "choice", count: 1, label: "手順・アルゴリズム（日本語の手順や擬似コードを追って結果や最短手順を答える。Python は使わない）", axes: ["CODE"], primary: "CODE" },
+  ],
+  MIX: [
+    { key: "read_code", kind: "choice", count: 1, label: "複合 READ+LOGIC（文章で示されたルール・条件・データを読み取り、論理的に結論を選ぶ）", axes: ["READ", "CODE"], primary: "CODE" },
+    { key: "read_write", kind: "free", count: 1, label: "複合 READ+WRITE（passage の文章を読んで、要約または意見を書く）", axes: ["READ", "WRITE"], primary: "WRITE" },
+    { key: "write_code", kind: "free", count: 1, label: "複合 WRITE+LOGIC（手順や条件・簡単なコードの動きを、読み手に分かるよう文章で説明する）", axes: ["WRITE", "CODE"], primary: "WRITE" },
+  ],
 };
 
 // 題材のばらつき用（index で回す）
@@ -53,6 +78,7 @@ const THEMES = [
   "地方鉄道の存続", "睡眠の研究", "リサイクルの仕組み", "音楽の配信サービス", "農業とドローン", "機械翻訳", "在宅勤務", "地図の歴史",
   "都市の緑化", "昆虫食", "博物館の展示", "手紙と電子メール", "自転車通勤", "学校の制服", "災害への備え", "コンビニの24時間営業",
   "観光地の混雑", "水道の老朽化", "紙の辞書と電子辞書", "ボードゲームの流行", "祭りの担い手不足", "電気自動車", "子どもの読書時間",
+  "ペットと暮らす", "給食のメニュー", "公園の遊具", "朝のラジオ体操", "図工の時間", "駅前の駐輪場", "校庭の芝生化", "文化祭の出し物",
 ];
 const PY_TOPICS = [
   "変数と算術・文字列連結", "for とリストの合計", "if/elif の分岐", "リストのスライス", "文字列メソッド（split/join/upper）", "辞書のカウント",
@@ -62,57 +88,65 @@ const PY_TOPICS = [
   "itertools（product/combinations）", "ソートの安定性", "浅いコピーと参照", "文字列のフォーマット",
 ];
 const LOGIC_TOPICS = [
-  "3 人の並び順の推理", "4〜5 人の座席の割り当て", "騎士と悪党（正直者と嘘つき）", "表を使った対応づけ（人・色・飲み物）", "日程の制約からの特定",
-  "対偶・逆・裏の判定", "必要条件と十分条件", "手順の最短化（川渡り・移し替え）", "数量の推理（重さ比べ・天秤）", "カレンダーと曜日の推理",
+  "並び順の推理", "座席の割り当て", "騎士と悪党（正直者と嘘つき）", "表を使った対応づけ（人・色・飲み物）", "日程の制約からの特定",
+  "対偶・逆・裏の判定", "必要条件と十分条件", "手順の最短化（川渡り・移し替え）", "重さ比べ・天秤", "カレンダーと曜日の推理",
   "部屋割りの制約", "スケジュールの矛盾探し", "集合とベン図", "順位と得点の整合", "トーナメントの勝敗推理", "真偽の発言からの犯人特定",
   "条件付きの数え上げ", "偽物のコインを見つける", "地図・方角の推理", "ルールに従う数列",
 ];
+const MATH_TOPICS = ["数列の規則", "場合の数", "比と割合", "速さ・時間・距離", "平均と合計", "余りの周期", "面積・周の比較", "確率（同様に確からしい）", "年齢算", "仕事算"];
+const ALGO_TOPICS = ["並べ替えの手順（バブルソート風）", "探索の手順（二分探索を日本語で）", "最短経路の手数", "スタックの積み下ろし", "状態遷移（信号・自販機）", "手順の繰り返しと停止条件", "エラトステネスの篩", "ユークリッドの互除法", "キューの処理順", "貪欲法の手順"];
 const WRITE_TOPICS = [
   "接続詞の選択", "文の順序の並べ替え", "主張と根拠の対応", "冗長な語の削除", "一文一義への分割", "指示語の明確化", "段落の要約文",
   "反論への応答", "定義を先に置く構成", "具体例の選び方", "結論を先に述べる書き換え", "曖昧な表現の修正", "比較の対象をそろえる",
-  "因果関係の書き方", "読み手に合わせた語の選択",
+  "因果関係の書き方", "読み手に合わせた語の選択", "主語と述語のねじれ", "敬語への書き換え", "箇条書きへの整理",
 ];
 
-function difficultyGuide(domain: Domain, sub: SubType, d: number): string {
-  if (domain === "READ") {
-    if (d <= 2) return "本文 60〜120 字の平易な文。設問は要旨や事実の確認。";
-    if (d <= 4) return "本文 120〜200 字。書かれていないことの自然な推論、または主張と理由の区別。";
-    if (d <= 6) return "本文 200〜320 字。対比・因果・譲歩（しかし／ただし）を含み、筆者の立場を読み取る。";
-    if (d <= 8) return "本文 320〜450 字の論説調。暗黙の前提・反例・論理の飛躍を見抜く批判的読解。";
-    return "本文 450〜600 字。複数の立場が交錯し、根拠の強さや前提の妥当性を比較して判断する。";
+/** 難易度の一般スケール（全系統共通の目安） */
+function levelScale(d: number): string {
+  return [
+    "",
+    "誰でも解ける。小学校中学年でも迷わない。1 つの事実・1 つの手順だけ。",
+    "小学校高学年。要素は少なく、注意すれば必ず解ける。",
+    "中学生。基本的な読み取り・推論・計算。",
+    "高校入門。少し長い本文や 2 段階の推論。",
+    "高校標準。複数の条件・観点を同時に扱う。",
+    "大学入試基礎。抽象的な語や対比・因果を扱う。",
+    "大学入試応用・社会人の実務。見落としやすい条件を含む。",
+    "大学上級・専門職。前提や例外を吟味しないと誤る。",
+    "専門家・競技レベル。多段の推論と厳密な検証が必要。",
+    "非常に難しい。上級者でも数分〜十数分の集中が要り、慎重に検証しないと間違える。",
+  ][d];
+}
+
+function difficultyGuide(domain: Domain, key: string, d: number): string {
+  const base = `難易度 ${d}/10 — ${levelScale(d)}`;
+  if (domain === "READ" || key === "read_code" || key === "read_write") {
+    const len = d <= 1 ? "40〜80 字" : d <= 2 ? "60〜110 字" : d <= 3 ? "100〜160 字" : d <= 4 ? "140〜220 字" : d <= 5 ? "180〜280 字" : d <= 6 ? "220〜330 字" : d <= 7 ? "280〜400 字" : d <= 8 ? "350〜480 字" : d <= 9 ? "420〜560 字" : "500〜650 字";
+    const q = d <= 2 ? "本文に書いてあることをそのまま確認する設問。" : d <= 4 ? "1 段階の推論や主張と理由の区別。" : d <= 6 ? "対比・因果・譲歩（しかし／ただし）を含み、筆者の立場を読み取る。" : d <= 8 ? "論説調。暗黙の前提・反例・論理の飛躍を見抜く。" : "複数の立場が交錯し、根拠の強さや前提の妥当性を比較して判断する。";
+    return `${base} 本文 ${len}。${q}`;
   }
-  if (domain === "WRITE") {
-    if (sub === "free") {
-      if (d <= 3) return "身近なお題に 60〜100 字で意見と理由を 1 つ書く（模範解答も 60〜100 字）。";
-      if (d <= 6) return "100〜160 字。主張・理由・具体例の 3 要素を求める（模範解答も同じ字数）。";
-      return "150〜240 字。反対意見への応答を含めた構成、または条件付きの結論を求める（模範解答も同じ字数）。";
+  if (domain === "WRITE" || key === "write_code") {
+    if (["argument", "summary", "rewrite", "read_write", "write_code"].includes(key)) {
+      const len = d <= 2 ? "40〜70 字" : d <= 4 ? "60〜100 字" : d <= 6 ? "100〜160 字" : d <= 8 ? "150〜220 字" : "200〜280 字";
+      const req = d <= 2 ? "一文か二文で意見（または言い換え）を書けばよい。" : d <= 4 ? "意見＋理由 1 つ。" : d <= 6 ? "主張・理由・具体例の 3 要素。" : d <= 8 ? "反対意見への応答を含める。" : "条件付きの結論や複数の観点の整理を含める。";
+      return `${base} 模範解答は ${len}（prompt の字数指定もこれに合わせる）。${req}`;
     }
-    if (d <= 3) return "1〜2 文の短い文について、最も明確／自然な書き方を選ぶ。";
-    if (d <= 6) return "3〜5 文の段落について、順序・接続詞・主張と根拠の対応を問う。";
-    return "段落全体の構成や論理の欠陥（根拠の飛躍・二重基準・曖昧な定義）を見抜く。";
+    const q = d <= 2 ? "一文の明らかな誤り（主語述語のねじれ・重複）を直した文を選ぶ。" : d <= 4 ? "2〜3 文の短い段落で、最も自然な順序や接続詞を選ぶ。" : d <= 6 ? "3〜5 文の段落で、主張と根拠の対応・冗長さを判断する。" : d <= 8 ? "段落全体の構成や論理の欠陥（根拠の飛躍・二重基準）を見抜く。" : "微妙な差の選択肢の中から、読み手・目的に最も適した書き方を選ぶ。";
+    return `${base} ${q}`;
   }
-  if (sub === "python") {
-    if (d <= 2) return "1〜6 行。変数・算術・文字列連結・単純な print。";
-    if (d <= 4) return "6〜10 行。for/if・リストの基本操作。";
-    if (d <= 6) return "8〜14 行。辞書・スライス・文字列メソッド・while・関数。";
-    if (d <= 8) return "12〜18 行。ネスト・再帰・sorted の key・内包表記・状態更新の追跡。";
-    return "15〜22 行。クロージャ／ジェネレータ／参照の共有／複合的な状態変化。エッジケースが効く。";
+  if (key === "python" || key === "debug") {
+    const lines = d <= 1 ? "1〜3 行（print と足し算・文字列連結だけ）" : d <= 2 ? "2〜5 行（変数の代入と print）" : d <= 3 ? "4〜7 行（for か if を 1 つ）" : d <= 4 ? "6〜10 行（for と if、リストの基本）" : d <= 5 ? "8〜12 行（辞書・スライス・文字列メソッド）" : d <= 6 ? "10〜14 行（関数・while・ネスト 1 段）" : d <= 7 ? "12〜16 行（sorted の key・内包表記・状態更新）" : d <= 8 ? "14〜18 行（再帰・複数の状態の追跡）" : d <= 9 ? "15〜20 行（クロージャ／ジェネレータ／参照の共有）" : "18〜22 行（複合的な状態変化とエッジケース）";
+    return `${base} コードは ${lines}。`;
   }
-  if (d <= 2) return "要素 3 つ・条件 2 つ程度で一意に決まる。";
-  if (d <= 4) return "要素 4〜5 つ・条件 3〜4 つ。";
-  if (d <= 6) return "真偽者や表の整理が必要。条件 4〜5 つ。";
-  if (d <= 8) return "複数の制約の同時充足。場合分けが 2〜3 通り必要。";
-  return "多段の推論と排反なケース分析。うっかり見落とす条件を 1 つ含める。解くのに慣れた人でも数分かかる密度にする（条件 6〜8 個、要素 5〜6 個）。";
+  if (key === "math") return `${base} ${d <= 2 ? "一桁〜二桁の足し引き・簡単な規則。" : d <= 4 ? "基本の割合・平均・簡単な場合の数。" : d <= 6 ? "2 段階の計算や周期性。" : d <= 8 ? "条件の組み合わせ・見落としやすい場合分け。" : "複数条件の厳密な数え上げ。"}`;
+  if (key === "algorithm") return `${base} ${d <= 2 ? "2〜3 ステップの手順をそのまま追う。" : d <= 4 ? "5〜8 ステップ、繰り返し 1 つ。" : d <= 6 ? "条件分岐を含む手順の結果。" : d <= 8 ? "最短手順や停止条件の判断。" : "複数の手順の比較・計算量の見積もり。"}`;
+  const p = d <= 1 ? "要素 2 つ・条件 1 つ。" : d <= 2 ? "要素 3 つ・条件 2 つ。" : d <= 3 ? "要素 3〜4 つ・条件 2〜3 つ。" : d <= 4 ? "要素 4 つ・条件 3 つ。" : d <= 5 ? "要素 4〜5 つ・条件 4 つ。" : d <= 6 ? "真偽者や表の整理が必要。条件 4〜5 つ。" : d <= 7 ? "複数の制約の同時充足。場合分け 2 通り。" : d <= 8 ? "場合分け 2〜3 通り。見落としやすい条件を 1 つ。" : d <= 9 ? "多段の推論と排反なケース分析。条件 6〜7 個、要素 5〜6 個。" : "条件 7〜8 個、要素 6 個。上級者でも数分かかる密度。";
+  return `${base} ${p}`;
 }
 
 // ---- OpenAI ----
 const envText = readFileSync(path.join(ROOT, ".env"), "utf8");
-const apiKey = envText
-  .split(/\r?\n/)
-  .find((l) => l.startsWith("OPENAI_API_KEY="))
-  ?.slice("OPENAI_API_KEY=".length)
-  .trim()
-  .replace(/^"|"$/g, "");
+const apiKey = envText.split(/\r?\n/).find((l) => l.startsWith("OPENAI_API_KEY="))?.slice("OPENAI_API_KEY=".length).trim().replace(/^"|"$/g, "");
 if (!apiKey) throw new Error("OPENAI_API_KEY not found in .env");
 const client = new OpenAI({ apiKey });
 
@@ -123,9 +157,7 @@ const genSchema = z.object({
   choices: z.array(z.string()),
   answer_index: z.number().int(),
   rubric_criteria: z.array(z.string()),
-  /** free 用: 答案に含まれていれば加点するキーワード（3〜6 個） */
   must_include: z.array(z.string()),
-  /** free 用: 模範解答（字数の基準になる。学習者には成功後に参考例として見せる） */
   model_answer: z.string(),
   hints: z.array(z.string()),
   explanation: z.string(),
@@ -144,31 +176,32 @@ const solveSchema = z.object({
 const reviewSchema = z.object({ score: z.number().int(), issues: z.string() });
 
 const GEN_ROLE = [
-  "あなたは学習サービス Trivium（READ / WRITE / LOGIC の 3 系統）の出題者。指定の系統・形式・難易度で、日本語の課題を 1 問作る。",
+  "あなたは学習サービス Trivium（READ / WRITE / LOGIC の 3 系統）の出題者。指定の系統・問題タイプ・形式・難易度で、日本語の課題を 1 問作る。",
   "- 問題は自己完結で、passage と prompt だけで解ける。実在の個人・時事の断定・医療/法律の助言を避ける。",
+  "- 難易度 1〜2 は『誰でも解ける』こと（迷う要素を入れない）。難易度 9〜10 は上級者でも慎重な検証が要る密度にする。指定の難易度ガイドに厳密に従う。",
   "- choice は選択肢 4 つ。正解は 1 つだけで、他の 3 つは明確に誤り（ただし『ありそうな誤り』にする）。選択肢どうしは文言も内容も重複させない。",
-  "- free は rubric_criteria（採点観点 3〜5 個）と must_include（答案に含まれていれば加点する語 3〜6 個。お題に直結する具体語）と model_answer（お題に対する模範解答。prompt で求める字数の範囲内で実際に書く）を書き、choices は空、answer_index は 0。prompt に書く字数指定は model_answer の長さと整合させる（模範解答より長い字数を要求しない）。",
-  "- free 以外では model_answer は空文字。",
-  "- バッククォート（`）を使わない。",
-  "- hints は 3 段。1 段目は問い返し、2 段目は着眼点、3 段目でも答えの値・完成文・正解の選択肢を書かない。",
+  "- free（記述）は rubric_criteria（採点観点 3〜5 個）、must_include（答案に含まれていれば加点する語 3〜6 個。お題に直結する具体語）、model_answer（模範解答。prompt で求める字数の範囲内で実際に書く）を書き、choices は空、answer_index は 0。prompt の字数指定は model_answer の長さに合わせる（模範解答より長い字数を要求しない）。free 以外では model_answer は空文字。",
+  "- hints は 3 段。1 段目は問い返し、2 段目は着眼点、3 段目でも答えの値・完成文・正解の選択肢を書かない。記述問題のヒントは、そのまま提出できる文にしない（観点を示すか、問い返す）。",
   "- explanation は正解した後に見せる解説（正解の根拠を簡潔に）。",
   "- title は 20 字以内。系統名の接頭辞（『LOGIC:』など）は付けない。",
-  "- 改行は実際の改行で書く（文字列として \\n と書かない）。マークダウンのコードフェンス（```）や装飾を使わない。",
+  "- 改行は実際の改行で書く（文字列として \\n と書かない）。マークダウンの装飾・コードフェンス・バッククォート（`）を使わない。",
   "- Python の出力予測問題: passage はコードのみ（説明文を混ぜない）。標準ライブラリのみ、input()・乱数・時刻・ファイル・ネットワークを使わない。必ず print で決定的な出力を出す。正解の選択肢は print の出力そのまま（Python の表記: 文字列はシングルクォート、複数行は改行で区切る）。コードを一行ずつ実行して確かめてから答えを決める。",
-  "- 論理パズル: プログラムコードを使わない。条件から一意に答えが決まることを確認する。",
+  "- Python バグ発見問題: passage は『期待どおり動かないコード』のみ。prompt に期待する出力（または動作）と実際の出力を明記し、原因の行（行番号と内容）または正しい修正を 4 択で選ばせる。修正が一意に決まるバグにする。",
+  "- 論理パズル・数的推理・手順問題: プログラムコードを使わない。条件から一意に答えが決まることを確認する。",
+  "- 複合問題（READ+LOGIC など）: 本文の読み取りと論理的判断の両方が必要な設計にする（どちらか片方だけでは解けない）。",
   "- skill_tags は allowed_skill_tags から 1〜2 個。",
 ].join("\n");
 
 const SOLVER_ROLE = [
   "あなたは慎重な解答者。与えられた課題を自力で解き、answer_index（0..3）で答える。",
   "- 根拠を一つずつ確かめ、複数の選択肢が正しく読める／どれも正しくない場合は ambiguous=true にして note に理由を書く。",
-  "- difficulty_rating は 1（小学校高学年でも解ける）〜10（大学上級・専門家向け）で、この課題の難しさを評価する。",
+  "- difficulty_rating は 1（小学校中学年でも解ける）〜10（専門家でも慎重な検証が要る）で、この課題の難しさを評価する。",
   "- hints（段階ヒント）を読み、答えの値・正解の選択肢がそのまま書かれていれば hints_leak_answer=true。",
   "- confidence は 0〜1。",
 ].join("\n");
 
 const REVIEW_ROLE = [
-  "あなたは作文課題のレビュー担当。お題（passage / prompt）と採点観点（rubric）を読み、学習課題としての質を 1〜5 で採点する。",
+  "あなたは記述課題のレビュー担当。お題（passage / prompt）と採点観点（rubric）と模範解答を読み、学習課題としての質を 1〜5 で採点する。",
   "5: お題が明確で、指定の字数・要素が妥当、観点が採点に使える、模範解答がお題と字数指定を満たしている。3: 一部曖昧、または模範解答が字数指定から外れている。1: 何を書けばよいか分からない、または不適切。",
   "issues に問題点を簡潔に（無ければ空文字）。",
 ].join("\n");
@@ -177,15 +210,7 @@ function fmt(tag: string, v: unknown): string {
   return `<${tag}>\n${typeof v === "string" ? v : JSON.stringify(v, null, 2)}\n</${tag}>`;
 }
 
-async function parse<T extends z.ZodTypeAny>(
-  model: string,
-  instructions: string,
-  input: string,
-  schema: T,
-  name: string,
-  effort: "low" | "medium" | "high",
-  maxTokens: number,
-): Promise<z.infer<T>> {
+async function parse<T extends z.ZodTypeAny>(model: string, instructions: string, input: string, schema: T, name: string, effort: "low" | "medium" | "high", maxTokens: number): Promise<z.infer<T>> {
   const res = await client.responses.parse({
     model,
     instructions,
@@ -201,108 +226,87 @@ async function parse<T extends z.ZodTypeAny>(
 }
 
 // ---- 生成 ----
-type Slot = { domain: Domain; sub: SubType; difficulty: number; n: number };
+type Slot = { domain: Domain; spec: TypeSpec; difficulty: number; n: number };
 
 function slotKey(s: Slot): string {
-  return `${s.domain}:${s.sub}:${s.difficulty}:${s.n}`;
+  return `${s.domain}:${s.spec.key}:${s.difficulty}:${s.n}`;
 }
 function slotId(s: Slot, seq: number): string {
   return `${s.domain.toLowerCase()}-s${s.difficulty}-${String(seq).padStart(2, "0")}`;
 }
-function kindOf(sub: SubType): Kind {
-  return sub === "free" ? "free" : "choice";
+function allowedTags(s: Slot): string[] {
+  return s.spec.axes.flatMap((a) => SUBSKILLS[a]);
 }
 function themeFor(s: Slot, attempt: number): string {
-  const i = (s.difficulty * 7 + s.n * 3 + attempt * 11) % 1000;
-  if (s.domain === "READ") return THEMES[i % THEMES.length];
-  if (s.domain === "WRITE") return s.sub === "free" ? THEMES[(i + 5) % THEMES.length] : WRITE_TOPICS[i % WRITE_TOPICS.length];
-  return s.sub === "python" ? PY_TOPICS[i % PY_TOPICS.length] : LOGIC_TOPICS[i % LOGIC_TOPICS.length];
+  const i = (s.difficulty * 7 + s.n * 3 + attempt * 11 + s.spec.key.length * 5) % 1000;
+  const k = s.spec.key;
+  if (k === "python" || k === "debug") return PY_TOPICS[i % PY_TOPICS.length];
+  if (k === "puzzle" || k === "read_code") return LOGIC_TOPICS[i % LOGIC_TOPICS.length];
+  if (k === "math") return MATH_TOPICS[i % MATH_TOPICS.length];
+  if (k === "algorithm" || k === "write_code") return ALGO_TOPICS[i % ALGO_TOPICS.length];
+  if (k === "revision" || k === "structure") return WRITE_TOPICS[i % WRITE_TOPICS.length];
+  return THEMES[i % THEMES.length];
 }
 
 async function generate(s: Slot, attempt: number, recentTitles: string[]): Promise<Gen> {
-  const kind = kindOf(s.sub);
-  const form =
-    s.sub === "python" ? "Python の短いコードの出力予測（passage にコードのみ）" : s.sub === "logic" ? "論理パズル・推論問題（コード不可）" : kind === "free" ? "自由記述（rubric 付き）" : "4 択";
+  const domainLabel = s.domain === "MIX" ? `複合（主系統 ${s.spec.primary === "CODE" ? "LOGIC" : s.spec.primary}、関与: ${s.spec.axes.map((a) => (a === "CODE" ? "LOGIC" : a)).join("+")}）` : s.domain === "CODE" ? "LOGIC" : s.domain;
   const user = [
-    fmt("domain", `${s.domain}（${s.domain === "CODE" ? "LOGIC" : s.domain}）`),
-    fmt("kind", kind),
-    fmt("form", form),
-    fmt("difficulty", `${s.difficulty} / 10 — ${difficultyGuide(s.domain, s.sub, s.difficulty)}`),
+    fmt("domain", domainLabel),
+    fmt("task_type", `${s.spec.key} — ${s.spec.label}`),
+    fmt("kind", s.spec.kind),
+    fmt("difficulty", difficultyGuide(s.domain, s.spec.key, s.difficulty)),
     fmt("theme_hint", `${themeFor(s, attempt)}（題材の参考。無理に使わなくてよい）`),
-    fmt("allowed_skill_tags", SUBSKILLS[s.domain]),
+    fmt("allowed_skill_tags", allowedTags(s)),
     fmt("recent_titles", recentTitles.slice(-40)),
   ].join("\n\n");
-  return parse(GEN_MODEL, GEN_ROLE, user, genSchema, "generated_task", s.sub === "python" || s.sub === "logic" ? "medium" : "low", s.difficulty >= 8 ? 12000 : 6000);
+  const heavy = ["python", "debug", "puzzle", "math", "algorithm", "read_code"].includes(s.spec.key);
+  return parse(GEN_MODEL, GEN_ROLE, user, genSchema, "generated_task", heavy ? "medium" : "low", s.difficulty >= 8 ? 12000 : 6000);
 }
 
 // ---- 検証 ----
-function normalizeOutput(s: string): string {
-  return s
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .join("\n")
-    .replace(/"/g, "'")
-    .replace(/\s+/g, "");
+function normalizeOutput(t: string): string {
+  return t.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean).join("\n").replace(/"/g, "'").replace(/\s+/g, "");
 }
-function nl(s: string): string {
-  return s.replace(/\\n/g, "\n").replace(/\\t/g, "    ").replace(/\r/g, "").trim();
+function nl(t: string): string {
+  return t.replace(/\\n/g, "\n").replace(/\\t/g, "    ").replace(/\r/g, "").trim();
 }
-
-function runPython(code: string): { stdout: string } | { error: string } {
-  const r = spawnSync("python", ["-I", "-c", code], {
-    timeout: 5000,
-    encoding: "utf8",
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-    cwd: OUT_DIR,
-  });
-  if (r.error) return { error: r.error.message };
-  if (r.status !== 0) return { error: (r.stderr || "").slice(-300) };
-  return { stdout: r.stdout };
+function runPython(code: string): { stdout: string; stderr: string; status: number | null } {
+  const r = spawnSync("python", ["-I", "-c", code], { timeout: 5000, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" }, cwd: OUT_DIR });
+  if (r.error) return { stdout: "", stderr: r.error.message, status: -1 };
+  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", status: r.status };
 }
+const FORBIDDEN = /\b(input\(|random|datetime|time\.|open\(|os\.|sys\.|subprocess|socket|requests)/;
 
 type Verified = { ok: true; gen: Gen; rating?: number } | { ok: false; reason: string };
 
 async function verify(s: Slot, g0: Gen): Promise<Verified> {
-  const g: Gen = { ...g0, title: nl(g0.title), passage: nl(g0.passage), prompt: nl(g0.prompt), explanation: nl(g0.explanation), choices: g0.choices.map(nl), hints: g0.hints.map(nl) };
-  const kind = kindOf(s.sub);
-  if (/`/.test(g.title + g.passage + g.prompt + g.choices.join("") + g.hints.join("") + g.explanation)) return { ok: false, reason: "backtick" };
+  const g: Gen = { ...g0, title: nl(g0.title), passage: nl(g0.passage), prompt: nl(g0.prompt), explanation: nl(g0.explanation), choices: g0.choices.map(nl), hints: g0.hints.map(nl), model_answer: nl(g0.model_answer) };
+  const kind = s.spec.kind;
+  const shown = g.title + g.passage + g.prompt + g.choices.join("") + g.hints.join("") + g.explanation;
+  if (/`/.test(shown)) return { ok: false, reason: "backtick" };
   if (g.hints.length !== 3 || g.hints.some((h) => h.length < 4)) return { ok: false, reason: "hints" };
   if (g.explanation.length < 10) return { ok: false, reason: "explanation" };
   if (!g.prompt) return { ok: false, reason: "prompt empty" };
-  g.title = g.title.replace(/^\s*(READ|WRITE|LOGIC|CODE)\s*[:：]\s*/i, "").slice(0, 40);
-  g.skill_tags = g.skill_tags.filter((t) => SUBSKILLS[s.domain].includes(t));
-  if (g.skill_tags.length === 0) g.skill_tags = [SUBSKILLS[s.domain][0]];
+  g.title = g.title.replace(/^\s*(READ|WRITE|LOGIC|CODE|MIX)\s*[:：]\s*/i, "").slice(0, 40);
+  const tags = allowedTags(s);
+  g.skill_tags = g.skill_tags.filter((t) => tags.includes(t));
+  if (g.skill_tags.length === 0) g.skill_tags = [SUBSKILLS[s.spec.primary][0]];
 
   if (kind === "free") {
     if (g.rubric_criteria.length < 3) return { ok: false, reason: "rubric" };
     if (g.must_include.filter(Boolean).length < 2) return { ok: false, reason: "must_include" };
     g.choices = [];
-    g.model_answer = nl(g.model_answer);
     const len = g.model_answer.length;
-    const [lo, hi] = s.difficulty <= 3 ? [40, 130] : s.difficulty <= 6 ? [70, 200] : [110, 300];
+    const [lo, hi] = s.difficulty <= 2 ? [25, 90] : s.difficulty <= 4 ? [40, 130] : s.difficulty <= 6 ? [70, 200] : s.difficulty <= 8 ? [110, 280] : [150, 340];
     if (len < lo || len > hi) return { ok: false, reason: `model_answer length ${len} (want ${lo}〜${hi})` };
-    // ヒントがそのまま提出できる完成解になっていないか（tests/tasks.test.ts と同じ判定: 字数が範囲内・must_include 2 語以上・疑問文でない）
-    {
-      const n0 = g.model_answer.length;
-      const minL = Math.max(30, Math.round(n0 * 0.6));
-      const maxL = Math.max(minL + 40, Math.round(n0 * 1.6));
-      for (const h of g.hints) {
-        const hl = [...h].length;
-        const hits = g.must_include.filter((w) => w && h.includes(w)).length;
-        if (hl >= minL && hl <= maxL && hits >= 2 && !/[？?]\s*$/.test(h)) return { ok: false, reason: "hint looks like a full answer" };
-      }
+    const minL = Math.max(20, Math.round(len * 0.6));
+    const maxL = Math.max(minL + 40, Math.round(len * 1.6));
+    for (const h of g.hints) {
+      const hl = [...h].length;
+      const hits = g.must_include.filter((w) => w && h.includes(w)).length;
+      if (hl >= minL && hl <= maxL && hits >= 2 && !/[？?]\s*$/.test(h)) return { ok: false, reason: "hint looks like a full answer" };
     }
-    const r = await parse(
-      REVIEW_MODEL,
-      REVIEW_ROLE,
-      [fmt("passage", g.passage), fmt("prompt", g.prompt), fmt("rubric", g.rubric_criteria), fmt("model_answer", g.model_answer)].join("\n\n"),
-      reviewSchema,
-      "review",
-      "low",
-      400,
-    );
+    const r = await parse(REVIEW_MODEL, REVIEW_ROLE, [fmt("passage", g.passage), fmt("prompt", g.prompt), fmt("rubric", g.rubric_criteria), fmt("model_answer", g.model_answer)].join("\n\n"), reviewSchema, "review", "low", 400);
     if (r.score < 4) return { ok: false, reason: `review ${r.score}: ${r.issues.slice(0, 80)}` };
     return { ok: true, gen: g };
   }
@@ -313,11 +317,11 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
   if (g.answer_index < 0 || g.answer_index > 3) return { ok: false, reason: "answer_index" };
   if (g.hints.some((h) => norm.includes(normalizeOutput(h)))) return { ok: false, reason: "hint equals a choice" };
 
-  if (s.sub === "python") {
+  if (s.spec.key === "python") {
     if (!/print\(/.test(g.passage)) return { ok: false, reason: "no print" };
-    if (/\b(input\(|random|datetime|time\.|open\(|os\.|sys\.|subprocess|socket|requests)/.test(g.passage)) return { ok: false, reason: "forbidden construct" };
+    if (FORBIDDEN.test(g.passage)) return { ok: false, reason: "forbidden construct" };
     const run = runPython(g.passage);
-    if ("error" in run) return { ok: false, reason: `python error: ${run.error.slice(0, 80)}` };
+    if (run.status !== 0) return { ok: false, reason: `python error: ${run.stderr.slice(-80)}` };
     const actual = normalizeOutput(run.stdout);
     if (!actual) return { ok: false, reason: "empty stdout" };
     const idx = norm.findIndex((c) => c === actual);
@@ -326,9 +330,14 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
       console.warn(`  [fix] ${slotKey(s)}: answer_index ${g.answer_index} -> ${idx}`);
       g.answer_index = idx;
     }
-    // 正解の選択肢は実行結果の表記で統一しておく（引用符など）
     g.choices[idx] = run.stdout.trim();
     return { ok: true, gen: g };
+  }
+  if (s.spec.key === "debug") {
+    if (FORBIDDEN.test(g.passage)) return { ok: false, reason: "forbidden construct" };
+    const run = runPython(g.passage);
+    // バグ入りコードは「動くが結果が違う」か「例外で止まる」のどちらでもよいが、少なくとも Python として読み込めること
+    if (run.status === -1 || /SyntaxError|IndentationError/.test(run.stderr)) return { ok: false, reason: "buggy code does not parse" };
   }
 
   const sol = await parse(
@@ -337,15 +346,13 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
     [fmt("passage", g.passage), fmt("prompt", g.prompt), fmt("choices", g.choices.map((c, i) => `${i}: ${c}`)), fmt("hints", g.hints)].join("\n\n"),
     solveSchema,
     "solution",
-    s.sub === "logic" || s.difficulty >= 7 ? "high" : "medium",
+    s.difficulty >= 7 || ["puzzle", "math", "algorithm", "debug", "read_code"].includes(s.spec.key) ? "high" : "medium",
     4000,
   );
   if (sol.hints_leak_answer) return { ok: false, reason: "hints leak answer" };
   if (sol.ambiguous) return { ok: false, reason: `ambiguous: ${sol.note.slice(0, 80)}` };
   if (sol.answer_index !== g.answer_index) return { ok: false, reason: `solver disagrees (${sol.answer_index} vs ${g.answer_index}): ${sol.note.slice(0, 80)}` };
-  // ソルバーの難易度評価は、READ / WRITE では強いモデルほど低めに出る（読解は「解ける」ので 2〜3 と評価しがち）。
-  // READ / WRITE の難易度は生成ガイド（本文の長さ・設問の型）で定義し、評価は「目標より明らかに難しすぎる」ときだけ弾く。
-  // LOGIC は評価を使うが、8 以上は許容幅を広げる（高難度ほど低めに出る傾向）
+  // 難易度: LOGIC は評価との差が大きいものを弾く（8 以上は許容幅を広げる）。READ / WRITE / MIX は「明らかに難しすぎ」だけ弾く
   if (s.domain === "CODE") {
     const tol = s.difficulty >= 8 ? 4 : 3;
     if (Math.abs(sol.difficulty_rating - s.difficulty) > tol) return { ok: false, reason: `difficulty rated ${sol.difficulty_rating} (target ${s.difficulty})` };
@@ -358,12 +365,14 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
 // ---- 出力 ----
 type StockTask = {
   id: string;
-  domain: Domain;
+  domain: Axis;
   difficulty: number;
+  axes?: Partial<Record<"read" | "write" | "code", number>>;
   title: string;
   passage?: string;
   prompt: string;
   kind: Kind;
+  taskType: string;
   choices?: string[];
   answerKey?: string[];
   rubric?: { mustInclude?: string[]; minLength?: number; maxLength?: number; criteria: string[]; sampleAnswer?: string };
@@ -373,32 +382,29 @@ type StockTask = {
 };
 
 function toTask(s: Slot, g: Gen, id: string): StockTask {
-  const kind = kindOf(s.sub);
+  const kind = s.spec.kind;
   const base: StockTask = {
     id,
-    domain: s.domain,
+    domain: s.spec.primary,
     difficulty: s.difficulty,
+    ...(s.domain === "MIX" ? { axes: Object.fromEntries(s.spec.axes.map((a) => [a.toLowerCase(), s.difficulty])) as StockTask["axes"] } : {}),
     title: g.title,
     passage: g.passage || undefined,
     prompt: g.prompt,
     kind,
+    taskType: s.domain === "MIX" ? "composite" : s.spec.key,
     hints: g.hints,
     explanation: g.explanation,
     skillTags: g.skill_tags,
   };
   if (kind === "choice") return { ...base, choices: g.choices, answerKey: [String(g.answer_index)] };
-  // 字数の上下限は模範解答の長さから決める（0.6 倍〜1.6 倍。長すぎる要求を防ぐ）
   const n = g.model_answer.length;
-  const minLength = Math.max(30, Math.round(n * 0.6));
+  const minLength = Math.max(20, Math.round(n * 0.6));
   const maxLength = Math.max(minLength + 40, Math.round(n * 1.6));
-  return {
-    ...base,
-    rubric: { mustInclude: g.must_include.filter(Boolean).slice(0, 6), minLength, maxLength, criteria: g.rubric_criteria, sampleAnswer: g.model_answer },
-  };
+  return { ...base, rubric: { mustInclude: g.must_include.filter(Boolean).slice(0, 6), minLength, maxLength, criteria: g.rubric_criteria, sampleAnswer: g.model_answer } };
 }
 
 type Checkpoint = Record<string, StockTask & { rating?: number }>;
-
 function loadCheckpoint(domain: Domain): Checkpoint {
   const p = path.join(OUT_DIR, `${domain}.json`);
   return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Checkpoint) : {};
@@ -407,7 +413,6 @@ function saveCheckpoint(domain: Domain, cp: Checkpoint): void {
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(path.join(OUT_DIR, `${domain}.json`), JSON.stringify(cp, null, 2));
 }
-
 function emit(domain: Domain, cp: Checkpoint): number {
   const tasks = Object.values(cp)
     .map(({ rating: _r, ...t }) => {
@@ -418,7 +423,7 @@ function emit(domain: Domain, cp: Checkpoint): number {
   const name = `${domain}_STOCK`;
   const body = [
     "// 自動生成ファイル（scripts/stock/gen_stock.mts が書き出す）。手で編集しない。",
-    `// ${domain}: ${tasks.length} 問（difficulty 1〜10）。生成: ${GEN_MODEL} / 検証: ${domain === "CODE" ? "Python 実行 + " : ""}独立ソルバー ${SOLVER_MODEL}`,
+    `// ${domain}: ${tasks.length} 問（difficulty 1〜10・問題タイプ付き）。生成: ${GEN_MODEL} / 検証: Python 実行 + 独立ソルバー ${SOLVER_MODEL} + レビュー ${REVIEW_MODEL}`,
     'import type { Task } from "../types";',
     "",
     `export const ${name}: Task[] = ${JSON.stringify(tasks, null, 2)};`,
@@ -435,9 +440,7 @@ async function runDomain(domain: Domain): Promise<void> {
   const slots: Slot[] = [];
   for (let d = 1; d <= 10; d++) {
     let n = 0;
-    for (const [sub, count] of Object.entries(PLAN[domain]) as [SubType, number][]) {
-      for (let i = 0; i < count; i++) slots.push({ domain, sub, difficulty: d, n: n++ });
-    }
+    for (const spec of PLAN[domain]) for (let i = 0; i < spec.count; i++) slots.push({ domain, spec, difficulty: d, n: n++ });
   }
   const todo = slots.filter((s) => !cp[slotKey(s)]);
   console.log(`[${domain}] slots=${slots.length} done=${slots.length - todo.length} todo=${todo.length}`);
@@ -474,7 +477,7 @@ async function runDomain(domain: Domain): Promise<void> {
 }
 
 const args = process.argv.slice(2);
-const domainArg = args.includes("--domain") ? args[args.indexOf("--domain") + 1] : "read,write,code";
+const domainArg = args.includes("--domain") ? args[args.indexOf("--domain") + 1] : "read,write,code,mix";
 const domains = domainArg.split(",").map((d) => d.trim().toUpperCase()) as Domain[];
 if (args.includes("--emit-only")) {
   for (const d of domains) console.log(`[${d}] emitted ${emit(d, loadCheckpoint(d))} tasks`);

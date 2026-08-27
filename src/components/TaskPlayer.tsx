@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOMAIN_META, MAX_HINTS, type DomainKey } from "@/lib/domain";
 import type { TaskPublic } from "@/lib/tasks/types";
-import { achievementTitle } from "@/lib/achievement-defs";
+import { ACHIEVEMENTS, achievementTitle } from "@/lib/achievement-defs";
+import { AchievementToast } from "@/components/AchievementToast";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { CodeBlock } from "@/components/CodeBlock";
 import { moodForMark } from "@/lib/characters";
+import { formatScore } from "@/lib/scoring";
 
 type SubmitResponse =
   | { status: "retry"; feedback: string; hint: string; hintCount: number; hintsRemaining: number }
@@ -54,6 +56,8 @@ export function TaskPlayer({
   // mark: ○ 正解 / △ 誤答→ヒントで再挑戦 / ✕ ヒント切れ・ギブアップ
   const [log, setLog] = useState<{ kind: "feedback" | "hint" | "me"; text: string; mark?: "○" | "△" | "✕" }[]>([]);
   const [result, setResult] = useState<Extract<SubmitResponse, { status: "success" | "failed" }> | null>(null);
+  // 実績解除の演出（結果ごとに 1 回。閉じたら消す）
+  const [toastKeys, setToastKeys] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
   const [reload, setReload] = useState<{ key: number; taskId?: string }>({ key: 0, taskId: preferredTaskId });
@@ -123,6 +127,7 @@ export function TaskPlayer({
       } else {
         setLog((l) => [...l, { kind: "feedback", text: j.feedback, mark: j.status === "success" ? "○" : "✕" }]);
         setResult(j);
+        if (j.newAchievements?.length) setToastKeys(j.newAchievements);
         setPhase("done");
       }
     } catch (e) {
@@ -279,7 +284,13 @@ export function TaskPlayer({
               {meta.label}
             </span>
             <span className="tabular-nums">
-              {result.profile.before} → <span className="font-bold">{result.profile.after}</span>
+              {formatScore(result.profile.before)} → <span className="font-bold">{formatScore(result.profile.after)}</span>
+              {Math.abs(result.profile.after - result.profile.before) >= 0.05 && (
+                <span className={`ml-1 text-[11px] ${result.profile.after > result.profile.before ? "text-ok" : "text-ng"}`}>
+                  ({result.profile.after > result.profile.before ? "+" : ""}
+                  {(Math.round((result.profile.after - result.profile.before) * 10) / 10).toFixed(1)})
+                </span>
+              )}
               <span className="ml-2 text-[11px] text-muted">
                 Lv.{result.profile.levelBefore} → <span className={result.profile.levelAfter > result.profile.levelBefore ? "font-bold text-ok" : ""}>Lv.{result.profile.levelAfter}</span>
                 {result.profile.levelAfter > result.profile.levelBefore ? " レベルアップ" : ""}
@@ -302,10 +313,22 @@ export function TaskPlayer({
             </div>
           )}
           {result.newAchievements.length > 0 && (
-            <p className="text-xs">
-              <span className="font-semibold">Achievement 解除:</span> {result.newAchievements.map(achievementTitle).join("、")}
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="font-semibold">🏅 実績解除:</span>
+              {result.newAchievements.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="rounded-full border border-line bg-bg px-2 py-0.5 hover:border-fg"
+                  onClick={() => setToastKeys([k])}
+                  title={ACHIEVEMENTS[k]?.description ?? ""}
+                >
+                  {ACHIEVEMENTS[k]?.emoji ?? "🏅"} {achievementTitle(k)}
+                </button>
+              ))}
+            </div>
           )}
+          {toastKeys.length > 0 && <AchievementToast keys={toastKeys} agent={domain} onDone={() => setToastKeys([])} />}
           <div className="flex flex-wrap gap-2 pt-1">
             <Link href="/dashboard" className="btn btn-primary">
               Dashboard で変化を見る

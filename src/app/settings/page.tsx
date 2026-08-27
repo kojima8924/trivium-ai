@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { AGENTS, AGENT_LABELS, DEFAULT_PERSONAS, TONES, loadPersonas, resetPersonas, savePersona, type AgentKey, type ToneKey } from "@/lib/persona";
 import { DOMAIN_VAR } from "@/components/dashboard/shared";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
+import { TaskTypeSettings } from "@/components/TaskTypeSettings";
+import { loadTaskPrefs } from "@/lib/task-prefs";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const userId = session?.user?.id;
   if (!userId) redirect("/login?next=/settings");
   const { saved } = await searchParams;
-  const personas = await loadPersonas(userId);
+  const [personas, taskPrefs] = await Promise.all([loadPersonas(userId), loadTaskPrefs(userId)]);
 
   async function save(formData: FormData) {
     "use server";
@@ -129,6 +131,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           すべて既定に戻す
         </button>
       </form>
+
+      <TaskTypeSettings initial={taskPrefs} colors={{ READ: AGENT_COLOR.READ, WRITE: AGENT_COLOR.WRITE, CODE: AGENT_COLOR.CODE }} />
     </div>
   );
 }

@@ -164,3 +164,30 @@ test("computeLevelsのprogressはすべて0以上1以下になる", () => {
     assert.ok(result.progress <= 1, `${axis}: progress=${result.progress}`);
   }
 });
+
+test("score は小数 1 桁で、同じレベル内でも証拠が増えると 0.1 刻みで上がる（10 刻みにならない）", () => {
+  // 1 問だけでは証拠量 1.0 < minEvidence 1.5 なのでレベルは 0。進捗は 1.0/1.5 ≈ 0.667 → 6.7（以前は 0 か 9.9 の二択だった）
+  const one = computeDomainScore("CODE", [ev({ difficulty: 4 })], NOW);
+  assert.equal(one.level, 0, `level=${one.level}`);
+  assert.equal(one.score, 6.7);
+  assert.equal(Math.round(one.score * 10) / 10, one.score);
+
+  // ヒント 1 回（重み 0.8）の正解なら証拠量が少ない分だけ低い（0.8/1.5 ≈ 0.533 → 5.3）
+  const hinted = computeDomainScore("CODE", [ev({ difficulty: 4, hintCount: 1 })], NOW);
+  assert.ok(hinted.score < one.score && hinted.score > 3, `hinted=${hinted.score}`);
+
+  // 2 問目で証拠量が閾値を超えるとレベル 4 に上がり、以後は次レベル帯の証拠で 0.1 刻みに増える
+  const two = computeDomainScore("CODE", [ev({ difficulty: 4 }), ev({ difficulty: 4, createdAt: new Date(NOW.getTime() + 60_000) })], new Date(NOW.getTime() + 120_000));
+  assert.equal(two.level, 4, `level=${two.level}`);
+  assert.ok(two.score >= 40 && two.score < 50, `two=${two.score}`);
+
+  // 成功が増えても score は減らない（単調）
+  let prev = 0;
+  const events = [];
+  for (let i = 0; i < 6; i++) {
+    events.push(ev({ difficulty: 4 + Math.floor(i / 2), createdAt: new Date(NOW.getTime() + i * 60_000) }));
+    const s = computeDomainScore("CODE", events, new Date(NOW.getTime() + 10 * 60_000)).score;
+    assert.ok(s >= prev, `step ${i}: ${prev} -> ${s}`);
+    prev = s;
+  }
+});

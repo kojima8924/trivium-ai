@@ -14,6 +14,7 @@ import { renderNow } from "@/components/dashboard/shared";
 import { AchievementList } from "@/components/dashboard/AchievementList";
 import { XpCard } from "@/components/dashboard/XpCard";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
+import { ShareProfile } from "@/components/ShareProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,16 @@ export default async function DashboardPage() {
           <TriviumRadar scores={scores} measured={measured} />
         )}
         <ScoreTiles domains={data.domains} />
+        {/* 三角グラフを画像にして SNS に共有（ブラウザ側で描画） */}
+        {data.totalEvents > 0 && (
+          <ShareProfile
+            name={session?.user?.name ?? "あなた"}
+            domains={data.domains.map((d) => ({ domain: d.domain, level: d.level, score: d.score }))}
+            xp={{ total: data.xp.total, rank: data.xp.rank.title }}
+            streak={data.xp.streak}
+            appUrl={env.appUrl}
+          />
+        )}
       </section>
 
       {/* 2.5 XP（行動の積み上げ。能力図とは別の指標） */}
