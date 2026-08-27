@@ -4,11 +4,11 @@
 
 ## 事前準備（当日 18:30 までに）
 
-- [ ] `npm run preflight -- https://<公開URL>` が全項目 OK（health / トップ / Google OAuth / 静的アセット / LINE 署名検証 / 認証ガード / HTTPS を自動チェック）
+- [ ] `npm run preflight -- https://trivium.153.126.213.251.sslip.io` が全項目 OK（health / トップ / Google OAuth / 静的アセット / LINE 署名検証 / 認証ガード / HTTPS を自動チェック）
 - [ ] `/api/health` の `ai.provider` が `anthropic`（本物の Claude で寸評・ヒントを生成。実測: 誤答→ヒント 約6秒、正答→寸評+Leader更新 約10秒）。遅い/不安なら `AI_PROVIDER=mock` にすると即時応答のルールベースに切り替わる
 - [ ] デモ用 Google アカウントでログイン済み → Dashboard で **デモデータを投入** 済み（三角形が出ている）
 - [ ] 直近で `code-003`（平均値のバグ）を解いていない（解いた場合は「デモデータで置き換える」で履歴をリセット。seed 直後の値は READ 72 / WRITE 57 / CODE 79）
-- [ ] スマートフォンで `https://<公開URL>` を開き、ログイン状態にしておく（LINE から開く導線用）
+- [ ] スマートフォンで `https://trivium.153.126.213.251.sslip.io` を開き、ログイン状態にしておく（LINE から開く導線用）
 - [ ] LINE 公式アカウントを友だち追加済み・Rich Menu が出ている
 - [ ] LINE で「連携」→ 届いた URL を開いて **デモ用アカウントと連携済み**（LINE で「プロフィール」と送ると READ 72 / WRITE 57 / CODE 79 が返る状態）
 - [ ] 保険: `DEMO_LOGIN_ENABLED=true` にしてあれば Google がこけても「デモとして入る」で続行できる
