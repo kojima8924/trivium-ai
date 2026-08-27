@@ -199,7 +199,35 @@ Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock:
 
 ## 6. LINE 公式アカウント
 
-（LINE担当の断片をここに統合）
+1. [LINE Developers](https://developers.line.biz/) でプロバイダー → **Messaging API チャネル**を作成
+2. 「Messaging API設定」で以下を取得し、Coolify の環境変数に設定（実値はコミットしない）
+   - `LINE_CHANNEL_SECRET` … チャネル基本設定の「チャネルシークレット」
+   - `LINE_CHANNEL_ACCESS_TOKEN` … 「チャネルアクセストークン（長期）」を発行
+3. **Webhook URL** に `https://<公開ドメイン>/api/line/webhook` を設定し「Webhookの利用」を ON → 「検証」で 200 を確認
+   - 署名検証は必須実装済み（`x-line-signature` が無い／不一致は 401、secret 未設定は 503）
+4. LINE Official Account Manager（応答設定）で **応答メッセージ: OFF**、**Webhook: ON**（あいさつメッセージも OFF 推奨。follow 時は Webhook が歓迎文を返す）
+5. Rich Menu を作成（`NEXT_PUBLIC_APP_URL` を公開URLにしてから、ローカルの開発環境で実行）
+   ```bash
+   npm run line:richmenu
+   ```
+   - 2行×3列: 上段 `READ | WRITE | CODE`（Webへ）、下段 `今日の学習 | 履歴 | PROFILE`（postback）
+   - 見た目を整えるなら `public/line/richmenu.png`（2500×1686）を置いてから再実行（無ければ単色画像を自動生成）
+6. LINE user ID と Google アカウントは独立（`LineUser.userId` は将来の連携用で未使用）。LINE 側は「入口」に徹し、課題は Web で解く
+
+### 6.1 ローカルで Webhook を検証する
+
+```bash
+# 別ポートで起動（テスト用シークレット）
+LINE_CHANNEL_SECRET=testsecret LINE_CHANNEL_ACCESS_TOKEN=dummy npx next dev -p 3100
+
+# 署名付きリクエスト（本文はファイル経由にする。シェル変数に日本語を入れると署名が合わない）
+printf '%s' '{"destination":"x","events":[{"type":"message","mode":"active","timestamp":0,"webhookEventId":"1","deliveryContext":{"isRedelivery":false},"replyToken":"dummy","source":{"type":"user","userId":"Utest0001"},"message":{"id":"1","type":"text","text":"10分だけ"}}]}' > body.json
+SIG=$(openssl dgst -sha256 -hmac testsecret -binary body.json | base64)
+curl -s -w ' %{http_code}
+' -X POST -H 'Content-Type: application/json' -H "x-line-signature: $SIG" --data-binary @body.json http://localhost:3100/api/line/webhook
+# → {"ok":true,"handled":1} 200（dummy token のため LINE への返信自体はログに 401 が出るが正常）
+# 署名なし/不正なら 401
+```
 
 ## 7. デプロイ後の確認
 
