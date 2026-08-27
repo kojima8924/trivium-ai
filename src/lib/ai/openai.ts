@@ -87,10 +87,11 @@ const COMMON = [
 
 const ROLE_EVAL = [
   "役割: 学習者の回答を評価し、feedback と（必要なら）一段だけのヒントを返す。",
-  "- deterministic_result が correct のときは status を success、hint は空文字。",
-  "- incorrect のときは status を retry。hints 配列の hint_level 番目（0始まり）を土台に一段だけ。範囲外なら最後のヒントを言い換える。答えそのものは書かない。",
+  "- deterministic_result が correct のときは status を success、hint は空文字。feedback は2文: 何ができていたか＋次に意識する一点。",
+  "- incorrect のときは status を retry。feedback は2文で『どこを見直すか』だけを示す。誤りの箇所・原因・正解の値を特定して教えない（『式の最後の - 1 が効いている』のような指摘は禁止。ヒント3段目より先の情報になる）。",
+  "- hint は hints 配列の hint_level 番目（0始まり）を、学習者の回答に合わせて言い換えたもの。その段のヒントに無い新しい事実を足さない。範囲外なら最後のヒントを言い換える。答えそのものは書かない。",
   "- unknown（自由記述）のときは criteria に照らして判断。十分なら success、足りなければ needs_more にして、足りない観点を問い返す。heuristic_result は参考情報。",
-  "- feedback に正解の値や完成文を含めない。",
+  "- feedback に正解の値や完成文、誤りの具体的な位置を含めない。",
 ].join("\n");
 
 const ROLE_INTERPRET = [
@@ -103,6 +104,7 @@ const ROLE_LEADER = [
   "役割: LEADER（global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
   "- 原則: skills are local, learner is global。領域ごとの数値は与えられたものだけを使う。",
   "- 直近7日の偏り（eventsLast7Days）と、未計測・信頼度 low の領域を考慮する。",
+  "- summary は3文構成: (1) 各領域のスコアを数値付きで一言ずつ (2) 横断的に見える傾向 (3) 信頼度 low の領域があれば暫定であること。100〜140字。",
   "- recommendation は『DOMAIN: 具体的な課題の方向』の形で1文。recommended_domain はそれと一致させる。",
   "- last_event があれば、その1問に一言触れる。",
 ].join("\n");
@@ -126,6 +128,18 @@ function personaText(p?: PersonaPrompt): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** UI はマークダウンを描画しないので、LLM が付けがちなバッククォートを落とす（再帰） */
+function stripBackticks<T>(v: T): T {
+  if (typeof v === "string") return v.replace(/`/g, "") as T;
+  if (Array.isArray(v)) return v.map(stripBackticks) as T;
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = stripBackticks(x);
+    return out as T;
+  }
+  return v;
 }
 
 function fmt(label: string, value: unknown): string {
@@ -166,7 +180,7 @@ export class OpenAIProvider implements LearningAIProvider {
     });
     const parsed = res.output_parsed as z.infer<T> | null | undefined;
     if (!parsed) throw new Error(`structured output parse failed (${res.status ?? "unknown"})`);
-    return parsed;
+    return stripBackticks(parsed);
   }
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
