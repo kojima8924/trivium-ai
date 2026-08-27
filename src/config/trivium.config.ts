@@ -30,7 +30,7 @@ export const MODELS = {
   /** 作問（品質重視。やや高級なモデル） */
   generate: "gpt-5.5",
   /** 推論の深さ: none | minimal | low | medium | high（速さと質のトレードオフ） */
-  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "medium" } as const,
+  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "low" } as const,
 } as const;
 
 // ---------------------------------------------------------------------

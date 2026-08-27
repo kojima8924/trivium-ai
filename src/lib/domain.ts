@@ -68,3 +68,8 @@ export type Confidence = "low" | "medium" | "high";
 
 
 export const MAX_HINTS = 3;
+
+/** ユーザー向け文章に内部キー CODE が残っていたら表示名 LOGIC に直す（LLM 出力の安全網） */
+export function toUserWording(text: string): string {
+  return text.replace(/(?<![A-Za-z_])CODE(?![A-Za-z_])/g, "LOGIC");
+}

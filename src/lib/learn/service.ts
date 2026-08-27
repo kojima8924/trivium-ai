@@ -7,12 +7,13 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "../prisma";
 import { learningAI, type DomainEvalOutput } from "../ai";
-import { MAX_HINTS, SUBSKILLS, type DomainKey } from "../domain";
+import { MAX_HINTS, SUBSKILLS, toUserWording, type DomainKey } from "../domain";
 import { checkDeterministic, checkHeuristic, getTask, pickNextTask, tasksFor, type Task, type TaskPublic, toPublic } from "../tasks";
 import { loadEvents, nextDifficultyFor, recomputeAll, subskillsOf } from "../profile";
 import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
 import { axesOf, computeDomainScore } from "../scoring";
+import { computeXp } from "../xp";
 import { notifyDailyDigestIfComplete } from "./digest";
 import { updateLeaderMemory, updateMemoryAfterEvent } from "../memory";
 
@@ -309,7 +310,7 @@ async function evaluateWithCache(
       })
       .catch(() => undefined);
   }
-  return out;
+  return { ...out, feedback: toUserWording(out.feedback), hint: toUserWording(out.hint), observations: out.observations.map(toUserWording) };
 }
 
 async function record(
@@ -344,7 +345,19 @@ async function record(
 }
 
 export type FinalizeResult = {
-  profile: { domain: DomainKey; before: number; after: number; confidence: string; summary: string; recommendedNext: string };
+  profile: {
+    domain: DomainKey;
+    before: number;
+    after: number;
+    /** 到達レベル（0..10）の前後 */
+    levelBefore: number;
+    levelAfter: number;
+    confidence: string;
+    summary: string;
+    recommendedNext: string;
+  };
+  /** この決着で得た XP と合計・ランク */
+  xp: { gained: number; total: number; rank: string };
   leader: { summary: string; recommendation: string } | null;
   newAchievements: string[];
 };
@@ -354,7 +367,17 @@ async function finalizeOrDefer(userId: string, domain: DomainKey, defer?: boolea
     const before = await prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } });
     const score = before?.score ?? 0;
     return {
-      profile: { domain, before: score, after: score, confidence: before?.confidence ?? "low", summary: before?.summary ?? "", recommendedNext: before?.recommendedNext ?? "" },
+      profile: {
+        domain,
+        before: score,
+        after: score,
+        levelBefore: Math.floor(score / 10),
+        levelAfter: Math.floor(score / 10),
+        confidence: before?.confidence ?? "low",
+        summary: before?.summary ?? "",
+        recommendedNext: before?.recommendedNext ?? "",
+      },
+      xp: { gained: 0, total: 0, rank: "" },
       leader: null,
       newAchievements: [],
     };
@@ -365,6 +388,10 @@ async function finalizeOrDefer(userId: string, domain: DomainKey, defer?: boolea
 /** 決着後の再計算。profile/Leader を更新し、achievement とスナップショットを記録する */
 export async function finalize(userId: string, domain: DomainKey): Promise<FinalizeResult> {
   const before = await prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } });
+  // XP は決定論なので「直前の記録を除いた合計」と「含めた合計」の差が今回の獲得分
+  const eventsAfter = await loadEvents(userId);
+  const xpAfter = computeXp(eventsAfter);
+  const xpBefore = computeXp(eventsAfter.slice(0, -1));
   await recomputeAll(userId, domain);
   const [after, leader, newAchievements] = await Promise.all([
     prisma.domainProfile.findUnique({ where: { userId_domain: { userId, domain } } }),
@@ -389,15 +416,19 @@ export async function finalize(userId: string, domain: DomainKey): Promise<Final
   })().catch((err) => console.warn("[memory] update failed:", (err as Error).message));
   // Web からの回答でも「今日の3問」が揃えば LINE に総評を push（DailyDigest の unique で冪等）
   void notifyDailyDigestIfComplete(userId).catch(() => undefined);
+  const levelAfter = computeDomainScore(domain, eventsAfter).level;
   return {
     profile: {
       domain,
       before: before?.score ?? 0,
       after: after?.score ?? 0,
+      levelBefore: Math.floor((before?.score ?? 0) / 10),
+      levelAfter,
       confidence: after?.confidence ?? "low",
       summary: after?.summary ?? "",
       recommendedNext: after?.recommendedNext ?? "",
     },
+    xp: { gained: Math.max(0, xpAfter.total - xpBefore.total), total: xpAfter.total, rank: xpAfter.rank.title },
     leader: leader ? { summary: leader.summary, recommendation: leader.recommendation } : null,
     newAchievements,
   };

@@ -40,9 +40,9 @@ export function NextStep({ recommendation, recommendedDomain, totalEvents }: Pro
       <Link
         href={meta.path}
         className="btn btn-primary mt-3 w-full text-base"
-        aria-label={`${target}（${meta.ja}）の課題を始める`}
+        aria-label={`${meta.label}（${meta.ja}）の課題を始める`}
       >
-        {target} を始める
+        {meta.label} を始める
         <span className="text-xs font-normal opacity-80">約3分</span>
       </Link>
 

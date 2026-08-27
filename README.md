@@ -118,7 +118,7 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `AUTH_SECRET` / `AUTH_TRUST_HOST` | Auth.js |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth（server only） |
 | `DEMO_LOGIN_ENABLED` | デモ用フォールバックログイン（既定 false） |
-| `DEMO_SEED_ENABLED` | Dashboard の「デモデータを投入」「初期状態に戻す」「講評キャッシュ生成」（既定 true） |
+| `DEMO_SEED_ENABLED` | Dashboard の「デモデータを投入」「初期状態に戻す」と `/api/demo/warm`（既定 true） |
 | `AI_PROVIDER` | `openai`（既定）/ `dify` / `anthropic` / `mock` |
 | `OPENAI_API_KEY` / `OPENAI_TIMEOUT_MS` / `OPENAI_MODEL` | OpenAI（server only）。モデルは `trivium.config.ts` の `MODELS` が役割ごとに決める。`OPENAI_MODEL` は役割指定が無い呼び出しの予備 |
 | `DIFY_API_BASE` / `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_TIMEOUT_MS` | Dify Workflow（server only。`AI_PROVIDER=dify` のとき） |
@@ -149,7 +149,7 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 
 ## 24 時間でどう作ったか
 
-- 2026-08-27 21:00 に空のリポジトリから開始。feature 単位のコミットは **49 本**（`git log --oneline | wc -l`）
+- 2026-08-27 21:00 に空のリポジトリから開始。feature 単位のコミットは **50 本以上**（`git log --oneline | wc -l`）
 - Claude Code を使い、土台（schema・採点・AI 抽象層・認証）を先に固めてから、UI / LINE / Dify / テスト / デプロイ / 問題コンテンツ / ゲーミフィケーション / 人格と記憶を**並列のサブエージェントと Codex CLI に分担**。ファイル所有を分けて衝突を避け、統合とレビューは 1 か所で行った
 - 統合後に**多角レビュー**（正確性・セキュリティ・フレームワーク API・デプロイ・UX・ドキュメント）と敵対的検証を回し、実在した問題だけを修正 — 例: 全角入力で正解判定が落ちる、`/login?next=` のオープンリダイレクト、ヒント回数の自己申告による水増し、ヒント文に完成解が混ざっていた問題
 - テストは **100 件以上**（`node:test`）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**し、main への push で GHCR にイメージを公開。Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）

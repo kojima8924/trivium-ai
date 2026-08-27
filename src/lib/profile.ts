@@ -4,7 +4,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
 import { learningAI } from "./ai";
-import { DOMAINS, type Confidence, type DomainKey } from "./domain";
+import { DOMAINS, toUserWording, type Confidence, type DomainKey } from "./domain";
 import { computeDomainScore, computeLevels, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
 import { getTask } from "./tasks";
 import { computeXp, type XpSummary } from "./xp";
@@ -98,9 +98,9 @@ export async function recomputeDomainProfile(userId: string, domain: DomainKey, 
     subskills: stats.subskills,
     confidence: stats.confidence,
     evidenceCount: stats.evidenceCount,
-    summary: interp.summary,
-    observations: interp.observations,
-    recommendedNext: interp.recommendedNext,
+    summary: toUserWording(interp.summary),
+    observations: interp.observations.map(toUserWording),
+    recommendedNext: toUserWording(interp.recommendedNext),
   };
   return prisma.domainProfile.upsert({
     where: { userId_domain: { userId, domain } },
@@ -150,11 +150,11 @@ export async function recomputeLeaderProfile(userId: string, context?: string, p
   const personas = await personaPrompts(userId);
   const out = await learningAI.leader({ learnerRef: userId, domains, totalEvents: events.length, lastEvent, context, persona: personas.LEADER });
   const data = {
-    summary: out.summary,
-    interests: out.interests,
+    summary: toUserWording(out.summary),
+    interests: out.interests.map(toUserWording),
     preferences: { ...out.preferences, recommendedDomain: out.recommendedDomain },
-    observations: out.observations,
-    recommendation: out.recommendation,
+    observations: out.observations.map(toUserWording),
+    recommendation: toUserWording(out.recommendation),
   };
   return prisma.leaderProfile.upsert({ where: { userId }, update: data, create: { userId, ...data } });
 }

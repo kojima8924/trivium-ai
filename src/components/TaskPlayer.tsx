@@ -14,7 +14,8 @@ type SubmitResponse =
       explanation: string;
       hintCount: number;
       observations?: string[];
-      profile: { domain: DomainKey; before: number; after: number; confidence: string; summary: string; recommendedNext: string };
+      profile: { domain: DomainKey; before: number; after: number; levelBefore: number; levelAfter: number; confidence: string; summary: string; recommendedNext: string };
+      xp?: { gained: number; total: number; rank: string };
       leader: { summary: string; recommendation: string } | null;
       newAchievements: string[];
     };
@@ -250,7 +251,14 @@ export function TaskPlayer({
             </span>
             <span className="tabular-nums">
               {result.profile.before} → <span className="font-bold">{result.profile.after}</span>
-              <span className="ml-2 text-[11px] text-muted">信頼度: {result.profile.confidence}</span>
+              <span className="ml-2 text-[11px] text-muted">
+                Lv.{result.profile.levelBefore} → <span className={result.profile.levelAfter > result.profile.levelBefore ? "font-bold text-ok" : ""}>Lv.{result.profile.levelAfter}</span>
+                {result.profile.levelAfter > result.profile.levelBefore ? " レベルアップ" : ""}
+                {" · "}信頼度: {result.profile.confidence}
+              </span>
+              {result.xp && result.xp.gained > 0 && (
+                <span className="ml-2 text-[11px] font-semibold text-ok">+{result.xp.gained} XP</span>
+              )}
             </span>
           </div>
           <p className="text-xs leading-relaxed text-muted">{result.profile.summary}</p>

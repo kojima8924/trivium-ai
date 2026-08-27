@@ -20,7 +20,7 @@ export async function evaluateAchievements(userId: string, exclude: string[] = [
   if (events.some((e) => e.success && e.hintCount >= 1)) unlocked.add("comeback");
   if (DOMAINS.every((d) => events.some((e) => e.domain === d))) unlocked.add("trivium");
   if (events.length >= 10) unlocked.add("ten_events");
-  if (events.some((e) => e.success && e.difficulty >= 4)) unlocked.add("hard_clear");
+  if (events.some((e) => e.success && e.difficulty >= 7)) unlocked.add("hard_clear");
 
   const existing = await prisma.achievement.findMany({ where: { userId }, select: { key: true } });
   const have = new Set(existing.map((a) => a.key));

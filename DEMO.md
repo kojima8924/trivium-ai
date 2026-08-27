@@ -2,8 +2,8 @@
 
 面談で「実際に触れる Web サービス」として見せるための手順。**壊れにくさ優先**で、決定論的に動く経路を軸にする。
 
-> **実測値（dev、seed 直後）**: READ **Lv.6**（66） / WRITE **Lv.4**（46） / LOGIC **Lv.7**（76）、XP 1357、ランク Grammarian（文法家）。
-> デモ課題 `code-006`（二分探索の終了条件・難易度 8）をヒント 1 回で正答すると **LOGIC Lv.7 → Lv.8（76 → 80）**、XP +64、Achievement「立て直し」解除。本番で seed し直した直後も同じ値になる（決定論）。
+> **実測値（dev、seed 直後）**: READ **Lv.6**（66） / WRITE **Lv.4**（46） / LOGIC **Lv.7**（76）、XP 1535、ランク Logician（論理家）。
+> デモ課題 `code-006`（二分探索の終了条件・難易度 8）をヒント 1 回で正答すると **LOGIC Lv.7 → Lv.8（76 → 80）**、XP +64、Achievement「立て直し」解除。seed の日時は JST 正午に固定しているので、いつ seed しても同じ値になる（決定論）。
 
 ## 登場人物（AI の 4 人格）
 
@@ -22,7 +22,7 @@
 - [ ] `/api/health` の `ai.provider` が `openai`、`lastError` が `null`（誤答→ヒントは 2〜5 秒、正答→寸評+LEADER 更新は 5〜10 秒）。遅い／不安なら `AI_PROVIDER=mock` にすると即時応答のルールベースに切り替わる
 - [ ] デモ用アカウントでログイン済み → Dashboard で **デモデータを投入** 済み（三角形と XP カードが出ている）
 - [ ] 直近で `code-006`（二分探索の終了条件）を解いていない（解いた場合は「デモデータで置き換える」でリセット）。seed 直後の値: READ Lv.6 / WRITE Lv.4 / LOGIC Lv.7
-- [ ] Dashboard の「講評キャッシュ生成」または `npm run warm-cache -- --concurrency 1` を本番向けに実行済み（LINE の選択式が即答になる）
+- [ ] 講評キャッシュを本番向けに生成済み（ログイン状態で `POST /api/demo/warm`、または `npm run warm-cache -- --concurrency 1`）。LINE の選択式が即答になる
 - [ ] スマートフォンで `https://trivium.153.126.213.251.sslip.io` を開き、ログイン状態にしておく（LINE から開く導線用）
 - [ ] LINE 公式アカウントを友だち追加済み・Rich Menu（READ / WRITE / LOGIC / 今日の学習 / 履歴 / PROFILE）が出ている
 - [ ] LINE で「連携」→ 届いた URL を開いて **デモ用アカウントと連携済み**（LINE で「プロフィール」と送ると Flex カードが返る状態）

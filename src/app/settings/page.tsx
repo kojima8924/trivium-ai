@@ -19,7 +19,7 @@ function isAgent(v: unknown): v is AgentKey {
   return typeof v === "string" && (AGENTS as readonly string[]).includes(v);
 }
 function isTone(v: unknown): v is ToneKey {
-  return typeof v === "string" && v in TONES;
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(TONES, v);
 }
 
 // AI の人格設定（READ / WRITE / LOGIC / LEADER）。名前・口調・一人称・補足をユーザーごとに上書きできる。

@@ -54,7 +54,7 @@ export function GenerateBox({ domain }: { domain: DomainKey }) {
           disabled={busy}
         />
         <button type="button" className="btn shrink-0" onClick={run} disabled={busy || text.trim() === ""}>
-          {busy ? "作っています…（数秒）" : "作問"}
+          {busy ? "作っています…（10〜20秒）" : "作問"}
         </button>
       </div>
       {error && <p className="text-xs text-ng">{error}</p>}

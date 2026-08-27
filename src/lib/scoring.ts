@@ -114,7 +114,8 @@ function levelFromEvidence(items: AxisEvidence[]): { level: number; progress: nu
     if (n >= SCORING.minEvidence && r >= SCORING.masteryThreshold) level = d;
   }
   const next = level < MAX_LEVEL ? rate(level + 1) : { r: 1, n: 1 };
-  const progress = level >= MAX_LEVEL ? 1 : next.n === 0 ? 0 : Math.min(0.99, next.r);
+  // 次レベルの証拠が 1 件分にも満たないときは進捗を出さない（Lv0 なのに 99% と見えないように）
+  const progress = level >= MAX_LEVEL ? 1 : next.n < 1 ? 0 : Math.min(0.99, next.r);
   return { level, progress };
 }
 

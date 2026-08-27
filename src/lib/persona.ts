@@ -41,7 +41,7 @@ export const AGENT_LABELS: Record<AgentKey, string> = {
 };
 
 function isTone(v: string): v is ToneKey {
-  return v in TONE_PRESETS;
+  return Object.prototype.hasOwnProperty.call(TONE_PRESETS, v);
 }
 
 /** ユーザーの人格設定（未設定分は既定で埋める） */

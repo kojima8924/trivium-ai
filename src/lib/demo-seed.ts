@@ -56,12 +56,17 @@ export async function seedDemoForUser(userId: string, opts: { reset?: boolean } 
   }
   // 進行中の挑戦（ヒント回数）は常に消す。リハーサルを途中で止めたままだと、本番の1問目が「ヒント2回目」から始まってしまう
   await prisma.taskAttempt.deleteMany({ where: { userId } });
-  const now = Date.now();
+  // 日付境界（JST）に依存しないよう、各記録は「JST の正午」に固定する（ミッション日・streak・XP が実行時刻で変わらない）
+  const jstNoonToday = (() => {
+    const fmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" });
+    const [y, m, d] = fmt.format(new Date()).split("-").map(Number);
+    return Date.UTC(y, m - 1, d, 3, 0, 0); // 12:00 JST = 03:00 UTC
+  })();
   const data = SPECS.map((spec, i) => {
     const task = getTask(spec.taskId);
     if (!task) throw new Error(`demo seed: unknown task ${spec.taskId}`);
     const axes = axesOf(task);
-    const createdAt = new Date(now - spec.daysAgo * 86_400_000 - (i % 5) * 3_600_000 - 15 * 60_000);
+    const createdAt = new Date(jstNoonToday - spec.daysAgo * 86_400_000 + (i % 5) * 7 * 60_000);
     return {
       userId,
       domain: task.domain,
