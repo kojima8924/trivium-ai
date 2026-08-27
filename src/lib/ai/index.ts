@@ -1,6 +1,7 @@
 // LearningAIService: provider を抽象化し、Dify 障害時は Mock に自動フォールバックする。
 import "server-only";
 import { env } from "../env";
+import { AnthropicProvider } from "./anthropic";
 import { DifyProvider } from "./dify";
 import { MockProvider } from "./mock";
 import type {
@@ -56,8 +57,14 @@ class LearningAIService implements LearningAIProvider {
 
 function build(): LearningAIService {
   const mock = new MockProvider();
-  const useDify = env.ai.provider === "dify" && Boolean(env.ai.difyDomainApiKey || env.ai.difyLeaderApiKey);
-  return new LearningAIService(useDify ? new DifyProvider() : mock, mock);
+  // provider の選択。キーが無い場合は黙って mock に落とす（アプリを止めない）
+  let primary: LearningAIProvider = mock;
+  if (env.ai.provider === "anthropic" && env.ai.anthropicApiKey) {
+    primary = new AnthropicProvider();
+  } else if (env.ai.provider === "dify" && (env.ai.difyDomainApiKey || env.ai.difyLeaderApiKey)) {
+    primary = new DifyProvider();
+  }
+  return new LearningAIService(primary, mock);
 }
 
 // 本番では globalThis に保持して lastUsed を request 間で共有する。

@@ -88,32 +88,38 @@ export async function recomputeDomainProfile(userId: string, domain: DomainKey, 
   });
 }
 
-/** Leader profile を各 domain profile の要約から再計算する */
-export async function recomputeLeaderProfile(userId: string, context?: string) {
+/**
+ * Leader profile を再計算する。
+ * 数値（score / subskills / confidence）は events から決定論的に計算し直すので、
+ * domain profile の保存順序に依存しない（domain 寸評の生成と並列に走らせられる）。
+ * 文章（summary / observations / recommendedNext）だけは保存済みの domain profile を使う。
+ */
+export async function recomputeLeaderProfile(userId: string, context?: string, preloaded?: ScorableEvent[]) {
   const [profiles, events] = await Promise.all([
     prisma.domainProfile.findMany({ where: { userId } }),
-    loadEvents(userId),
+    preloaded ? Promise.resolve(preloaded) : loadEvents(userId),
   ]);
   const weekAgo = Date.now() - 7 * 86_400_000;
   const domains = DOMAINS.map((d) => {
     const p = profiles.find((x) => x.domain === d);
+    const stats = computeDomainScore(d, events);
     return {
       domain: d,
-      score: p?.score ?? 0,
-      subskills: subskillsOf(p?.subskills ?? {}),
-      confidence: (p?.confidence ?? "low") as Confidence,
-      evidenceCount: p?.evidenceCount ?? 0,
+      score: stats.score,
+      subskills: stats.subskills,
+      confidence: stats.confidence,
+      evidenceCount: stats.evidenceCount,
       summary: p?.summary ?? "",
       observations: stringsOf(p?.observations ?? []),
       recommendedNext: p?.recommendedNext ?? "",
       eventsLast7Days: events.filter((e) => e.domain === d && e.createdAt.getTime() >= weekAgo).length,
     };
   });
-  const last = events[events.length - 1];
+  const last = events[events.length - 1] as (ScorableEvent & { taskId?: string }) | undefined;
   const lastEvent = last
     ? {
         domain: last.domain,
-        taskTitle: getTask(last.taskId)?.title ?? last.taskId,
+        taskTitle: getTask(last.taskId ?? "")?.title ?? last.taskId ?? "",
         difficulty: last.difficulty,
         success: last.success,
         hintCount: last.hintCount,
@@ -135,8 +141,11 @@ export async function recomputeLeaderProfile(userId: string, context?: string) {
 export async function recomputeAll(userId: string, touched?: DomainKey) {
   const events = await loadEvents(userId);
   const targets = touched ? [touched] : DOMAINS;
-  for (const d of targets) await recomputeDomainProfile(userId, d, events);
-  await recomputeLeaderProfile(userId);
+  // domain 寸評と Leader は独立に計算できる（Leader の数値は events から直接出す）ので並列化して待ち時間を短くする
+  await Promise.all([
+    ...targets.map((d) => recomputeDomainProfile(userId, d, events)),
+    recomputeLeaderProfile(userId, undefined, events),
+  ]);
 }
 
 export async function nextDifficultyFor(userId: string, domain: DomainKey): Promise<number> {

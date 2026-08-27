@@ -19,6 +19,7 @@
     "preflight": "tsx scripts/preflight.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.121.0",
     "@auth/prisma-adapter": "^2.11.3",
     "@line/bot-sdk": "^11.2.0",
     "@prisma/adapter-pg": "^7.10.0",

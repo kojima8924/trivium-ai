@@ -14,11 +14,15 @@ export const env = {
   demoSeedEnabled: bool(process.env.DEMO_SEED_ENABLED, true),
 
   ai: {
-    provider: (process.env.AI_PROVIDER ?? "dify") as "dify" | "mock",
+    /** dify | anthropic | mock（未設定なら dify。キーが無ければ自動で mock） */
+    provider: (process.env.AI_PROVIDER ?? "dify") as "dify" | "anthropic" | "mock",
     difyApiBase: process.env.DIFY_API_BASE ?? "https://api.dify.ai/v1",
     difyDomainApiKey: process.env.DIFY_DOMAIN_API_KEY ?? "",
     difyLeaderApiKey: process.env.DIFY_LEADER_API_KEY ?? "",
     difyTimeoutMs: Number(process.env.DIFY_TIMEOUT_MS ?? 20000),
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+    anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-opus-5",
+    anthropicTimeoutMs: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 25000),
   },
 
   line: {

@@ -196,7 +196,7 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
               解説を見て終える
             </button>
             <button type="button" className="btn btn-primary" onClick={() => submit()} disabled={busy || answer.trim() === ""}>
-              {busy ? "AIが確認中…" : hintCount > 0 ? "もう一度答える" : "答える"}
+              {busy ? "AIが確認中…（数秒）" : hintCount > 0 ? "もう一度答える" : "答える"}
             </button>
           </div>
         </section>
