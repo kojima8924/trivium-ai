@@ -12,7 +12,7 @@ import { checkDeterministic, checkHeuristic, getTask, pickNextTask, tasksFor, ty
 import { loadEvents, nextDifficultyFor, recomputeAll, subskillsOf } from "../profile";
 import { evaluateAchievements } from "../achievements";
 import { personaPrompts } from "../persona";
-import { computeDomainScore } from "../scoring";
+import { axesOf, computeDomainScore } from "../scoring";
 import { notifyDailyDigestIfComplete } from "./digest";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
@@ -24,6 +24,9 @@ function rowToTask(r: {
   id: string;
   domain: string;
   difficulty: number;
+  axisRead?: number;
+  axisWrite?: number;
+  axisCode?: number;
   title: string;
   passage: string;
   prompt: string;
@@ -46,10 +49,12 @@ function rowToTask(r: {
           criteria: strs((r.rubric as Record<string, Prisma.JsonValue>).criteria),
         }
       : undefined;
+  const axes = { read: r.axisRead ?? 0, write: r.axisWrite ?? 0, code: r.axisCode ?? 0 };
   return {
     id: r.id,
     domain: r.domain as DomainKey,
     difficulty: r.difficulty,
+    axes: axes.read + axes.write + axes.code > 0 ? axes : undefined,
     title: r.title,
     passage: r.passage || undefined,
     prompt: r.prompt,
@@ -307,12 +312,17 @@ async function record(
   latencyMs: number | undefined,
   skillTags: string[],
 ) {
+  const axes = axesOf(task);
   const event = await prisma.learningEvent.create({
     data: {
       userId,
       domain: task.domain,
       taskId: task.id,
       difficulty: task.difficulty,
+      axisRead: axes.read,
+      axisWrite: axes.write,
+      axisCode: axes.code,
+      generated: task.id.startsWith("gen-"),
       answer: answer.slice(0, 4000),
       success,
       hintCount,

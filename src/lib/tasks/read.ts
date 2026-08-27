@@ -5,7 +5,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-001",
     domain: "READ",
-    difficulty: 2,
+    difficulty: 3,
     title: "要旨把握: 図書館の利用者数",
     passage:
       "ある市立図書館では、電子書籍の貸出を始めてから来館者数が減った。しかし貸出総数（紙と電子の合計）は前年より増えている。図書館長は「利用のかたちが変わっただけで、図書館の役割は縮小していない」と説明した。",
@@ -30,7 +30,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-002",
     domain: "READ",
-    difficulty: 3,
+    difficulty: 4,
     title: "推論: 書かれていないこと",
     passage:
       "Aさんは毎朝7時の電車に乗る。今日は駅に着くと改札が混雑しており、電光掲示板には「上り線 遅延 約20分」と表示されていた。Aさんはスマートフォンを取り出し、上司にメッセージを送った。",
@@ -55,7 +55,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-003",
     domain: "READ",
-    difficulty: 4,
+    difficulty: 7,
     title: "批判的読解: 主張の弱点",
     passage:
       "ある調査で、朝食を毎日食べる生徒は、食べない生徒より平均テスト点が高かった。この結果から、新聞は「朝食を食べれば成績が上がる」と報じた。",
@@ -84,7 +84,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-004",
     domain: "READ",
-    difficulty: 1,
+    difficulty: 2,
     title: "要旨把握: 商店街の変化",
     passage:
       "駅前の商店街では、平日の昼間に店を開ける個人商店が減っている。代わりに、夕方から夜にかけて営業する飲食店が増えた。商店街組合は「客層が働く人中心に変わったため、営業時間もそれに合わせて動いている」と話している。",
@@ -109,7 +109,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-005",
     domain: "READ",
-    difficulty: 2,
+    difficulty: 3,
     title: "要旨把握: 条件を読み落とさない",
     passage:
       "あるカフェは、月曜から金曜まで毎日100杯、土曜と日曜は毎日150杯のコーヒーを売る。先週は月曜が祝日で休業し、それ以外の曜日は通常どおり営業した。",
@@ -128,7 +128,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-006",
     domain: "READ",
-    difficulty: 3,
+    difficulty: 5,
     title: "推論: 行動から状態を読む",
     passage:
       "面接の帰り道、Bさんは駅の売店で温かい飲み物を買った。手が震えていて、小銭を落としてしまった。店員が拾ってくれたとき、Bさんは「すみません、今日はどうも」と言って笑った。",
@@ -153,7 +153,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-007",
     domain: "READ",
-    difficulty: 4,
+    difficulty: 6,
     title: "批判的読解: 誰に聞いた調査か",
     passage:
       "あるニュースサイトが、自サイトの読者100人にアンケートを行ったところ、95人が「毎日ニュースアプリを見る」と答えた。この結果をもとに、記事は「いまや国民のほとんどがニュースアプリを使っている」と書いた。",
@@ -178,7 +178,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-008",
     domain: "READ",
-    difficulty: 3,
+    difficulty: 7,
     title: "批判的読解: 言葉の範囲がすり替わる",
     passage:
       "「この掃除機は業界最軽量です」と広告は言う。画面の下には、小さな文字で「当社比。コードレススティック型のうち、標準ノズルを外した状態での比較」と書かれている。",
@@ -203,7 +203,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-009",
     domain: "READ",
-    difficulty: 5,
+    difficulty: 9,
     title: "批判的読解: 反例を挙げる",
     passage:
       "主張: 「朝型の人ほど仕事ができる。成功した経営者には早起きの人が多いからだ。」",
@@ -246,7 +246,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-010",
     domain: "READ",
-    difficulty: 2,
+    difficulty: 5,
     title: "推論: 答えをはぐらかす返事",
     passage:
       "Cさんは同僚に「この資料、明日の会議で使うんだよね」と聞いた。同僚は「ええ、まあ……。あ、そういえば午後の打ち合わせ、時間が変わりましたよ」と答えた。",
@@ -271,7 +271,7 @@ export const READ_TASKS: Task[] = [
   {
     id: "read-011",
     domain: "READ",
-    difficulty: 4,
+    difficulty: 8,
     title: "要旨把握: 総数の裏で入れ替わるもの",
     passage:
       "ある自治体は、図書館の開館時間を延ばす代わりに、月曜を休館日にした。利用者数は全体としてほぼ横ばいだったが、内訳は変わった。平日夜間の利用が増え、その多くは勤め帰りの人だった。一方、月曜の午前に来ていた高齢者の一部は、火曜以降の午前に移らず、来館そのものをやめた。担当者は「総数だけを見ると変化がないように見えるが、届かなくなった人がいることを見落としてはいけない」と語る。",

@@ -5,13 +5,16 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
 import { learningAI } from "./ai";
 import { DOMAINS, type Confidence, type DomainKey } from "./domain";
-import { computeDomainScore, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
+import { computeDomainScore, computeLevels, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
 import { getTask } from "./tasks";
+import { computeXp, type XpSummary } from "./xp";
 import { personaPrompts } from "./persona";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 
-export async function loadEvents(userId: string): Promise<(ScorableEvent & { id: string; taskId: string })[]> {
+export type LoadedEvent = ScorableEvent & { id: string; taskId: string; generated: boolean };
+
+export async function loadEvents(userId: string): Promise<LoadedEvent[]> {
   const rows = await prisma.learningEvent.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
@@ -20,13 +23,28 @@ export async function loadEvents(userId: string): Promise<(ScorableEvent & { id:
       domain: true,
       taskId: true,
       difficulty: true,
+      axisRead: true,
+      axisWrite: true,
+      axisCode: true,
+      generated: true,
       success: true,
       hintCount: true,
       skillTags: true,
       createdAt: true,
     },
   });
-  return rows.map((r) => ({ ...r, domain: r.domain as DomainKey }));
+  return rows.map((r) => ({
+    id: r.id,
+    taskId: r.taskId,
+    domain: r.domain as DomainKey,
+    difficulty: r.difficulty,
+    axes: { read: r.axisRead, write: r.axisWrite, code: r.axisCode },
+    generated: r.generated,
+    success: r.success,
+    hintCount: r.hintCount,
+    skillTags: r.skillTags,
+    createdAt: r.createdAt,
+  }));
 }
 
 export function subskillsOf(json: Prisma.JsonValue): Record<string, number> {
@@ -163,6 +181,10 @@ export type DashboardData = {
   domains: {
     domain: DomainKey;
     score: number;
+    /** 到達レベル 0..10（決定論。scoring.ts） */
+    level: number;
+    /** 次のレベルへの進捗 0..1 */
+    progress: number;
     subskills: Record<string, number>;
     confidence: Confidence;
     evidenceCount: number;
@@ -191,16 +213,27 @@ export type DashboardData = {
   }[];
   achievements: { key: string; unlockedAt: string }[];
   totalEvents: number;
+  /** XP・デイリーミッション・streak・ランク（決定論。xp.ts） */
+  xp: XpSummary;
 };
 
+const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
+
 export async function getDashboardData(userId: string): Promise<DashboardData> {
-  const [profiles, leader, recent, achievements, totalEvents] = await Promise.all([
+  // ローカル PG（PGlite）は並列に弱いので、読み出しは 2 段に分けて並列度を抑える
+  const [profiles, leader, recent] = await Promise.all([
     prisma.domainProfile.findMany({ where: { userId } }),
     prisma.leaderProfile.findUnique({ where: { userId } }),
     prisma.learningEvent.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 10 }),
-    prisma.achievement.findMany({ where: { userId }, orderBy: { unlockedAt: "desc" } }),
-    prisma.learningEvent.count({ where: { userId } }),
   ]);
+  const [achievements, events] = await Promise.all([
+    prisma.achievement.findMany({ where: { userId }, orderBy: { unlockedAt: "desc" } }),
+    loadEvents(userId),
+  ]);
+  const totalEvents = events.length;
+  const now = new Date();
+  const levels = computeLevels(events, now);
+  const xp = computeXp(events, now);
   const prefs = (leader?.preferences ?? {}) as Record<string, unknown>;
   const rd = typeof prefs.recommendedDomain === "string" ? prefs.recommendedDomain : null;
   return {
@@ -209,6 +242,8 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
       return {
         domain: d,
         score: p?.score ?? 0,
+        level: levels[AXIS_KEY[d]].level,
+        progress: levels[AXIS_KEY[d]].progress,
         subskills: subskillsOf(p?.subskills ?? {}),
         confidence: (p?.confidence ?? "low") as Confidence,
         evidenceCount: p?.evidenceCount ?? 0,
@@ -240,5 +275,6 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
     })),
     achievements: achievements.map((a) => ({ key: a.key, unlockedAt: a.unlockedAt.toISOString() })),
     totalEvents,
+    xp,
   };
 }

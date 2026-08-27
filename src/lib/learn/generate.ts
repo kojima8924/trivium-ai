@@ -54,7 +54,7 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
   const domain = req.domain ?? inferDomain(req.request) ?? "CODE";
   const kind = req.kind ?? inferKind(req.request);
   const base = req.difficulty ?? (await nextDifficultyFor(userId, domain));
-  const difficulty = Math.min(5, Math.max(1, base + inferDifficultyDelta(req.request)));
+  const difficulty = Math.min(10, Math.max(1, base + inferDifficultyDelta(req.request)));
 
   const [recent, personas] = await Promise.all([
     prisma.generatedTask.findMany({ where: { userId, domain }, orderBy: { createdAt: "desc" }, take: 8, select: { title: true } }),
@@ -90,6 +90,9 @@ export async function generateTaskForUser(userId: string, req: GenerateRequest):
       userId,
       domain,
       difficulty,
+      axisRead: domain === "READ" ? difficulty : 0,
+      axisWrite: domain === "WRITE" ? difficulty : 0,
+      axisCode: domain === "CODE" ? difficulty : 0,
       title: out.title.slice(0, 60),
       passage: out.passage,
       prompt: out.prompt,

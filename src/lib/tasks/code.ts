@@ -6,7 +6,7 @@ export const CODE_TASKS: Task[] = [
   {
     id: "code-001",
     domain: "CODE",
-    difficulty: 2,
+    difficulty: 3,
     title: "出力予測: リストのスライス",
     passage: `nums = [3, 1, 4, 1, 5, 9, 2, 6]
 print(nums[2:5])`,
@@ -25,7 +25,7 @@ print(nums[2:5])`,
   {
     id: "code-002",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 4,
     title: "出力予測: ループと累積",
     passage: `total = 0
 for i in range(1, 6):
@@ -48,7 +48,7 @@ print(total)`,
   {
     id: "code-003",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 5,
     title: "バグ発見: 平均値の計算",
     passage: `def average(xs):
     total = 0
@@ -73,7 +73,7 @@ print(average([2, 4, 6]))`,
   {
     id: "code-004",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 5,
     title: "バグ発見: 最大値を探す",
     passage: `def find_max(xs):
     best = 0
@@ -104,7 +104,7 @@ print(find_max([-5, -2, -9]))`,
   {
     id: "code-005",
     domain: "CODE",
-    difficulty: 4,
+    difficulty: 5,
     title: "出力予測: 辞書と文字列",
     passage: `text = "banana"
 count = {}
@@ -126,7 +126,7 @@ print(count["a"], len(count))`,
   {
     id: "code-006",
     domain: "CODE",
-    difficulty: 4,
+    difficulty: 8,
     title: "アルゴリズム: 二分探索の終了条件",
     passage: `def search(xs, target):
     lo, hi = 0, len(xs) - 1
@@ -156,7 +156,7 @@ print(search([1, 3, 5, 7], 7))`,
   {
     id: "code-007",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 6,
     title: "設計の言語化: なぜ関数に分けるのか",
     passage: `# 同じ計算が3か所にコピーされているプログラムがあります。
 # あなたはそれを1つの関数にまとめることを提案します。`,
@@ -185,7 +185,7 @@ print(search([1, 3, 5, 7], 7))`,
   {
     id: "code-008",
     domain: "CODE",
-    difficulty: 2,
+    difficulty: 4,
     title: "出力予測: 文字列の反転",
     passage: `s = "trivium"
 print(s[::-1][:3])`,
@@ -223,7 +223,7 @@ print(y)`,
   {
     id: "code-010",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 7,
     title: "バグ発見: デフォルト引数のリスト",
     passage: `def add_item(item, items=[]):
     items.append(item)
@@ -246,7 +246,7 @@ print(add_item("b"))`,
   {
     id: "code-011",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 7,
     title: "出力予測: コピーしたつもりのリスト",
     passage: `a = [[0, 0], [0, 0]]
 b = a[:]
@@ -267,7 +267,7 @@ print(a[0][0])`,
   {
     id: "code-012",
     domain: "CODE",
-    difficulty: 4,
+    difficulty: 9,
     title: "アルゴリズム: 重複判定の計算量",
     passage: `def has_duplicate(items):
     seen = []
@@ -316,7 +316,7 @@ print(len(words), words[-1])`,
   {
     id: "code-014",
     domain: "CODE",
-    difficulty: 5,
+    difficulty: 10,
     title: "設計の言語化: 1つの関数に詰め込みすぎ",
     passage: `# ある1つの関数が、次のすべてを行っています。
 #   1. CSVファイルを読み込む
@@ -348,7 +348,7 @@ print(len(words), words[-1])`,
   {
     id: "code-015",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 6,
     title: "設計の言語化: 例外を握りつぶす",
     passage: `def load_config(path):
     try:
@@ -378,7 +378,7 @@ print(len(words), words[-1])`,
   {
     id: "code-016",
     domain: "CODE",
-    difficulty: 2,
+    difficulty: 4,
     title: "順番の推論: 3人の並び",
     passage: `A・B・C の3人が一列に並んでいる。
 ・A は先頭ではない。
@@ -400,7 +400,7 @@ print(len(words), words[-1])`,
   {
     id: "code-017",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 6,
     title: "真偽の判定: 正直者と嘘つき",
     passage: `正直者は必ず本当のことを言い、嘘つきは必ず嘘を言う。
 P「Q は嘘つきだ。」
@@ -445,7 +445,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-019",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 5,
     title: "料金表の読み取り: 駐車料金",
     passage: `駐車場の料金
 ・最初の1時間: 300円
@@ -467,7 +467,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-020",
     domain: "CODE",
-    difficulty: 4,
+    difficulty: 8,
     title: "最少回数: 数当ての質問回数",
     passage: `1〜100 のどれか1つの数を相手が思い浮かべている。
 あなたは数を1つ言い、相手は「それより大きい」「それより小さい」「当たり」のどれかだけ答える。`,
@@ -486,7 +486,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-021",
     domain: "CODE",
-    difficulty: 1,
+    difficulty: 2,
     title: "手順の追跡: 日本語の擬似コード",
     passage: `x は 7 から始める。
 1. もし x が 5 以上なら、x から 3 を引く。
@@ -508,7 +508,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-022",
     domain: "CODE",
-    difficulty: 2,
+    difficulty: 3,
     title: "誤りの発見: 経費精算の手順書",
     passage: `経費精算の手順書
 1. 領収書を受け取る
@@ -537,7 +537,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-023",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 5,
     title: "集合の考え方: どちらも飼っていない人",
     passage: `あるクラスは30人。
 ・犬を飼っている人: 12人
@@ -559,7 +559,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-024",
     domain: "CODE",
-    difficulty: 3,
+    difficulty: 6,
     title: "構造化: 手順書を3ステップに整理する",
     passage: `社内 Wi-Fi 接続手順（現状の箇条書き）
 ・パスワードは総務に聞く
@@ -594,7 +594,7 @@ Q「私たちは2人とも正直者だ。」`,
   {
     id: "code-025",
     domain: "CODE",
-    difficulty: 4,
+    difficulty: 7,
     title: "誤りの発見: 割引ルールの判定手順",
     passage: `割引のルール
 ・会員は 10% 引き

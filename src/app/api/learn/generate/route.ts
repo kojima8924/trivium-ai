@@ -13,7 +13,7 @@ const bodySchema = z.object({
   request: z.string().min(1).max(300),
   domain: z.string().optional(),
   kind: z.enum(["choice", "short", "free"]).optional(),
-  difficulty: z.number().int().min(1).max(5).optional(),
+  difficulty: z.number().int().min(1).max(10).optional(),
 });
 
 // POST /api/learn/generate

@@ -1,12 +1,14 @@
 // scoring.ts の単体テスト（決定論的集計）
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
+
 import {
-  baseScore,
+  axesOf,
+  computeDomainScore,
+  computeLevels,
+  confidenceFor,
   difficultyWeight,
   recencyWeight,
-  confidenceFor,
-  computeDomainScore,
   recommendDifficulty,
   type ScorableEvent,
 } from "../src/lib/scoring";
@@ -21,47 +23,128 @@ function ev(over: Partial<ScorableEvent> = {}): ScorableEvent {
     success: true,
     hintCount: 0,
     skillTags: ["tracing"],
-    createdAt: daysAgo(0),
+    createdAt: NOW,
     ...over,
   };
 }
 
-test("baseScore の表", () => {
-  assert.equal(baseScore(true, 0), 1.0);
-  assert.equal(baseScore(true, 1), 0.8);
-  assert.equal(baseScore(true, 2), 0.6);
-  assert.equal(baseScore(true, 3), 0.5);
-  assert.equal(baseScore(true, 10), 0.5);
-  assert.equal(baseScore(false, 0), 0.2);
-  assert.equal(baseScore(false, 3), 0.2);
+test("イベント0件ならスコア0・レベル0・信頼度lowになる", () => {
+  const result = computeDomainScore("CODE", [], NOW);
+
+  assert.equal(result.score, 0);
+  assert.equal(result.level, 0);
+  assert.equal(result.progress, 0);
+  assert.equal(result.evidenceCount, 0);
+  assert.equal(result.confidence, "low");
 });
 
-test("difficultyWeight は 1→0.7, 3→1.0, 5→1.3 で範囲外はクランプ", () => {
-  assert.ok(Math.abs(difficultyWeight(1) - 0.7) < 1e-9);
-  assert.ok(Math.abs(difficultyWeight(3) - 1.0) < 1e-9);
-  assert.ok(Math.abs(difficultyWeight(5) - 1.3) < 1e-9);
-  assert.equal(difficultyWeight(0), difficultyWeight(1));
-  assert.equal(difficultyWeight(9), difficultyWeight(5));
-  for (let d = 1; d <= 5; d++) {
-    assert.ok(difficultyWeight(d) >= 0.7 && difficultyWeight(d) <= 1.3);
-  }
+test("難易度6をヒントなしで3回成功するとレベル6になる", () => {
+  const events = [0, 1, 2].map((n) => ev({ difficulty: 6, createdAt: daysAgo(n) }));
+  const result = computeDomainScore("CODE", events, NOW);
+
+  assert.equal(result.level, 6);
+  assert.ok(result.score >= 60, `score=${result.score}`);
 });
 
-test("recencyWeight は単調減少で、今日=1、半減期14日で0.5", () => {
-  assert.equal(recencyWeight(daysAgo(0), NOW), 1);
-  assert.ok(Math.abs(recencyWeight(daysAgo(14), NOW) - 0.5) < 1e-9);
-  let prev = 2;
-  for (const d of [0, 1, 3, 7, 14, 30, 90]) {
-    const w = recencyWeight(daysAgo(d), NOW);
-    assert.ok(w < prev, `day ${d}: ${w} < ${prev}`);
-    assert.ok(w > 0 && w <= 1);
-    prev = w;
-  }
-  // 未来の日付は 1 にクランプ
-  assert.equal(recencyWeight(daysAgo(-5), NOW), 1);
+test("難易度8の失敗は難易度3の到達判定に影響しない", () => {
+  const events = [
+    ev({ difficulty: 3, createdAt: daysAgo(2) }),
+    ev({ difficulty: 3, createdAt: daysAgo(1) }),
+    ev({ difficulty: 8, success: false }),
+  ];
+
+  assert.equal(computeDomainScore("CODE", events, NOW).level, 3);
 });
 
-test("confidenceFor の閾値は 3 / 8", () => {
+test("複合課題の失敗はボトルネックのCODEだけに否定証拠を与える", () => {
+  const events = [
+    ev({ domain: "READ", difficulty: 3, createdAt: daysAgo(6) }),
+    ev({ domain: "READ", difficulty: 3, createdAt: daysAgo(5) }),
+    ev({ domain: "WRITE", difficulty: 2, createdAt: daysAgo(4) }),
+    ev({ domain: "WRITE", difficulty: 2, createdAt: daysAgo(3) }),
+    ev({ difficulty: 8, createdAt: daysAgo(2) }),
+    ev({ difficulty: 8, createdAt: daysAgo(1) }),
+    ev({ axes: { read: 3, write: 2, code: 8 }, success: false }),
+  ];
+  const withoutFailure = computeLevels(events.slice(0, -1), NOW);
+  const withFailure = computeLevels(events, NOW);
+
+  assert.equal(withoutFailure.read.level, 3);
+  assert.equal(withFailure.read.level, 3);
+  assert.equal(withoutFailure.write.level, 2);
+  assert.equal(withFailure.write.level, 2);
+  assert.equal(withoutFailure.code.level, 8);
+  assert.equal(withFailure.code.level, 6);
+});
+
+test("複合課題の成功は関与する3系統すべてに加点する", () => {
+  const events = [
+    ev({ axes: { read: 3, write: 2, code: 8 }, createdAt: daysAgo(1) }),
+    ev({ axes: { read: 3, write: 2, code: 8 } }),
+  ];
+  const levels = computeLevels(events, NOW);
+
+  assert.equal(levels.read.level, 3);
+  assert.equal(levels.write.level, 2);
+  assert.equal(levels.code.level, 8);
+  assert.equal(computeDomainScore("READ", events, NOW).evidenceCount, 2);
+  assert.equal(computeDomainScore("WRITE", events, NOW).evidenceCount, 2);
+  assert.equal(computeDomainScore("CODE", events, NOW).evidenceCount, 2);
+});
+
+test("axesのない旧データは主系統だけに割り当てる", () => {
+  const legacy = ev({ domain: "WRITE", difficulty: 4, axes: undefined });
+  const events = [legacy, ev({ ...legacy, createdAt: daysAgo(1) })];
+
+  assert.deepEqual(axesOf(legacy), { read: 0, write: 4, code: 0 });
+  assert.equal(computeDomainScore("WRITE", events, NOW).level, 4);
+  assert.equal(computeDomainScore("READ", events, NOW).evidenceCount, 0);
+  assert.equal(computeDomainScore("CODE", events, NOW).evidenceCount, 0);
+});
+
+test("recommendDifficultyは履歴なしなら3を返す", () => {
+  assert.equal(recommendDifficulty("CODE", [], NOW), 3);
+});
+
+test("recommendDifficultyは基本的に到達レベルの1つ上を返し上限10に収める", () => {
+  const level4 = [ev({ difficulty: 4 }), ev({ difficulty: 4, createdAt: daysAgo(1) })];
+  const level10 = [ev({ difficulty: 10 }), ev({ difficulty: 10, createdAt: daysAgo(1) })];
+
+  assert.equal(recommendDifficulty("CODE", level4, NOW), 5);
+  assert.equal(recommendDifficulty("CODE", level10, NOW), 10);
+});
+
+test("recommendDifficultyは直近3件中2件失敗なら到達レベルに据え置く", () => {
+  const events = [
+    ev({ difficulty: 4, createdAt: daysAgo(4) }),
+    ev({ difficulty: 4, createdAt: daysAgo(3) }),
+    ev({ difficulty: 4, createdAt: daysAgo(2) }),
+    ev({ difficulty: 8, success: false, createdAt: daysAgo(1) }),
+    ev({ difficulty: 8, success: false }),
+  ];
+  const noMastery = [ev({ difficulty: 1, success: false })];
+
+  assert.equal(computeLevels(events, NOW).code.level, 4);
+  assert.equal(recommendDifficulty("CODE", events, NOW), 4);
+  assert.equal(recommendDifficulty("CODE", noMastery, NOW), 1);
+});
+
+test("difficultyWeightは難易度1から10まで0.7から1.3へ線形に増える", () => {
+  assert.equal(difficultyWeight(1), 0.7);
+  assert.ok(Math.abs(difficultyWeight(10) - 1.3) < 1e-12);
+  assert.ok(Math.abs(difficultyWeight(5.5) - 1) < 1e-12);
+  assert.equal(difficultyWeight(0), 0.7);
+  assert.ok(Math.abs(difficultyWeight(11) - 1.3) < 1e-12);
+});
+
+test("recencyWeightは当日1・14日前0.5で未来日は1に収める", () => {
+  assert.equal(recencyWeight(NOW, NOW), 1);
+  assert.ok(Math.abs(recencyWeight(daysAgo(14), NOW) - 0.5) < 1e-12);
+  assert.equal(recencyWeight(daysAgo(-1), NOW), 1);
+  assert.ok(recencyWeight(daysAgo(7), NOW) > recencyWeight(daysAgo(8), NOW));
+});
+
+test("confidenceForは3件未満low・8件未満medium・それ以上highになる", () => {
   assert.equal(confidenceFor(0), "low");
   assert.equal(confidenceFor(2), "low");
   assert.equal(confidenceFor(3), "medium");
@@ -69,103 +152,15 @@ test("confidenceFor の閾値は 3 / 8", () => {
   assert.equal(confidenceFor(8), "high");
 });
 
-test("computeDomainScore: イベント0件 → score 0・confidence low・subskills 空", () => {
-  const r = computeDomainScore("CODE", [], NOW);
-  assert.equal(r.score, 0);
-  assert.equal(r.confidence, "low");
-  assert.equal(r.evidenceCount, 0);
-  assert.deepEqual(r.subskills, {});
-  assert.equal(r.successRate, 0);
-});
-
-test("computeDomainScore: 失敗1件だけでは 0.2 に張り付かず事前分布で緩和される", () => {
-  const r = computeDomainScore("CODE", [ev({ success: false, hintCount: 3 })], NOW);
-  assert.ok(r.score > 20, `score=${r.score}`);
-  assert.ok(r.score < 50, `score=${r.score}`);
-  assert.ok(r.subskills.tracing > 20 && r.subskills.tracing < 50);
-  assert.equal(r.confidence, "low");
-});
-
-test("computeDomainScore: 難易度高・ヒントなし成功が続けば高スコア", () => {
-  const events = Array.from({ length: 10 }, (_, i) =>
-    ev({ difficulty: 5, hintCount: 0, createdAt: daysAgo(i) }),
-  );
-  const r = computeDomainScore("CODE", events, NOW);
-  assert.ok(r.score >= 90, `score=${r.score}`);
-  assert.equal(r.confidence, "high");
-  assert.equal(r.successRate, 1);
-  assert.equal(r.avgHints, 0);
-  assert.equal(r.avgDifficulty, 5);
-});
-
-test("computeDomainScore: 他 domain のイベントは無視される", () => {
-  const r = computeDomainScore("READ", [ev({ domain: "CODE" })], NOW);
-  assert.equal(r.evidenceCount, 0);
-  assert.equal(r.score, 0);
-});
-
-test("computeDomainScore: subskill はタグのあるものだけ、domain 外のタグは無視", () => {
-  const r = computeDomainScore(
-    "CODE",
-    [ev({ skillTags: ["tracing", "comprehension"] }), ev({ skillTags: ["debugging"] })],
-    NOW,
-  );
-  assert.deepEqual(Object.keys(r.subskills).sort(), ["debugging", "tracing"]);
-  assert.ok(!("comprehension" in r.subskills));
-  assert.ok(!("algorithms" in r.subskills));
-});
-
-test("computeDomainScore: 古い失敗より新しい成功のほうが重く効く", () => {
-  const recentFailOldSuccess = computeDomainScore(
-    "CODE",
-    [ev({ success: true, createdAt: daysAgo(60) }), ev({ success: false, createdAt: daysAgo(0) })],
-    NOW,
-  );
-  const recentSuccessOldFail = computeDomainScore(
-    "CODE",
-    [ev({ success: false, createdAt: daysAgo(60) }), ev({ success: true, createdAt: daysAgo(0) })],
-    NOW,
-  );
-  assert.ok(recentSuccessOldFail.score > recentFailOldSuccess.score);
-});
-
-test("computeDomainScore: confidence は件数 3 / 8 で切り替わる", () => {
-  const mk = (n: number) => Array.from({ length: n }, (_, i) => ev({ createdAt: daysAgo(i) }));
-  assert.equal(computeDomainScore("CODE", mk(2), NOW).confidence, "low");
-  assert.equal(computeDomainScore("CODE", mk(3), NOW).confidence, "medium");
-  assert.equal(computeDomainScore("CODE", mk(7), NOW).confidence, "medium");
-  assert.equal(computeDomainScore("CODE", mk(8), NOW).confidence, "high");
-});
-
-test("recommendDifficulty: 履歴なしは 2", () => {
-  assert.equal(recommendDifficulty("CODE", []), 2);
-});
-
-test("recommendDifficulty: 直近5件中3件がヒント≤1で成功なら +1（上限5）", () => {
-  const events = [0, 1, 2].map((i) => ev({ difficulty: 3, hintCount: i === 0 ? 0 : 1, createdAt: daysAgo(i) }));
-  assert.equal(recommendDifficulty("CODE", events), 4);
-  const top = [0, 1, 2].map((i) => ev({ difficulty: 5, createdAt: daysAgo(i) }));
-  assert.equal(recommendDifficulty("CODE", top), 5);
-});
-
-test("recommendDifficulty: 直近5件中2件失敗なら -1（下限1）", () => {
+test("computeLevelsのprogressはすべて0以上1以下になる", () => {
   const events = [
-    ev({ difficulty: 3, success: false, createdAt: daysAgo(0) }),
-    ev({ difficulty: 3, success: false, createdAt: daysAgo(1) }),
-    ev({ difficulty: 3, success: true, createdAt: daysAgo(2) }),
+    ev({ domain: "READ", axes: { read: 3, write: 2 }, hintCount: 1, createdAt: daysAgo(2) }),
+    ev({ axes: { read: 3, write: 2, code: 8 }, createdAt: daysAgo(1) }),
+    ev({ axes: { read: 3, write: 2, code: 8 }, success: false }),
   ];
-  assert.equal(recommendDifficulty("CODE", events), 2);
-  const bottom = [
-    ev({ difficulty: 1, success: false, createdAt: daysAgo(0) }),
-    ev({ difficulty: 1, success: false, createdAt: daysAgo(1) }),
-  ];
-  assert.equal(recommendDifficulty("CODE", bottom), 1);
-});
 
-test("recommendDifficulty: 条件に当たらなければ直近の難易度を維持", () => {
-  const events = [
-    ev({ difficulty: 4, success: true, hintCount: 2, createdAt: daysAgo(0) }),
-    ev({ difficulty: 3, success: false, createdAt: daysAgo(1) }),
-  ];
-  assert.equal(recommendDifficulty("CODE", events), 4);
+  for (const [axis, result] of Object.entries(computeLevels(events, NOW))) {
+    assert.ok(result.progress >= 0, `${axis}: progress=${result.progress}`);
+    assert.ok(result.progress <= 1, `${axis}: progress=${result.progress}`);
+  }
 });

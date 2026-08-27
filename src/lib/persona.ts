@@ -1,20 +1,17 @@
-// AI の人格（READ / WRITE / CODE(LOGIC) / LEADER）。ユーザーごとに名前・口調・一人称・補足を上書きできる。
+// AI の人格（READ / WRITE / CODE(LOGIC) / LEADER）。
+// 既定と口調プリセットは src/config/trivium.config.ts に置き、ユーザーごとの上書きを DB（AgentPersona）に保存する。
 // prompt に載せる整形（PersonaPrompt）と、講評キャッシュのキー（personaKey）をここで作る。
 import "server-only";
 import { createHash } from "node:crypto";
+import { PERSONA_DEFAULTS, TONE_PRESETS, type ToneKey } from "@/config/trivium.config";
 import { prisma } from "./prisma";
 import type { PersonaPrompt } from "./ai/types";
 
 export const AGENTS = ["READ", "WRITE", "CODE", "LEADER"] as const;
 export type AgentKey = (typeof AGENTS)[number];
 
-export const TONES = {
-  polite: { label: "丁寧", prompt: "落ち着いた敬体。相手を急かさず、短い問いで考えを引き出す" },
-  casual: { label: "フランク", prompt: "くだけた話し言葉（です・ます は少なめ）。軽やかだが茶化さない" },
-  senior: { label: "先輩", prompt: "少し先を歩く先輩の口調。経験談を一言だけ添え、答えは渡さない" },
-  coach: { label: "コーチ", prompt: "簡潔で前向き。事実→次の一手の順で話し、感情表現は控えめ" },
-} as const;
-export type ToneKey = keyof typeof TONES;
+export const TONES = TONE_PRESETS;
+export type { ToneKey };
 
 export type PersonaConfig = {
   agent: AgentKey;
@@ -25,11 +22,15 @@ export type PersonaConfig = {
 };
 
 export const DEFAULT_PERSONAS: Record<AgentKey, PersonaConfig> = {
-  READ: { agent: "READ", name: "アオイ", tone: "polite", firstPerson: "私", extra: "文章の根拠を本文の言葉で確かめさせる" },
-  WRITE: { agent: "WRITE", name: "フミ", tone: "senior", firstPerson: "わたし", extra: "書き手の主張を尊重し、構成と根拠だけを問う" },
-  CODE: { agent: "CODE", name: "ケイ", tone: "coach", firstPerson: "僕", extra: "値を一つずつ追わせる。答えは絶対に言わない" },
-  LEADER: { agent: "LEADER", name: "リード", tone: "polite", firstPerson: "私", extra: "3領域を横断して見る。数字は集計値だけを使う" },
+  READ: pick(PERSONA_DEFAULTS.READ),
+  WRITE: pick(PERSONA_DEFAULTS.WRITE),
+  CODE: pick(PERSONA_DEFAULTS.CODE),
+  LEADER: pick(PERSONA_DEFAULTS.LEADER),
 };
+
+function pick(d: (typeof PERSONA_DEFAULTS)[AgentKey]): PersonaConfig {
+  return { agent: d.agent, name: d.name, tone: d.tone, firstPerson: d.firstPerson, extra: d.extra };
+}
 
 export const AGENT_LABELS: Record<AgentKey, string> = {
   READ: "READ（読む）",
@@ -39,7 +40,7 @@ export const AGENT_LABELS: Record<AgentKey, string> = {
 };
 
 function isTone(v: string): v is ToneKey {
-  return v in TONES;
+  return v in TONE_PRESETS;
 }
 
 /** ユーザーの人格設定（未設定分は既定で埋める） */
@@ -81,7 +82,7 @@ export function toPrompt(cfg: PersonaConfig): PersonaPrompt {
   return {
     agent: cfg.agent,
     name: cfg.name,
-    tone: TONES[cfg.tone].prompt,
+    tone: TONE_PRESETS[cfg.tone].prompt,
     firstPerson: cfg.firstPerson,
     extra: cfg.extra,
     key,
@@ -97,4 +98,22 @@ export async function personaPrompts(userId: string): Promise<Record<AgentKey, P
     CODE: toPrompt(cfgs.CODE),
     LEADER: toPrompt(cfgs.LEADER),
   };
+}
+
+/**
+ * テキスト中の呼びかけからエージェントを判定する（LINE 用）。
+ * 「ケイ、〜」「アオイに聞きたい」「LOGIC の人」など。ユーザーが名前を変えていればその名前も拾う。
+ * 判定できなければ null（呼び出し側が案内役に回す）。
+ */
+export function detectAddressedAgent(text: string, personas: Record<AgentKey, PersonaConfig>): AgentKey | null {
+  const t = text.trim().toLowerCase();
+  const candidates: { agent: AgentKey; names: string[] }[] = AGENTS.map((a) => ({
+    agent: a,
+    names: [personas[a].name, ...PERSONA_DEFAULTS[a].aliases].map((n) => n.toLowerCase()),
+  }));
+  // 先頭 12 文字以内に名前があるものを優先（「ケイ、これ教えて」）
+  const head = t.slice(0, 12);
+  for (const c of candidates) if (c.names.some((n) => n && head.includes(n))) return c.agent;
+  for (const c of candidates) if (c.names.some((n) => n && t.includes(n))) return c.agent;
+  return null;
 }

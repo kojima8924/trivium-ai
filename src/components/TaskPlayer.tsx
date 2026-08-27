@@ -152,7 +152,7 @@ export function TaskPlayer({
             {task.title}
           </span>
           <span>
-            難易度 {task.difficulty} · ヒント {hintCount}/{MAX_HINTS}
+            難易度 {task.difficulty}/10 · ヒント {hintCount}/{MAX_HINTS}
           </span>
         </div>
         {task.passage && (looksLikeCode(task.passage) ? <pre className="codeblock">{task.passage}</pre> : <p className="passage text-sm">{task.passage}</p>)}

@@ -9,7 +9,10 @@ export type TaskKind = "choice" | "short" | "free";
 export type Task = {
   id: string;
   domain: DomainKey;
-  difficulty: number; // 1..5
+  /** 主系統の難易度 1..10 */
+  difficulty: number;
+  /** 難易度ベクトル（0 = 無関係）。省略時は { [domain]: difficulty }。複合課題はここで複数系統を正にする */
+  axes?: { read?: number; write?: number; code?: number };
   title: string;
   /** 読ませる本文・コード（READ: 短文, CODE: Pythonコード, WRITE: お題の補足） */
   passage?: string;
