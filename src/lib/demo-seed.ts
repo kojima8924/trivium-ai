@@ -1,42 +1,52 @@
 // デモ用seed: 架空の約10日分の learning_events を投入し、profile を再計算する。
-// 実測（seed 直後）: READ 72 / WRITE 57 / CODE 79。数値は scoring.ts の決定論的集計から出る
+// 数値は scoring.ts の決定論的集計から出る（seed 直後の実測値は DEMO.md 参照）
 import "server-only";
 import { prisma } from "./prisma";
 import { recomputeAll } from "./profile";
 import { evaluateAchievements } from "./achievements";
-import { tasksFor } from "./tasks";
-import type { DomainKey } from "./domain";
+import { getTask } from "./tasks";
+import { axesOf } from "./scoring";
 
-type SeedSpec = { domain: DomainKey; daysAgo: number; success: boolean; hintCount: number; tags?: string[]; difficulty?: number };
+type SeedSpec = { taskId: string; daysAgo: number; success: boolean; hintCount: number };
 
-// 「一回の失敗で断定しない」ことを示すため、失敗も適度に混ぜる
+// 到達レベルの物語（採点モデル: src/lib/scoring.ts）
+//   LOGIC: Lv7（難易度8の正答率が閾値未満）→ デモで code-006（難易度8）をヒント1回で正答すると Lv8 に上がる
+//   READ : Lv6（批判的読解の高難度で失敗あり）
+//   WRITE: Lv4（推敲・明確さが弱い）
+// taskId で指定するので、履歴の課題名・難易度は実際の問題と一致する
 const SPECS: SeedSpec[] = [
-  // CODE: 強い（トレース/アルゴリズム/デバッグ）。設計の言語化はやや弱い
-  { domain: "CODE", daysAgo: 10, success: true, hintCount: 0, tags: ["tracing"], difficulty: 4 },
-  { domain: "CODE", daysAgo: 9, success: true, hintCount: 0, tags: ["tracing"], difficulty: 6 },
-  { domain: "CODE", daysAgo: 8, success: true, hintCount: 1, tags: ["debugging", "tracing"], difficulty: 6 },
-  { domain: "CODE", daysAgo: 7, success: true, hintCount: 0, tags: ["tracing", "algorithms"], difficulty: 8 },
-  { domain: "CODE", daysAgo: 6, success: true, hintCount: 0, tags: ["algorithms", "debugging"], difficulty: 8 },
-  { domain: "CODE", daysAgo: 5, success: true, hintCount: 0, tags: ["debugging"], difficulty: 6 },
-  { domain: "CODE", daysAgo: 4, success: true, hintCount: 0, tags: ["tracing"], difficulty: 8 },
-  { domain: "CODE", daysAgo: 3, success: true, hintCount: 1, tags: ["design"], difficulty: 6 },
-  { domain: "CODE", daysAgo: 2, success: true, hintCount: 0, tags: ["algorithms", "debugging"], difficulty: 8 },
-  { domain: "CODE", daysAgo: 1, success: false, hintCount: 3, tags: ["design"], difficulty: 6 },
-  // READ: 要旨把握・推論は安定。批判的読解（複数視点の比較）は改善余地
-  { domain: "READ", daysAgo: 10, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 4 },
-  { domain: "READ", daysAgo: 8, success: true, hintCount: 0, tags: ["inference"], difficulty: 6 },
-  { domain: "READ", daysAgo: 7, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 6 },
-  { domain: "READ", daysAgo: 6, success: true, hintCount: 1, tags: ["inference"], difficulty: 8 },
-  { domain: "READ", daysAgo: 5, success: false, hintCount: 3, tags: ["critical_reading", "inference"], difficulty: 8 },
-  { domain: "READ", daysAgo: 4, success: true, hintCount: 0, tags: ["inference"], difficulty: 6 },
-  { domain: "READ", daysAgo: 3, success: true, hintCount: 0, tags: ["comprehension"], difficulty: 6 },
-  { domain: "READ", daysAgo: 2, success: true, hintCount: 2, tags: ["critical_reading", "inference"], difficulty: 8 },
-  // WRITE: 構成はできるが、反論検討・推敲が少ない
-  { domain: "WRITE", daysAgo: 9, success: true, hintCount: 1, tags: ["structure", "reasoning"], difficulty: 4 },
-  { domain: "WRITE", daysAgo: 7, success: true, hintCount: 0, tags: ["structure", "reasoning"], difficulty: 4 },
-  { domain: "WRITE", daysAgo: 6, success: true, hintCount: 2, tags: ["reasoning", "structure"], difficulty: 6 },
-  { domain: "WRITE", daysAgo: 4, success: false, hintCount: 3, tags: ["revision", "clarity"], difficulty: 6 },
-  { domain: "WRITE", daysAgo: 1, success: true, hintCount: 2, tags: ["structure", "reasoning"], difficulty: 6 },
+  // LOGIC
+  { taskId: "code-001", daysAgo: 10, success: true, hintCount: 0 },
+  { taskId: "code-002", daysAgo: 9, success: true, hintCount: 0 },
+  { taskId: "code-012", daysAgo: 9, success: false, hintCount: 3 }, // 難易度9 計算量: 失敗（Lv8 の壁）
+  { taskId: "code-003", daysAgo: 8, success: true, hintCount: 1 },
+  { taskId: "code-019", daysAgo: 7, success: true, hintCount: 0 },
+  { taskId: "code-017", daysAgo: 6, success: true, hintCount: 0 },
+  { taskId: "code-015", daysAgo: 5, success: true, hintCount: 0 },
+  { taskId: "code-010", daysAgo: 4, success: true, hintCount: 0 },
+  { taskId: "code-025", daysAgo: 3, success: true, hintCount: 1 },
+  { taskId: "code-020", daysAgo: 2, success: true, hintCount: 0 },
+  { taskId: "code-014", daysAgo: 1, success: false, hintCount: 3 }, // 難易度10 設計の言語化: 失敗
+  // READ
+  { taskId: "read-012", daysAgo: 10, success: true, hintCount: 0 },
+  { taskId: "read-004", daysAgo: 9, success: true, hintCount: 0 },
+  { taskId: "read-001", daysAgo: 8, success: true, hintCount: 0 },
+  { taskId: "read-002", daysAgo: 7, success: true, hintCount: 0 },
+  { taskId: "read-006", daysAgo: 6, success: true, hintCount: 1 },
+  { taskId: "read-010", daysAgo: 5, success: true, hintCount: 0 },
+  { taskId: "read-007", daysAgo: 4, success: true, hintCount: 0 },
+  { taskId: "read-008", daysAgo: 3, success: true, hintCount: 0 },
+  { taskId: "read-003", daysAgo: 2, success: false, hintCount: 3 }, // 批判的読解: 失敗
+  { taskId: "read-011", daysAgo: 1, success: true, hintCount: 1 },
+  // WRITE
+  { taskId: "write-004", daysAgo: 9, success: true, hintCount: 0 },
+  { taskId: "write-012", daysAgo: 8, success: true, hintCount: 0 },
+  { taskId: "write-005", daysAgo: 7, success: true, hintCount: 1 },
+  { taskId: "write-006", daysAgo: 6, success: true, hintCount: 0 },
+  { taskId: "write-003", daysAgo: 5, success: true, hintCount: 2 },
+  { taskId: "write-001", daysAgo: 4, success: true, hintCount: 1 },
+  { taskId: "write-011", daysAgo: 3, success: false, hintCount: 3 }, // 推敲: 失敗
+  { taskId: "write-010", daysAgo: 2, success: true, hintCount: 2 },
 ];
 
 export async function seedDemoForUser(userId: string, opts: { reset?: boolean } = {}) {
@@ -47,27 +57,24 @@ export async function seedDemoForUser(userId: string, opts: { reset?: boolean } 
   // 進行中の挑戦（ヒント回数）は常に消す。リハーサルを途中で止めたままだと、本番の1問目が「ヒント2回目」から始まってしまう
   await prisma.taskAttempt.deleteMany({ where: { userId } });
   const now = Date.now();
-  const data = SPECS.map((s, i) => {
-    const pool = tasksFor(s.domain);
-    // タグが合うタスクを優先。無ければ難易度の近いもの
-    const task =
-      pool.find((t) => s.tags?.every((tag) => t.skillTags.includes(tag))) ??
-      [...pool].sort((a, b) => Math.abs(a.difficulty - (s.difficulty ?? 3)) - Math.abs(b.difficulty - (s.difficulty ?? 3)))[0];
-    const createdAt = new Date(now - s.daysAgo * 86_400_000 - (i % 5) * 3_600_000 - 15 * 60_000);
-    const difficulty = s.difficulty ?? task.difficulty;
+  const data = SPECS.map((spec, i) => {
+    const task = getTask(spec.taskId);
+    if (!task) throw new Error(`demo seed: unknown task ${spec.taskId}`);
+    const axes = axesOf(task);
+    const createdAt = new Date(now - spec.daysAgo * 86_400_000 - (i % 5) * 3_600_000 - 15 * 60_000);
     return {
       userId,
-      domain: s.domain,
+      domain: task.domain,
       taskId: task.id,
-      difficulty,
-      axisRead: s.domain === "READ" ? difficulty : 0,
-      axisWrite: s.domain === "WRITE" ? difficulty : 0,
-      axisCode: s.domain === "CODE" ? difficulty : 0,
+      difficulty: task.difficulty,
+      axisRead: axes.read,
+      axisWrite: axes.write,
+      axisCode: axes.code,
       answer: "(demo seed)",
-      success: s.success,
-      hintCount: s.hintCount,
+      success: spec.success,
+      hintCount: spec.hintCount,
       latencyMs: 40_000 + ((i * 7919) % 90_000),
-      skillTags: s.tags ?? task.skillTags,
+      skillTags: task.skillTags,
       createdAt,
     };
   });
