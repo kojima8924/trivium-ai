@@ -243,7 +243,8 @@ test("複合タスク: axes が2系統以上正で domain が最大系統", () =
 });
 
 test("複合タスク: 形式ごとのコンテンツ条件を満たす", () => {
-  const mixed = ALL_TASKS.filter((task) => task.id.startsWith("mix-"));
+  // 手書きの 12 問だけを対象にする（ストックの mix-s<難易度>-NN は共通ゲートで検査済み）
+  const mixed = ALL_TASKS.filter((task) => /^mix-\d{3}$/.test(task.id));
   assert.equal(mixed.length, 12);
   assert.deepEqual(
     mixed.map((t) => t.id),
