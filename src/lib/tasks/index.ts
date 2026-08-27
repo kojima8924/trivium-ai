@@ -1,12 +1,13 @@
 import type { DomainKey } from "../domain";
 import { CODE_TASKS } from "./code";
+import { COMPOSITE_TASKS } from "./composite";
 import { READ_TASKS } from "./read";
 import { WRITE_TASKS } from "./write";
 import type { Task } from "./types";
 
 export * from "./types";
 
-export const ALL_TASKS: Task[] = [...READ_TASKS, ...WRITE_TASKS, ...CODE_TASKS];
+export const ALL_TASKS: Task[] = [...READ_TASKS, ...WRITE_TASKS, ...CODE_TASKS, ...COMPOSITE_TASKS];
 
 const byId = new Map(ALL_TASKS.map((t) => [t.id, t]));
 

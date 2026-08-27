@@ -25,18 +25,27 @@ test("全タスク: domain・skillTags・difficulty・hints の整合性", () =>
     for (const tag of t.skillTags) {
       assert.ok(SUBSKILLS[t.domain].includes(tag), `${t.id}: tag ${tag} は ${t.domain} の subskill でない`);
     }
-    assert.ok(Number.isInteger(t.difficulty) && t.difficulty >= 1 && t.difficulty <= 5, `${t.id}: difficulty`);
+    assert.ok(Number.isInteger(t.difficulty) && t.difficulty >= 1 && t.difficulty <= 10, `${t.id}: difficulty`);
+    for (const [axis, difficulty] of Object.entries(t.axes ?? {})) {
+      assert.ok(
+        Number.isInteger(difficulty) && difficulty >= 0 && difficulty <= 10,
+        `${t.id}: axes.${axis}`,
+      );
+    }
     assert.ok(t.hints.length >= 1 && t.hints.length <= 3, `${t.id}: hints は 1〜3 個`);
     assert.ok(t.explanation.length > 0, `${t.id}: explanation`);
     assert.ok(t.prompt.length > 0, `${t.id}: prompt`);
-    assert.ok(t.id.toLowerCase().startsWith(t.domain.toLowerCase()), `${t.id}: id の接頭辞と domain`);
+    assert.ok(
+      t.id.startsWith("mix-") || t.id.toLowerCase().startsWith(t.domain.toLowerCase()),
+      `${t.id}: id の接頭辞と domain`,
+    );
   }
 });
 
-test("choice タスク: answerKey が choices の範囲内の index", () => {
+test("choice タスク: 4択で正解 index が1つ", () => {
   for (const t of ALL_TASKS.filter((t) => t.kind === "choice")) {
-    assert.ok(t.choices && t.choices.length >= 2, `${t.id}: choices`);
-    assert.ok(t.answerKey && t.answerKey.length >= 1, `${t.id}: answerKey`);
+    assert.equal(t.choices?.length, 4, `${t.id}: choices`);
+    assert.equal(t.answerKey?.length, 1, `${t.id}: answerKey`);
     for (const k of t.answerKey!) {
       const idx = Number(k);
       assert.ok(Number.isInteger(idx) && idx >= 0 && idx < t.choices!.length, `${t.id}: answerKey ${k}`);
@@ -189,11 +198,73 @@ test("全 subskill が 2 問以上でカバーされている", () => {
   }
 });
 
-test("各 domain に difficulty 1 と 5 が存在する（幅がある）", () => {
+test("各 domain に低難度 1〜3 と高難度 8〜10 の問題が存在する", () => {
   for (const d of DOMAINS) {
-    const ds = new Set(tasksFor(d).map((t) => t.difficulty));
-    assert.ok(ds.has(1), `${d}: difficulty 1 が無い`);
-    assert.ok(ds.has(5), `${d}: difficulty 5 が無い`);
+    const ds = tasksFor(d).map((t) => t.difficulty);
+    assert.ok(ds.some((difficulty) => difficulty >= 1 && difficulty <= 3), `${d}: difficulty 1〜3 が無い`);
+    assert.ok(ds.some((difficulty) => difficulty >= 8 && difficulty <= 10), `${d}: difficulty 8〜10 が無い`);
+  }
+});
+
+test("複合4類型が各3問以上ある", () => {
+  const counts = new Map<string, number>();
+  for (const t of ALL_TASKS.filter((task) => task.id.startsWith("mix-"))) {
+    const axes = [
+      ["read", t.axes?.read ?? 0],
+      ["write", t.axes?.write ?? 0],
+      ["logic", t.axes?.code ?? 0],
+    ] as const;
+    const key = axes
+      .filter(([, difficulty]) => difficulty > 0)
+      .map(([axis]) => axis)
+      .join("+");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const type of ["read+write", "read+logic", "write+logic", "read+write+logic"]) {
+    assert.ok((counts.get(type) ?? 0) >= 3, `${type}: ${counts.get(type) ?? 0} 問`);
+  }
+});
+
+test("複合タスク: axes が2系統以上正で domain が最大系統", () => {
+  const domainOfAxis = { read: "READ", write: "WRITE", code: "CODE" } as const;
+  for (const t of ALL_TASKS.filter((task) => task.id.startsWith("mix-"))) {
+    assert.ok(t.axes, `${t.id}: axes`);
+    const axes = (["read", "write", "code"] as const).map((axis) => [axis, t.axes?.[axis] ?? 0] as const);
+    const positive = axes.filter(([, difficulty]) => difficulty > 0);
+    assert.ok(positive.length >= 2, `${t.id}: 正の axes が ${positive.length} 系統`);
+    const max = Math.max(...positive.map(([, difficulty]) => difficulty));
+    const primaryAxis = axes.find(([, difficulty]) => difficulty === max)?.[0];
+    assert.ok(primaryAxis, `${t.id}: 主系統が決まらない`);
+    assert.equal(t.domain, domainOfAxis[primaryAxis!], `${t.id}: domain`);
+    assert.equal(t.difficulty, max, `${t.id}: difficulty は主系統の axes と一致`);
+  }
+});
+
+test("複合タスク: 形式ごとのコンテンツ条件を満たす", () => {
+  const mixed = ALL_TASKS.filter((task) => task.id.startsWith("mix-"));
+  assert.equal(mixed.length, 12);
+  assert.deepEqual(
+    mixed.map((t) => t.id),
+    Array.from({ length: 12 }, (_, i) => `mix-${String(i + 1).padStart(3, "0")}`),
+  );
+  for (const t of mixed) {
+    assert.match(t.hints[0], /[？?]\s*$/, `${t.id}: 第1ヒントが問い返しでない`);
+    if (t.kind === "free") {
+      assert.ok(t.rubric, `${t.id}: rubric`);
+      const rubric = t.rubric;
+      assert.ok(
+        rubric.mustInclude && rubric.mustInclude.length >= 8 && rubric.mustInclude.length <= 12,
+        `${t.id}: mustInclude は8〜12語`,
+      );
+      assert.ok(
+        rubric.criteria.length >= 2 && rubric.criteria.length <= 3,
+        `${t.id}: criteria は2〜3項目`,
+      );
+      assert.ok(rubric.minLength && rubric.maxLength, `${t.id}: minLength / maxLength`);
+    }
+    if (t.kind === "short") {
+      assert.ok((t.answerKey?.length ?? 0) >= 2, `${t.id}: short の表記ゆれ`);
+    }
   }
 });
 
@@ -206,9 +277,8 @@ test("全タスク: hints はちょうど 3 段（一段ずつ出すため）", 
 
 test("全タスク: 表示文にバッククォートを使わない（UI で生表示されるため）", () => {
   for (const t of ALL_TASKS) {
-    assert.ok(!t.explanation.includes("`"), `${t.id}: explanation にバッククォート`);
-    assert.ok(!t.prompt.includes("`"), `${t.id}: prompt にバッククォート`);
-    for (const h of t.hints) assert.ok(!h.includes("`"), `${t.id}: hint にバッククォート`);
+    const displayed = [t.title, t.passage ?? "", t.prompt, ...(t.choices ?? []), ...t.hints, t.explanation];
+    for (const text of displayed) assert.ok(!text.includes("`"), `${t.id}: 表示文にバッククォート`);
   }
 });
 
@@ -372,4 +442,3 @@ test("LOGIC(CODE): 追加した choice / short の正誤が checkDeterministic �
     assert.equal(checkDeterministic(getTask(id)!, answer), expected, `${id} answer=${answer}`);
   }
 });
-
