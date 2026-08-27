@@ -28,6 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
   && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* はビルド時にバンドルへ焼き込まれる。Coolify では「Build Variable」として渡すこと
+# （未指定なら空。サーバ側は実行時の APP_URL を優先して読むので致命傷にはならない）
+ARG NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 # ビルド時に DB へは接続しない（接続は実行時に遅延）。テレメトリは切る。
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate && npm run build

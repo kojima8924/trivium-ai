@@ -16,3 +16,6 @@ npm-debug.log*
 *.md
 !README.md
 docker-compose.yml
+
+# 素材の説明書は公開しない
+public/brand/README.md
