@@ -1,8 +1,8 @@
-// 呼びかけからエージェント（宛先）を判定する純粋関数。server-only を付けない（LINE webhook とテストの両方から使う）。
+// 人格の呼びかけ判定に使う純粋関数（server-only を付けない。LINE webhook とテストの両方から使う）。
 import { PERSONA_DEFAULTS } from "@/config/trivium.config";
 
-export type AddressableAgent = "READ" | "WRITE" | "CODE" | "LEADER";
-export const ADDRESSABLE_AGENTS = ["READ", "WRITE", "CODE", "LEADER"] as const;
+type AddressableAgent = "READ" | "WRITE" | "CODE" | "LEADER";
+const ADDRESSABLE_AGENTS = ["READ", "WRITE", "CODE", "LEADER"] as const;
 
 /**
  * 「ケイ、〜」「アオイに聞きたい」「LOGIC の人」などから宛先を決める。

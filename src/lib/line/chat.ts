@@ -1,4 +1,5 @@
 // LINE 上で 4 人格と会話する。
+// 履歴切り詰めの純粋部分は chat.pure.ts に置く。
 //   - 宛先は「ケイ、〜」のような呼びかけで決める（無ければ案内役 LEADER）
 //   - 人格の観察メモ（LEADER は 4 つ分）・本人の能力サマリ・直近 N 往復を input に渡す（system には混ぜない）
 //   - 発話と返答を ChatTurn に保存し、人格ごとに直近 N 往復だけを prompt に載せる
@@ -11,14 +12,12 @@ import { getAllMemories, getMemory } from "@/lib/memory";
 import { loadPersonas, personaPrompts, type AgentKey } from "@/lib/persona";
 import { getDashboardData } from "@/lib/profile";
 import type { LeaderAction, LeaderReply } from "./leader";
-import { trimHistory } from "./chat-history";
+import { trimHistory } from "./chat.pure";
 
-export type ChatResult = { agent: AgentKey; text: string; suggestDomain: DomainKey | null; usedSearch: boolean };
-
-export { trimHistory };
+type ChatResult = { agent: AgentKey; text: string; suggestDomain: DomainKey | null; usedSearch: boolean };
 
 /** 能力サマリ（数値は集計値のみ。文章は寸評）。LEADER には 3 系統、系統人格には自分の系統だけ */
-export async function profileSummaryFor(userId: string, agent: AgentKey): Promise<string> {
+async function profileSummaryFor(userId: string, agent: AgentKey): Promise<string> {
   const data = await getDashboardData(userId);
   if (data.totalEvents === 0) return "";
   const domains = agent === "LEADER" ? data.domains : data.domains.filter((d) => d.domain === agent);

@@ -1,9 +1,9 @@
 // 観察メモ・会話履歴・宛先判定の純粋関数（server-only モジュールは読まない）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { answerExcerpt, sanitizeNotes } from "../src/lib/memory-notes";
-import { trimHistory } from "../src/lib/line/chat-history";
-import { detectAddressedAgent } from "../src/lib/persona-address";
+import { answerExcerpt, sanitizeNotes } from "../src/lib/memory.pure";
+import { trimHistory } from "../src/lib/line/chat.pure";
+import { detectAddressedAgent } from "../src/lib/persona.pure";
 import { PERSONA_DEFAULTS } from "../src/config/trivium.config";
 
 test("sanitizeNotes: 数値つきの評価語は伏せられ、上限字数で切られる", () => {

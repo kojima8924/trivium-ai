@@ -1,4 +1,5 @@
 // エージェントの観察メモ（AgentMemory）。
+// メモ整形の純粋部分は memory.pure.ts に置く。
 //   - READ / WRITE / CODE の人格は、自分の系統で決着した 1 問ごとにメモを書き直す
 //   - LEADER は 3 系統のメモ＋直近の総評から自分のメモを書き直す
 //   - 本人には見せない内部用。数値は書かせない（数値は決定論の集計が正本）
@@ -9,9 +10,9 @@ import { prisma } from "./prisma";
 import { learningAI } from "./ai";
 import type { DomainKey } from "./domain";
 import { personaPrompts, type AgentKey } from "./persona";
-import { answerExcerpt, sanitizeNotes } from "./memory-notes";
+import { answerExcerpt, sanitizeNotes } from "./memory.pure";
 
-export type SettledEventForMemory = {
+type SettledEventForMemory = {
   taskTitle: string;
   domain: DomainKey;
   axes: { read: number; write: number; code: number };
@@ -19,8 +20,6 @@ export type SettledEventForMemory = {
   hintCount: number;
   answer: string;
 };
-
-export { answerExcerpt, sanitizeNotes };
 
 export async function getMemory(userId: string, agent: AgentKey): Promise<string> {
   const row = await prisma.agentMemory.findUnique({ where: { userId_agent: { userId, agent } } });

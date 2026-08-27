@@ -8,6 +8,7 @@ import { z } from "zod";
 import { env } from "../env";
 import { DOMAINS, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
+import { deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus } from "./shared";
 import {
   AI_SYSTEM_POLICY,
   type DomainEvalInput,
@@ -143,11 +144,8 @@ export class AnthropicProvider implements LearningAIProvider {
       fmt("mode", input.mode),
       fmt("task", input.task),
       fmt("learner_answer", input.learnerAnswer),
-      fmt(
-        "deterministic_result",
-        input.deterministicResult === null ? "unknown" : input.deterministicResult ? "correct" : "incorrect",
-      ),
-      fmt("heuristic_result", input.heuristicResult === null ? "n/a" : input.heuristicResult ? "meets_rubric" : "below_rubric"),
+      fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
+      fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
       fmt("hint_level", input.hintLevel),
       fmt("current_domain_profile", input.currentDomainProfile),
       fmt("recent_behavior", input.recentBehavior.join("\n") || "(なし)"),
@@ -156,17 +154,14 @@ export class AnthropicProvider implements LearningAIProvider {
 
     const out = await this.parse(SYSTEM_EVAL, user, evalSchema, input.learnerRef);
 
-    // 決定論的採点が確定している場合は AI の status をそれに従わせる（安全弁）
-    let status = out.status;
-    if (input.deterministicResult === true) status = "success";
-    if (input.deterministicResult === false && status === "success") status = "retry";
-    const fallbackHint = input.task.hints[Math.min(input.hintLevel, input.task.hints.length - 1)] ?? "";
+    const status = safeEvaluationStatus(out.status, input.deterministicResult);
+    const safeHint = fallbackHint(input.task.hints, input.hintLevel);
     return {
       status,
       feedback: out.feedback,
-      hint: status === "success" ? "" : out.hint || fallbackHint,
+      hint: status === "success" ? "" : out.hint || safeHint,
       observations: out.observations.slice(0, 3),
-      skillTags: out.skill_tags.filter((t) => (SUBSKILLS[domain] as readonly string[]).includes(t)),
+      skillTags: filterSkillTags(out.skill_tags, SUBSKILLS[domain]),
       recommendedNextDifficulty: out.recommended_next_difficulty,
     };
   }

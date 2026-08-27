@@ -1,4 +1,4 @@
-// 観察メモの純粋関数（server-only を付けない。テストから直接 import できる）
+// 観察メモに使う純粋関数（server-only を付けない。テストから直接 import できる）。
 import { EXTERNAL } from "@/config/trivium.config";
 
 /** メモの後処理: 数値つきの評価語を伏せ、空白を整え、上限で切る。LLM が規約を破っても DB には入れない */

@@ -1,4 +1,4 @@
-// 会話履歴の純粋関数（server-only を付けない。テストから直接 import できる）
+// LINE 会話履歴に使う純粋関数（server-only を付けない。テストから直接 import できる）。
 import { EXTERNAL } from "@/config/trivium.config";
 import type { ChatTurnInput } from "@/lib/ai/types";
 

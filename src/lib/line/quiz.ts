@@ -7,16 +7,15 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
-import { nextTask, resolveTask, submitAnswer, finalize, type SubmitResult } from "@/lib/learn/service";
+import { nextTask, resolveTask, submitAnswer, finalize } from "@/lib/learn/service";
 import { generateTaskForUser } from "@/lib/learn/generate";
 import { loadPersonas } from "@/lib/persona";
 import type { Task } from "@/lib/tasks";
 import { loadEvents } from "@/lib/profile";
-import { computeXp, dayKey, xpForEvent } from "@/lib/xp";
+import { computeXp, xpForEvent } from "@/lib/xp";
 import { computeLevels } from "@/lib/scoring";
-import { pickRecommendation, weakestAxis } from "@/lib/recommend";
 import { XP } from "@/config/trivium.config";
-import { buildMissionFlex, buildProfileFlex } from "./flex";
+import { buildProfileFlex } from "./flex";
 import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
 import { saveLineState, withPendingTask, type LineState } from "./state";
@@ -44,7 +43,7 @@ export function needLinkReply(): LeaderReply {
 }
 
 /** 出題する domain を決める（Leader の推薦 → LINE 側のバランス） */
-export async function pickQuizDomain(userId: string, state: LineState): Promise<DomainKey> {
+async function pickQuizDomain(userId: string, state: LineState): Promise<DomainKey> {
   const lp = await prisma.leaderProfile.findUnique({ where: { userId }, select: { preferences: true } });
   const prefs = (lp?.preferences ?? {}) as Record<string, unknown>;
   const rd = typeof prefs.recommendedDomain === "string" ? prefs.recommendedDomain : "";
@@ -63,7 +62,7 @@ function choiceActions(task: Task): LeaderAction[] {
 }
 
 /** 課題 → LINE の出題メッセージ（選択肢は Quick Reply。本文にも A〜D を列挙して全文が読めるようにする） */
-export function quizReply(task: Task, personaName: string): LeaderReply {
+function quizReply(task: Task, personaName: string): LeaderReply {
   const m = DOMAIN_META[task.domain];
   const choices = (task.choices ?? []).map((c, i) => `${LETTERS[i]}. ${c}`).join("\n");
   const text = [
@@ -85,7 +84,7 @@ export function quizReply(task: Task, personaName: string): LeaderReply {
 }
 
 /** choice 以外（short / free）は Web で解いてもらう */
-export function webTaskReply(task: Task, personaName: string): LeaderReply {
+function webTaskReply(task: Task, personaName: string): LeaderReply {
   const m = DOMAIN_META[task.domain];
   return {
     text: `【${m.label}】${task.title}（難易度 ${task.difficulty}）\n\n${task.prompt}\n\n— ${personaName}: この形式は Web で取り組みましょう。下のボタンから開けます。`,
@@ -113,7 +112,7 @@ export async function startQuiz(
   return quizReply(task, personas[d].name);
 }
 
-export type AnswerOutcome = {
+type AnswerOutcome = {
   reply: LeaderReply;
   /** 決着したとき: after() で finalize してから push する内容を作るための情報 */
   settled: { domain: DomainKey; status: "success" | "failed" } | null;
@@ -183,22 +182,8 @@ export async function giveUpQuiz(userId: string, lineUserId: string, state: Line
   };
 }
 
-export type SettleResult = {
-  reply: LeaderReply;
-  /** この決着でデイリーミッションが達成されたときだけ付く（Flex で送る） */
-  missionFlex: messagingApi.FlexBubble | null;
-};
-
-/**
- * 決着後の再計算 → push 用メッセージ（after() の中で呼ぶ）。
- * 戻り値は従来どおり LeaderReply（webhook 互換）。ミッション達成の Flex カードは settleAndBuildPushFull で取れる。
- */
+/** 決着後の再計算 → push 用メッセージ（after() の中で呼ぶ）。 */
 export async function settleAndBuildPush(userId: string, domain: DomainKey): Promise<LeaderReply> {
-  return (await settleAndBuildPushFull(userId, domain)).reply;
-}
-
-/** 決着後の再計算 → push 用メッセージ ＋ ミッション達成時の Flex カード */
-export async function settleAndBuildPushFull(userId: string, domain: DomainKey): Promise<SettleResult> {
   // 決着前の状態（この 1 件を除いた集計）をミッション達成の判定に使う
   const now = new Date();
   const eventsBefore = await loadEvents(userId);
@@ -230,37 +215,7 @@ export async function settleAndBuildPushFull(userId: string, domain: DomainKey):
     r.newAchievements.length ? `\n🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : "",
   ].filter(Boolean);
 
-  let missionFlex: messagingApi.FlexBubble | null = null;
-  if (missionJustDone) {
-    const levels = computeLevels(events, now);
-    const rec = pickRecommendation(
-      weakestAxis(
-        DOMAINS.map((d) => ({
-          domain: d,
-          score: Math.min(100, Math.round(levels[AXIS_KEY[d]].level * 10)),
-          evidenceCount: events.filter((e) => e.domain === d).length,
-        })),
-      ),
-      [],
-      dayKey(now),
-    );
-    const todayKey = dayKey(now);
-    const rows = DOMAINS.map((d) => {
-      const e = [...events].reverse().find((x) => x.domain === d && dayKey(x.createdAt) === todayKey);
-      if (!e) return `・${DOMAIN_META[d].label}: —`;
-      const how = e.success ? (e.hintCount === 0 ? "ヒントなしで正解" : `ヒント${e.hintCount}回で正解`) : "未達";
-      return `・${DOMAIN_META[d].label}: 難易度 ${e.difficulty} — ${how}`;
-    });
-    missionFlex = buildMissionFlex({
-      xp,
-      earned: { tasks: earnedTask, bonus, streakBonus },
-      recommendation: rec,
-      rows,
-      dashboardUrl: `${appUrl()}/dashboard`,
-    });
-  }
-
-  return { reply: { text: lines.join("\n"), quickReplies: todayActions() }, missionFlex };
+  return { text: lines.join("\n"), quickReplies: todayActions() };
 }
 
 const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
@@ -296,7 +251,7 @@ function stripName(text: string, name: string): string {
   return text.startsWith(`${name}: `) ? text.slice(name.length + 2) : text;
 }
 
-export function todayActions(): LeaderAction[] {
+function todayActions(): LeaderAction[] {
   return [
     { type: "postback", label: "もう1問", data: "action=today", displayText: "もう1問" },
     { type: "uri", label: "Dashboard", uri: `${appUrl()}/dashboard` },
@@ -326,5 +281,3 @@ export async function generateAndBuildPush(userId: string, lineUserId: string, s
     };
   }
 }
-
-export type { SubmitResult };

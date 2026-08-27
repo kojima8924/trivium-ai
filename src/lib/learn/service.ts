@@ -150,6 +150,11 @@ export type SubmitOptions = {
   deferFinalize?: boolean;
 };
 
+type SettledSubmitResult = Extract<SubmitResult, { status: "success" | "failed" }>;
+type Settlement =
+  | { status: "success"; feedback: string; observations: string[] }
+  | { status: "failed"; feedback: string };
+
 /**
  * 回答を処理する。決着（success/failed）時は learning_event を記録し、
  * deferFinalize でなければ profile/Leader を再計算して結果に含める。
@@ -165,18 +170,10 @@ export async function submitAnswer(userId: string, taskId: string, opts: SubmitO
   const hintCount = attempt && !stale ? Math.min(attempt.hintCount, MAX_HINTS) : 0;
 
   if (opts.giveUp) {
-    const event = await record(userId, task, answer, false, hintCount, opts.latencyMs, task.skillTags);
-    const after = await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
-    return {
+    return settleAnswer(userId, task, answer, hintCount, opts, task.skillTags, {
       status: "failed",
-      task: toPublic(task),
       feedback: "今回はここまでにしましょう。解説を読んで、次に同じ形の問題に出会ったときの足がかりにしてください。",
-      hint: "",
-      explanation: task.explanation,
-      hintCount,
-      event: { id: event.id },
-      ...after,
-    };
+    });
   }
 
   const deterministic = checkDeterministic(task, answer);
@@ -187,35 +184,19 @@ export async function submitAnswer(userId: string, taskId: string, opts: SubmitO
   const skillTags = Array.from(new Set([...task.skillTags, ...ai.skillTags.filter((t) => task.skillTags.includes(t))]));
 
   if (success) {
-    const event = await record(userId, task, answer, true, hintCount, opts.latencyMs, skillTags);
-    const after = await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
-    return {
+    return settleAnswer(userId, task, answer, hintCount, opts, skillTags, {
       status: "success",
-      task: toPublic(task),
       feedback: ai.feedback,
-      hint: "",
-      explanation: task.explanation,
-      hintCount,
       observations: ai.observations,
-      event: { id: event.id },
-      ...after,
-    };
+    });
   }
 
   const nextHintCount = hintCount + 1;
   if (nextHintCount >= MAX_HINTS + 1) {
-    const event = await record(userId, task, answer, false, hintCount, opts.latencyMs, skillTags);
-    const after = await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
-    return {
+    return settleAnswer(userId, task, answer, hintCount, opts, skillTags, {
       status: "failed",
-      task: toPublic(task),
       feedback: "ヒントを使い切りました。解説を読んで、次に同じ形の問題に出会ったときの足がかりにしてください。",
-      hint: "",
-      explanation: task.explanation,
-      hintCount,
-      event: { id: event.id },
-      ...after,
-    };
+    });
   }
 
   await prisma.taskAttempt.upsert({
@@ -231,6 +212,33 @@ export async function submitAnswer(userId: string, taskId: string, opts: SubmitO
     hintCount: nextHintCount,
     hintsRemaining: MAX_HINTS - nextHintCount,
   };
+}
+
+/** 決着時の記録・再計算（または延期）・共通レスポンス組み立てを一か所で行う。 */
+async function settleAnswer(
+  userId: string,
+  task: Task,
+  answer: string,
+  hintCount: number,
+  opts: SubmitOptions,
+  skillTags: string[],
+  settlement: Settlement,
+): Promise<SettledSubmitResult> {
+  const event = await record(userId, task, answer, settlement.status === "success", hintCount, opts.latencyMs, skillTags);
+  const finalized = await finalizeOrDefer(userId, task.domain, opts.deferFinalize);
+  const common = {
+    task: toPublic(task),
+    feedback: settlement.feedback,
+    hint: "" as const,
+    explanation: task.explanation,
+    hintCount,
+    event: { id: event.id },
+    ...finalized,
+  };
+  if (settlement.status === "success") {
+    return { status: "success", ...common, observations: settlement.observations };
+  }
+  return { status: "failed", ...common };
 }
 
 /** 選択式は (task, 回答, ヒント段階, 人格) で講評をキャッシュし、2回目以降は LLM を呼ばない */
@@ -431,4 +439,3 @@ export async function warmFeedbackCache(userId: string, taskIds: string[], opts:
   await Promise.all(Array.from({ length: concurrency }, worker));
   return done;
 }
-

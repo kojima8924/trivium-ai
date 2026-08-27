@@ -11,6 +11,14 @@ import { EXTERNAL, MODELS } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
 import {
+  deterministicResultText,
+  fallbackHint,
+  filterSkillTags,
+  heuristicResultText,
+  safeEvaluationStatus,
+  stripBackticks,
+} from "./shared";
+import {
   AI_SYSTEM_POLICY,
   type ChatInput,
   type ChatOutput,
@@ -136,18 +144,6 @@ function personaText(p?: PersonaPrompt): string {
     .join("\n");
 }
 
-/** UI はマークダウンを描画しないので、LLM が付けがちなバッククォートを落とす（再帰） */
-function stripBackticks<T>(v: T): T {
-  if (typeof v === "string") return v.replace(/```[a-zA-Z]*\n?/g, "").replace(/`/g, "") as T;
-  if (Array.isArray(v)) return v.map(stripBackticks) as T;
-  if (v && typeof v === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = stripBackticks(x);
-    return out as T;
-  }
-  return v;
-}
-
 /** 現在時刻（JST）。system ではなく input に入れる（system を安定させてキャッシュを効かせる） */
 function nowText(now: Date = new Date()): string {
   return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "full", timeStyle: "short" }).format(now);
@@ -239,8 +235,8 @@ export class OpenAIProvider implements LearningAIProvider {
       fmt("mode", input.mode),
       fmt("task", input.task),
       fmt("learner_answer", input.learnerAnswer),
-      fmt("deterministic_result", input.deterministicResult === null ? "unknown" : input.deterministicResult ? "correct" : "incorrect"),
-      fmt("heuristic_result", input.heuristicResult === null ? "n/a" : input.heuristicResult ? "meets_rubric" : "below_rubric"),
+      fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
+      fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
       fmt("hint_level", input.hintLevel),
       fmt("current_domain_profile", input.currentDomainProfile),
       fmt("recent_behavior", input.recentBehavior.join("\n") || "(なし)"),
@@ -251,16 +247,14 @@ export class OpenAIProvider implements LearningAIProvider {
       effort: MODELS.reasoningEffort.evaluate,
     });
 
-    let status = out.status;
-    if (input.deterministicResult === true) status = "success";
-    if (input.deterministicResult === false && status === "success") status = "retry";
-    const fallbackHint = input.task.hints[Math.min(input.hintLevel, input.task.hints.length - 1)] ?? "";
+    const status = safeEvaluationStatus(out.status, input.deterministicResult);
+    const safeHint = fallbackHint(input.task.hints, input.hintLevel);
     return {
       status,
       feedback: out.feedback,
-      hint: status === "success" ? "" : out.hint || fallbackHint,
+      hint: status === "success" ? "" : out.hint || safeHint,
       observations: out.observations.slice(0, 3),
-      skillTags: out.skill_tags.filter((t) => (SUBSKILLS[domain] as readonly string[]).includes(t)),
+      skillTags: filterSkillTags(out.skill_tags, SUBSKILLS[domain]),
       recommendedNextDifficulty: out.recommended_next_difficulty,
     };
   }
@@ -364,7 +358,7 @@ export class OpenAIProvider implements LearningAIProvider {
     });
 
     const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
-    const skillTags = out.skill_tags.filter((t) => input.allowedSkillTags.includes(t));
+    const skillTags = filterSkillTags(out.skill_tags, input.allowedSkillTags);
     if (input.kind === "choice") {
       if (out.choices.length !== 4 || out.answer_index < 0 || out.answer_index > 3) {
         throw new Error("generated choice task is malformed");

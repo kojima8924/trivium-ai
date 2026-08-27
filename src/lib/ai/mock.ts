@@ -2,6 +2,7 @@
 // 「一度に一段だけヒント」「完成解は渡さない」「証拠のない断定をしない」を守る。
 
 import { DOMAIN_META, SUBSKILL_LABELS, SUBSKILLS, type DomainKey } from "../domain";
+import { filterSkillTags, safeEvaluationStatus } from "./shared";
 import type {
   DomainEvalInput,
   DomainEvalOutput,
@@ -109,16 +110,17 @@ export class MockProvider implements LearningAIProvider {
     const seed = input.recentTitles.length + input.request.length;
     const t = CANNED[input.domain](seed);
     // 依頼の kind と違う形式しか用意がない場合はそのまま返す（呼び出し側が kind を合わせる）
-    return { ...t, skillTags: t.skillTags.filter((x) => input.allowedSkillTags.includes(x)) };
+    return { ...t, skillTags: filterSkillTags(t.skillTags, input.allowedSkillTags) };
   }
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
     const isFree = input.deterministicResult === null;
     const success = (input.deterministicResult ?? input.heuristicResult) === true;
+    const status = safeEvaluationStatus(success ? "success" : isFree ? "needs_more" : "retry", input.deterministicResult);
     const hintIdx = Math.min(input.hintLevel, input.task.hints.length - 1);
     const nextHint = input.task.hints[hintIdx] ?? "もう一度、問題文の条件を一つずつ確認してみましょう。";
 
-    if (success) {
+    if (status === "success") {
       const feedback = isFree
         ? input.hintLevel === 0
           ? "評価観点を満たしています。自分の文章で一番効いている一文はどれか、意識してみてください。"
@@ -127,7 +129,7 @@ export class MockProvider implements LearningAIProvider {
           ? "正解です。ヒントなしで到達できました。どこで確信が持てたか、一言で言えますか？"
           : `正解です。ヒント${input.hintLevel}回で到達しました。最初の答えと何が違ったかを振り返ってみましょう。`;
       return {
-        status: "success",
+        status,
         feedback: signed(feedback, input.persona),
         hint: "",
         observations: [
@@ -140,10 +142,10 @@ export class MockProvider implements LearningAIProvider {
       };
     }
 
-    if (input.deterministicResult === null) {
+    if (status === "needs_more") {
       // free タスク: ヒューリスティックが不合格と判断したケース
       return {
-        status: "needs_more",
+        status,
         feedback: "まだ観点が足りないようです。書き直す前に、次の問いを考えてみてください。",
         hint: nextHint,
         observations: [`難易度${input.task.difficulty}の記述課題で追加のヒントが必要だった`],
@@ -157,7 +159,7 @@ export class MockProvider implements LearningAIProvider {
         ? "その答えでは正解になりません。まずは一つだけ確認してみましょう。"
         : "まだ違うようです。もう一段だけ考える材料を出します。";
     return {
-      status: "retry",
+      status,
       feedback: signed(intro, input.persona),
       hint: nextHint,
       observations: [`難易度${input.task.difficulty}の課題で誤答（ヒント${input.hintLevel + 1}回目）`],

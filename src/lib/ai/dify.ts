@@ -12,6 +12,14 @@ import "server-only";
 import { z } from "zod";
 import { env } from "../env";
 import { MockProvider } from "./mock";
+import {
+  deterministicResultText,
+  fallbackHint,
+  filterSkillTags,
+  heuristicResultText,
+  safeEvaluationStatus,
+  stripJsonCodeFence,
+} from "./shared";
 import type {
   ChatInput,
   ChatOutput,
@@ -29,7 +37,9 @@ import type {
   PersonaPrompt,
 } from "./types";
 import { AI_SYSTEM_POLICY } from "./types";
-import { DOMAINS, type DomainKey } from "../domain";
+import { DOMAINS, SUBSKILLS, type DomainKey } from "../domain";
+
+const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = { read: "READ", write: "WRITE", code: "CODE" };
 
 const evalSchema = z.object({
   status: z.enum(["success", "retry", "needs_more"]),
@@ -77,7 +87,7 @@ type DifyRunResponse = {
   message?: string;
 };
 
-export class DifyError extends Error {}
+class DifyError extends Error {}
 
 /** 人格は JSON 文字列で渡す（無ければ空文字。DSL 側は空なら既定の口調） */
 function personaInput(p?: PersonaPrompt): string {
@@ -86,7 +96,7 @@ function personaInput(p?: PersonaPrompt): string {
 }
 
 /** 時事ネタの依頼だけ Web 検索を挟む（決定論。検索は遅く高価なので既定は使わない） */
-export function wantsSearch(request: string): boolean {
+function wantsSearch(request: string): boolean {
   return /(ニュース|時事|最近の|今日の|今週の|今月の|話題|最新)/.test(request);
 }
 
@@ -121,7 +131,7 @@ export class DifyProvider implements LearningAIProvider {
     const candidates = [outputs.result, outputs.output, outputs.text, outputs.json, outputs];
     for (const c of candidates) {
       if (typeof c === "string") {
-        const s = c.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+        const s = stripJsonCodeFence(c);
         try {
           return JSON.parse(s);
         } catch {
@@ -143,10 +153,8 @@ export class DifyProvider implements LearningAIProvider {
         persona: personaInput(input.persona),
         task: JSON.stringify(input.task),
         learner_answer: input.learnerAnswer,
-        deterministic_result:
-          input.deterministicResult === null ? "unknown" : input.deterministicResult ? "correct" : "incorrect",
-        heuristic_result:
-          input.heuristicResult === null ? "n/a" : input.heuristicResult ? "meets_rubric" : "below_rubric",
+        deterministic_result: deterministicResultText(input.deterministicResult),
+        heuristic_result: heuristicResultText(input.heuristicResult),
         hint_level: input.hintLevel,
         current_domain_profile: JSON.stringify(input.currentDomainProfile),
         recent_behavior: input.recentBehavior.join("\n"),
@@ -156,16 +164,13 @@ export class DifyProvider implements LearningAIProvider {
     const parsed = evalSchema.safeParse(this.extract(outputs));
     if (!parsed.success) throw new DifyError("Dify eval output schema mismatch");
     const d = parsed.data;
-    // 決定論的採点が確定している場合、AIの status はそれに従わせる（安全弁）
-    let status = d.status;
-    if (input.deterministicResult === true) status = "success";
-    if (input.deterministicResult === false && status === "success") status = "retry";
+    const status = safeEvaluationStatus(d.status, input.deterministicResult);
     return {
       status,
       feedback: d.feedback,
-      hint: status === "success" ? "" : d.hint || input.task.hints[Math.min(input.hintLevel, input.task.hints.length - 1)] || "",
+      hint: status === "success" ? "" : d.hint || fallbackHint(input.task.hints, input.hintLevel),
       observations: d.observations,
-      skillTags: d.skill_tags,
+      skillTags: filterSkillTags(d.skill_tags, SUBSKILLS[MODE_TO_DOMAIN[input.mode]]),
       recommendedNextDifficulty: d.recommended_next_difficulty,
     };
   }
@@ -252,7 +257,7 @@ export class DifyProvider implements LearningAIProvider {
     const out = parsed.data;
 
     const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
-    const skillTags = out.skill_tags.filter((t) => input.allowedSkillTags.includes(t));
+    const skillTags = filterSkillTags(out.skill_tags, input.allowedSkillTags);
     const tags = skillTags.length ? skillTags : [input.allowedSkillTags[0]];
 
     if (input.kind === "choice") {

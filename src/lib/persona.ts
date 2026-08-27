@@ -1,4 +1,5 @@
 // AI の人格（READ / WRITE / CODE(LOGIC) / LEADER）。
+// 呼びかけ判定の純粋部分は persona.pure.ts に置く。
 // 既定と口調プリセットは src/config/trivium.config.ts に置き、ユーザーごとの上書きを DB（AgentPersona）に保存する。
 // prompt に載せる整形（PersonaPrompt）と、講評キャッシュのキー（personaKey）をここで作る。
 import "server-only";

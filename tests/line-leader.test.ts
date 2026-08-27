@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPostbackReply, buildReply, classifyIntent, domainOf, helpReply, quizOrWebActions, welcomeReply } from "../src/lib/line/leader";
 import type { LeaderContext } from "../src/lib/line/leader";
-import { detectAddressedAgent } from "../src/lib/persona-address";
+import { detectAddressedAgent } from "../src/lib/persona.pure";
 import { PERSONA_DEFAULTS } from "../src/config/trivium.config";
 
 const APP = "https://trivium.example.com";
