@@ -1,0 +1,21 @@
+# ローカル開発用 PostgreSQL（本番はCoolifyの内部リソースを使う）
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: trivium-db
+    environment:
+      POSTGRES_USER: trivium
+      POSTGRES_PASSWORD: trivium
+      POSTGRES_DB: trivium
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - trivium-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trivium"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  trivium-db:
