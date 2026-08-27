@@ -23,3 +23,4 @@ npx tsx --conditions=react-server scripts/dev/<name>.ts
 - デモ用アカウント（`demo+demo-learner@trivium.local`）の状態を変えるスクリプトは無い。学習ループを本物の API で試したい場合は `curl` で `/api/learn/submit` を叩き、最後に `POST /api/demo/seed {"reset":true}` で戻す（`DEMO.md` の事前準備を参照）
 
 本番向けの運用スクリプトは 1 つ上の `scripts/` にある（`seed-demo.ts` / `warm-cache.ts` / `preflight.ts` / `line-richmenu.ts` / `line-richmenu-image.ts` / `brand-assets.ts`。それぞれ `npm run` のエントリが `package.json` にある）。
+| `line-dispatch-check.ts` | 署名付き webhook で LINE の振り分け（出題／作問／呼びかけ会話／古い出題の拒否）を実機確認 | OpenAI・LINE 署名 | 使い捨てユーザーを作って削除。デモ用アカウントには触れない |
