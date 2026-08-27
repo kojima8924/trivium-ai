@@ -1,0 +1,129 @@
+# Docker: 本番と同じイメージを実際にビルドし、起動してヘルスチェックまで確認する。
+#
+# ローカル（Windows）では Docker Desktop が動かないため、この workflow が
+# Dockerfile / docker-entrypoint.sh の唯一の実地検証になる。
+#   1. multi-stage ビルド（GHA キャッシュ利用、レジストリへは push しない）
+#   2. PostgreSQL サービスを立て、イメージを --network host で起動
+#   3. entrypoint の `prisma migrate deploy` が通り、/api/health が db:ok を返すか
+#   4. public/ と app icon が配信されているか（.dockerignore の除外ミス検知）
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: trivium
+          POSTGRES_PASSWORD: trivium
+          POSTGRES_DB: trivium
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trivium"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: trivium:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image size
+        run: |
+          docker image inspect trivium:ci \
+            --format 'イメージサイズ: {{ printf "%.0f" (divf .Size 1048576) }} MiB'
+
+      - name: Run container
+        env:
+          # CI 用のダミー値（本物の秘密は使わない）
+          DATABASE_URL: postgresql://trivium:trivium@127.0.0.1:5432/trivium?schema=public
+        run: |
+          docker run -d --name trivium \
+            --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e AUTH_SECRET=ci-only-dummy-secret \
+            -e AUTH_TRUST_HOST=true \
+            -e NEXT_PUBLIC_APP_URL=http://localhost:3000 \
+            -e DEMO_LOGIN_ENABLED=false \
+            -e AI_PROVIDER=mock \
+            trivium:ci
+
+      - name: Wait for /api/health
+        run: |
+          for i in $(seq 1 40); do
+            body=$(curl -fsS http://localhost:3000/api/health 2>/dev/null || true)
+            if [ -n "$body" ]; then
+              echo "health: $body"
+              echo "$body" | grep -q '"db":"ok"' && exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::/api/health が db:ok を返しませんでした"
+          docker logs trivium
+          exit 1
+
+      - name: Verify migrations applied
+        env:
+          PGPASSWORD: trivium
+        run: |
+          # entrypoint の prisma migrate deploy が実際にテーブルを作ったことを確認する
+          tables=$(psql -h 127.0.0.1 -U trivium -d trivium -Atc \
+            "select table_name from information_schema.tables where table_schema='public' order by 1")
+          echo "$tables"
+          for t in User LearningEvent DomainProfile LeaderProfile TaskAttempt LineUser Achievement; do
+            echo "$tables" | grep -qx "$t" || { echo "::error::テーブル $t がありません"; exit 1; }
+          done
+          applied=$(psql -h 127.0.0.1 -U trivium -d trivium -Atc \
+            "select count(*) from _prisma_migrations where finished_at is not null")
+          echo "適用済み migration: $applied"
+          [ "$applied" -ge 2 ] || { echo "::error::migration が適用されていません"; exit 1; }
+
+      - name: Verify static assets are served
+        run: |
+          # .dockerignore で public/ を落としていないか（ロゴ・ファビコンが 200 か）
+          for path in /brand/logo-wide.png /brand/mark-192.png; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000$path")
+            echo "$path -> $code"
+            [ "$code" = "200" ] || { echo "::error::$path が配信されていません"; exit 1; }
+          done
+          # Next の app icon 規約（src/app/icon.png）
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L http://localhost:3000/icon.png)
+          echo "/icon.png -> $code"
+          [ "$code" = "200" ] || { echo "::error::app icon が配信されていません"; exit 1; }
+
+      - name: Verify top page renders
+        run: |
+          html=$(curl -fsS http://localhost:3000/)
+          echo "$html" | grep -q "Trivium" || { echo "::error::トップページに Trivium がありません"; exit 1; }
+          echo "$html" | grep -q "READ" || { echo "::error::トップページに READ がありません"; exit 1; }
+
+      - name: Container logs
+        if: always()
+        run: docker logs trivium || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f trivium || true
