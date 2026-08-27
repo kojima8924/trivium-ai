@@ -11,11 +11,14 @@ export async function Header() {
         <Link href="/" aria-label="Trivium ホーム" className="flex min-h-11 items-center">
           <Image src="/brand/logo-wide.png" alt="Trivium" width={443} height={96} priority className="h-6 w-auto" />
         </Link>
-        <nav className="flex items-center gap-2 text-sm">
+        <nav className="flex shrink-0 items-center gap-1 text-sm sm:gap-2">
           {user ? (
             <>
               <Link href="/dashboard" className="btn h-9 min-h-0 px-3 py-1 text-sm">
                 Dashboard
+              </Link>
+              <Link href="/settings" className="flex min-h-11 items-center whitespace-nowrap px-2 text-muted hover:text-fg" aria-label="AI の人格設定">
+                設定
               </Link>
               <form
                 action={async () => {
@@ -23,7 +26,7 @@ export async function Header() {
                   await signOut({ redirectTo: "/" });
                 }}
               >
-                <button type="submit" className="min-h-11 px-2 text-muted hover:text-fg" title={user.email ?? undefined}>
+                <button type="submit" className="min-h-11 whitespace-nowrap px-2 text-muted hover:text-fg" title={user.email ?? undefined}>
                   ログアウト
                 </button>
               </form>

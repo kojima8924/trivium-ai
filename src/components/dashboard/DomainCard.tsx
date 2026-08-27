@@ -18,7 +18,7 @@ export function DomainCard({ d }: { d: DashboardData["domains"][number] }) {
     <section className="card flex flex-col gap-3 p-4" style={{ borderTopColor: color, borderTopWidth: 3 }} aria-labelledby={`domain-${d.domain}`}>
       <div className="flex items-baseline justify-between gap-2">
         <h3 id={`domain-${d.domain}`} className="wordmark text-sm" style={{ color }}>
-          {d.domain}
+          {meta.label}
         </h3>
         <span className="text-[11px] text-muted">
           {measured ? `${d.evidenceCount}件 · ${CONFIDENCE_TEXT[d.confidence]}` : "未計測"}
@@ -78,7 +78,7 @@ export function DomainCard({ d }: { d: DashboardData["domains"][number] }) {
         <p className="text-[11px] text-muted">あと{remaining}問で信頼度が上がります</p>
       )}
 
-      <Link href={meta.path} className="btn mt-auto text-sm" aria-label={`${d.domain}（${meta.ja}）の課題へ`}>
+      <Link href={meta.path} className="btn mt-auto text-sm" aria-label={`${meta.label}（${meta.ja}）の課題へ`}>
         {meta.ja}課題へ
       </Link>
     </section>

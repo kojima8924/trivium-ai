@@ -1,7 +1,7 @@
 "use client";
 
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart as RRadar, ResponsiveContainer } from "recharts";
-import { DOMAINS, type DomainKey } from "@/lib/domain";
+import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 
 // domain 色は CSS 変数で持つ（ダークモードで明度を上げられるようにするため）
 const DOMAIN_VAR: Record<DomainKey, string> = {
@@ -25,7 +25,7 @@ export function TriviumRadar({ scores, measured, previous }: Props) {
     prev: previous?.[d] ?? null,
   }));
 
-  const label = DOMAINS.map((d) => `${d} ${measured?.[d] === false ? "未計測" : scores[d]}`).join("、");
+  const label = DOMAINS.map((d) => `${DOMAIN_META[d].label} ${measured?.[d] === false ? "未計測" : scores[d]}`).join("、");
 
   return (
     <figure className="m-0">
@@ -42,7 +42,7 @@ export function TriviumRadar({ scores, measured, previous }: Props) {
                 return (
                   <text x={x} y={y} textAnchor={textAnchor} fontSize={13}>
                     <tspan fill={DOMAIN_VAR[d]} fontWeight={700} letterSpacing="0.15em">
-                      {d}
+                      {DOMAIN_META[d].label}
                     </tspan>
                     <tspan fill={isMeasured ? "var(--fg)" : "var(--muted)"} fontWeight={700} fontSize={15}>
                       {" "}

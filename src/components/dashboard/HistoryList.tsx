@@ -1,3 +1,4 @@
+import { DOMAIN_META } from "@/lib/domain";
 import type { DashboardData } from "@/lib/profile";
 import { DOMAIN_VAR, eventOutcomeText, relativeTime } from "./shared";
 
@@ -27,7 +28,7 @@ export function HistoryList({ events, now }: { events: DashboardData["recentEven
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <span className="wordmark shrink-0 text-[10px]" style={{ color: DOMAIN_VAR[e.domain] }}>
-                {e.domain}
+                {DOMAIN_META[e.domain].label}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm">{e.taskTitle}</span>
             </div>

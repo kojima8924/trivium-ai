@@ -55,7 +55,7 @@ export function NextStep({ recommendation, recommendedDomain, totalEvents }: Pro
             className="inline-flex min-h-11 items-center rounded-md px-2 font-semibold underline-offset-4 hover:underline"
             style={{ color: DOMAIN_VAR[d] }}
           >
-            {d}
+            {DOMAIN_META[d].label}
           </Link>
         ))}
       </div>

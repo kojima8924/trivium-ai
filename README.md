@@ -2,7 +2,7 @@
 
 > **AI does not do the work for you. It helps you take the next step.**
 
-READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えずに **一段だけヒント** を出します。
+READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教えずに **一段だけヒント** を出します。
 学習行動は learning event として記録され、各 domain の能力プロフィールが **決定論的に** 更新され、
 その上に立つ **LEADER** が全体の傾向と「次の一歩」を提案します。
 
@@ -12,7 +12,7 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
                   |
        +----------+----------+
        |          |          |
-      READ       WRITE      CODE
+      READ       WRITE      LOGIC
       memory     memory     memory
 
       skills are local, learner is global.
@@ -23,9 +23,13 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
 ## 何ができるか
 
 - **Google ログイン** — 学習状態はサーバ（PostgreSQL）に永続化。別端末でも同じプロフィール
-- **READ** 短文を読んで要旨・推論・批判的読解 / **WRITE** 主張・反論・推敲 / **CODE** Python の出力予測・バグ発見・設計の言語化
+- **READ** 短文を読んで要旨・推論・批判的読解 / **WRITE** 主張・反論・推敲 / **LOGIC** 短い Python の読解（出力予測・バグ発見）と、手順・条件・推論のパズル（内部キーは `CODE`）
 - **一段ヒント** — 誤答すると AI が問い返し／ヒントを 1 つだけ。3 回まで。完成解は出さない
-- **能力プロフィール** — READ / WRITE / CODE の三角形レーダー、subskill ごとのバー、信頼度（low / medium / high）
+- **能力プロフィール** — READ / WRITE / LOGIC の三角形レーダー、subskill ごとのバー、信頼度（low / medium / high）。再計算のたびにスナップショットを保存（時系列の下地）
+- **AI の人格** — READ / WRITE / LOGIC / LEADER の 4 人格（既定: アオイ / フミ / ケイ / リード）。`/settings` で名前・口調・一人称・補足を変更でき、講評・寸評・総合寸評の文体に反映
+- **AI 作問** — 学習ページや LINE で「論理パズルを1問」「短い読解を出して」と頼むと、その場で課題を生成（domain / 形式は決定論で推定し、同じ 3 軸で評価）
+- **選択式の講評キャッシュ** — 選択式の講評は（課題 × 回答 × ヒント段階 × 人格）でキャッシュし、2 回目以降は LLM を呼ばない
+- **初期状態に戻す** — Dashboard のボタンで学習記録・プロフィール・Achievement を全消去（人格設定と LINE 連携は残る）
 - **LEADER** — 各 domain の要約を読み、総合寸評と次の課題を提案
 - **LINE 公式アカウント** — 入口として「今日のおすすめ」「10 分だけやりたい」に応え、Web へ誘導（署名検証付き Webhook・Rich Menu）
 - **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイムURLが届き、Google ログイン後に紐づく。以降 LINE の Leader が実際の学習記録にもとづいて答える（「連携解除」でいつでも解除）
@@ -35,7 +39,7 @@ READ / WRITE / CODE の短い課題に取り組むと、AI は答えを教えず
 
 | ホーム | 学習（一段ヒント） | 結果とプロフィール更新 |
 |---|---|---|
-| <img src="docs/screenshots/home.png" width="240" alt="ホーム画面。ロゴと READ / WRITE / CODE のカード" /> | <img src="docs/screenshots/learn-code-hint.png" width="240" alt="CODE の課題。誤答に対して hint 1 だけが提示されている" /> | <img src="docs/screenshots/learn-code-done.png" width="240" alt="正解後の解説とスコア変化、Leader の寸評" /> |
+| <img src="docs/screenshots/home.png" width="240" alt="ホーム画面。ロゴと READ / WRITE / LOGIC のカード" /> | <img src="docs/screenshots/learn-code-hint.png" width="240" alt="LOGIC の課題。誤答に対して hint 1 だけが提示されている" /> | <img src="docs/screenshots/learn-code-done.png" width="240" alt="正解後の解説とスコア変化、Leader の寸評" /> |
 
 | Dashboard（ライト） | Dashboard（ダーク） |
 |---|---|
@@ -60,13 +64,14 @@ provider は `LearningAIService` で抽象化され、`AI_PROVIDER` で切り替
 
 | provider | 説明 |
 |---|---|
-| `anthropic` | Claude API を server-side から直接呼ぶ（structured outputs で JSON 固定、system policy 7 か条を強制）。設定が最小で推奨 |
+| `openai` | **既定**。OpenAI Responses API を server-side から直接呼ぶ（structured outputs で JSON 固定、system policy 7 か条と人格を prompt に載せる）。作問もここ |
+| `anthropic` | Claude API を直接呼ぶ（任意。作問は Mock に委譲） |
 | `dify` | Dify Workflow 経由。`dify/*.yml` をインポートすればそのまま動く |
 | `mock` | ルールベース。キー不要。上の 2 つが失敗したときも **自動でここにフォールバック** し、アプリは止まりません |
 
 ## 技術スタック
 
-Next.js 16 (App Router, TypeScript) · PostgreSQL · Prisma 7 · Auth.js v5 (Google) · Recharts · Claude API / Dify Workflow API (server-side) · LINE Messaging API · Docker / Coolify
+Next.js 16 (App Router, TypeScript) · PostgreSQL · Prisma 7 · Auth.js v5 (Google) · Recharts · OpenAI Responses API / Dify Workflow API (server-side) · LINE Messaging API · Docker / Coolify
 
 ## ローカル開発
 
@@ -99,7 +104,8 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth（server only） |
 | `DEMO_LOGIN_ENABLED` | デモ用フォールバックログイン（既定 false） |
 | `DEMO_SEED_ENABLED` | Dashboard の「デモデータ投入」ボタン（既定 true） |
-| `AI_PROVIDER` | `anthropic` / `dify` / `mock` |
+| `AI_PROVIDER` | `openai`（既定）/ `dify` / `anthropic` / `mock` |
+| `OPENAI_API_KEY` / `OPENAI_MODEL`（既定 `gpt-5.4-mini`）/ `OPENAI_TIMEOUT_MS` | OpenAI（server only。`AI_PROVIDER=openai` のとき） |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_TIMEOUT_MS` | Claude API（server only。`AI_PROVIDER=anthropic` のとき） |
 | `DIFY_API_BASE` / `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_TIMEOUT_MS` | Dify Workflow（server only） |
 | `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API |
@@ -113,6 +119,9 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `POST /api/learn/submit` | 回答 → 決定論採点 → AI の feedback / 一段ヒント → 決着時に learning event 記録 → profile 再計算 |
 | `GET /api/profile` | Dashboard と同じプロフィール JSON |
 | `POST /api/demo/seed` | 自分のアカウントにデモ履歴を投入 |
+| `POST /api/demo/reset` | 自分の学習状態を初期状態に戻す |
+| `POST /api/learn/generate` | 自由文の依頼から課題を 1 問生成（`{request, domain?, kind?}`） |
+| `GET /settings` | AI の人格設定（4 人格） |
 | `POST /api/line/webhook` | LINE Webhook（署名検証） |
 | `GET /link/<token>` | LINE 連携の確認ページ（POST で消費。単回・15分） |
 
@@ -121,6 +130,14 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 構造とデータフロー
 - [DEPLOY.md](DEPLOY.md) — Sakura VPS + Coolify へのデプロイ、Google / Dify / LINE の設定
 - [DEMO.md](DEMO.md) — 2〜3 分のデモ台本
+
+## 24 時間でどう作ったか
+
+- 2026-08-27 21:00 に空のリポジトリから開始。コミットは feature 単位で 36 本以上（`git log --oneline`）
+- Claude Code を使い、土台（schema・スコアリング・AI 抽象層・認証）を先に固めてから、UI / LINE / Dify / テスト / デプロイを**並列のサブエージェント**に分担
+- 統合後に**多角レビュー**（正確性・セキュリティ・フレームワーク API・デプロイ・UX・ドキュメント）と敵対的検証を回し、実在した問題だけを修正 — 例: 全角入力で正解判定が落ちる、`/login?next=` のオープンリダイレクト、ヒント回数の自己申告による水増し、ヒント文に完成解が混ざっていた問題
+- テストは 71 件（`node:test`）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**。main への push で GHCR にイメージを公開し、Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）
+- AI は「解釈だけ」に限定し、採点は決定論。LLM の出力は structured outputs で JSON 固定、決定論採点が確定しているときは AI の判定を上書きする安全弁付き
 
 ## セキュリティ方針
 

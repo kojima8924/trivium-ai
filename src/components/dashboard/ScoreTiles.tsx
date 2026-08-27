@@ -22,12 +22,12 @@ export function ScoreTiles({ domains }: { domains: DashboardData["domains"] }) {
               style={{ outlineColor: DOMAIN_VAR[d.domain] }}
               aria-label={
                 measured
-                  ? `${d.domain} スコア ${d.score}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
-                  : `${d.domain} は未計測`
+                  ? `${DOMAIN_META[d.domain].label} スコア ${d.score}、${CONFIDENCE_TEXT[d.confidence]}、記録 ${d.evidenceCount} 件`
+                  : `${DOMAIN_META[d.domain].label} は未計測`
               }
             >
               <span className="wordmark text-[11px]" style={{ color: DOMAIN_VAR[d.domain] }}>
-                {d.domain}
+                {DOMAIN_META[d.domain].label}
               </span>
               <span
                 className={`text-3xl leading-tight font-bold tabular-nums ${measured && uncertain ? "text-muted" : ""}`}

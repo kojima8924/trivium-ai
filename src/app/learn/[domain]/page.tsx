@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { DOMAIN_META, parseDomain } from "@/lib/domain";
 import { TaskPlayer } from "@/components/TaskPlayer";
+import { GenerateBox } from "@/components/GenerateBox";
+import { loadPersonas } from "@/lib/persona";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,7 @@ export default async function LearnPage({
   if (!session?.user?.id) redirect(`/login?next=${encodeURIComponent(`/learn/${raw}`)}`);
 
   const meta = DOMAIN_META[domain];
+  const personas = await loadPersonas(session.user.id);
   return (
     <div className="flex flex-col gap-4 py-4">
       <div>
@@ -35,7 +38,9 @@ export default async function LearnPage({
         </div>
         <p className="mt-0.5 text-xs text-muted">{meta.tagline}</p>
       </div>
-      <TaskPlayer domain={domain} preferredTaskId={sp.task} />
+      <GenerateBox domain={domain} />
+      {/* key で課題を切り替える（作問後の ?task=gen-… でも確実に再ロード） */}
+      <TaskPlayer key={sp.task ?? "auto"} domain={domain} preferredTaskId={sp.task} personaName={personas[domain].name} leaderName={personas.LEADER.name} />
     </div>
   );
 }

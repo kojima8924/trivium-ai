@@ -21,7 +21,27 @@ type SubmitResponse =
 
 type Phase = "loading" | "answering" | "submitting" | "done" | "error";
 
-export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; preferredTaskId?: string }) {
+/** LOGIC は Python と論理パズルが混在するので、コードらしい本文だけ等幅ブロックで出す */
+function looksLikeCode(passage: string): boolean {
+  const firstLine = passage.split("\n")[0] ?? "";
+  if (/^(def |print\(|for |import |[a-z_]+ = )/m.test(passage)) return true;
+  if (/^[#・\s]/.test(firstLine)) return false;
+  return /\b(def|print|for|while|if|import|return|range|len)\b|[=\[\]{}()]/.test(passage);
+}
+
+export function TaskPlayer({
+  domain,
+  preferredTaskId,
+  personaName,
+  leaderName,
+}: {
+  domain: DomainKey;
+  preferredTaskId?: string;
+  /** この domain を担当する AI の名前（講評の吹き出しに表示） */
+  personaName?: string;
+  /** LEADER の名前（結果画面に表示） */
+  leaderName?: string;
+}) {
   const [task, setTask] = useState<TaskPublic | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [answer, setAnswer] = useState("");
@@ -122,13 +142,20 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
   return (
     <div className="flex flex-col gap-4">
       <section className="card p-4 sm:p-5">
-        <div className="mb-2 flex items-center justify-between text-xs text-muted">
-          <span>{task.title}</span>
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
+          <span className="min-w-0 truncate">
+            {task.id.startsWith("gen-") && (
+              <span className="mr-1 rounded border px-1 py-0.5 text-[10px] font-semibold" style={{ borderColor: meta.color, color: meta.color }}>
+                AI 作問
+              </span>
+            )}
+            {task.title}
+          </span>
           <span>
             難易度 {task.difficulty} · ヒント {hintCount}/{MAX_HINTS}
           </span>
         </div>
-        {task.passage && (domain === "CODE" ? <pre className="codeblock">{task.passage}</pre> : <p className="passage text-sm">{task.passage}</p>)}
+        {task.passage && (looksLikeCode(task.passage) ? <pre className="codeblock">{task.passage}</pre> : <p className="passage text-sm">{task.passage}</p>)}
         <p className="mt-3 text-sm font-medium leading-relaxed">{task.prompt}</p>
       </section>
 
@@ -149,6 +176,11 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
               {m.kind === "hint" && (
                 <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.color }}>
                   hint {log.filter((x, j) => x.kind === "hint" && j <= i).length}
+                </div>
+              )}
+              {m.kind === "feedback" && personaName && (
+                <div className="mb-0.5 text-[10px] font-semibold" style={{ color: meta.color }}>
+                  {personaName}
                 </div>
               )}
               <div className="whitespace-pre-wrap">{m.text}</div>
@@ -214,7 +246,7 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
           </div>
           <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm">
             <span className="wordmark text-xs" style={{ color: meta.color }}>
-              {domain}
+              {meta.label}
             </span>
             <span className="tabular-nums">
               {result.profile.before} → <span className="font-bold">{result.profile.after}</span>
@@ -224,7 +256,7 @@ export function TaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; pre
           <p className="text-xs leading-relaxed text-muted">{result.profile.summary}</p>
           {result.leader && (
             <div className="rounded-lg border border-line p-3 text-xs">
-              <div className="wordmark mb-1 text-[10px]">Leader</div>
+              <div className="wordmark mb-1 text-[10px]">Leader{leaderName ? ` · ${leaderName}` : ""}</div>
               <p className="leading-relaxed">{result.leader.summary}</p>
               <p className="mt-1 font-medium">次のおすすめ: {result.leader.recommendation}</p>
             </div>

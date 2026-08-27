@@ -5,6 +5,7 @@ import { getDashboardData } from "@/lib/profile";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { TriviumRadar } from "@/components/RadarChart";
 import { SeedButton } from "@/components/SeedButton";
+import { ResetButton } from "@/components/ResetButton";
 import { NextStep } from "@/components/dashboard/NextStep";
 import { ScoreTiles } from "@/components/dashboard/ScoreTiles";
 import { DomainCard } from "@/components/dashboard/DomainCard";
@@ -39,7 +40,12 @@ export default async function DashboardPage() {
             学習記録 {data.totalEvents} 件 — <span className="font-medium">数値は記録からの集計</span>、文章は AI の解釈です
           </p>
         </div>
-        {env.demoSeedEnabled && <SeedButton hasData={data.totalEvents > 0} />}
+        {env.demoSeedEnabled && (
+          <div className="flex flex-wrap items-center gap-2">
+            <SeedButton hasData={data.totalEvents > 0} />
+            <ResetButton hasData={data.totalEvents > 0} />
+          </div>
+        )}
       </header>
 
       {/* 1. 次の一歩（主役。スクロールせずに見える位置） */}

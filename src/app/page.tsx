@@ -27,7 +27,7 @@ export default async function Home() {
           It helps you take the next step.
         </p>
         <p className="max-w-xl text-sm leading-relaxed text-muted">
-          読む・書く・コードを読む。AIは答えを教えず、一段だけヒントを出し、あなたの学習行動から能力プロフィールを更新します。
+          読む・書く・論理を追う。AIは答えを教えず、一段だけヒントを出し、あなたの学習行動から能力プロフィールを更新します。
         </p>
         <div className="flex flex-wrap gap-3 pt-2">
           {loggedIn ? (
@@ -67,7 +67,7 @@ export default async function Home() {
       <section className="card p-5 text-sm leading-relaxed text-muted">
         <div className="mb-2 font-semibold text-fg">仕組み</div>
         <ol className="list-decimal space-y-1 pl-5">
-          <li>READ / WRITE / CODE の短い課題に取り組む（誤答なら AI が一段だけヒント）</li>
+          <li>READ / WRITE / LOGIC の短い課題に取り組む（誤答なら AI が一段だけヒント）</li>
           <li>行動が learning event として記録され、各 domain の能力プロフィールが決定論的に更新される</li>
           <li>LEADER が3つの domain を横断して総合寸評と「次の一歩」を提案する</li>
         </ol>
