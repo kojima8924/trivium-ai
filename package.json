@@ -16,7 +16,8 @@
     "line:richmenu": "tsx --conditions=react-server scripts/line-richmenu.ts",
     "test": "tsx --test tests/*.test.ts",
     "docker:build": "docker build -t trivium .",
-    "preflight": "tsx scripts/preflight.ts"
+    "preflight": "tsx scripts/preflight.ts",
+    "warm-cache": "tsx --conditions=react-server scripts/warm-cache.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

@@ -374,3 +374,32 @@ export async function snapshot(userId: string): Promise<void> {
   const code = computeDomainScore("CODE", events).score;
   await prisma.profileSnapshot.create({ data: { userId, read, write, code } }).catch(() => undefined);
 }
+
+/**
+ * 選択式の講評キャッシュを事前に温める（デモ前・LINE の即答用）。
+ * 指定ユーザーの人格で、各選択肢 × ヒント段階 0 の講評を生成して保存する。
+ * 既にキャッシュがあるものは飛ばす。戻り値は生成した件数。
+ */
+export async function warmFeedbackCache(userId: string, taskIds: string[], opts: { hintLevels?: number[]; concurrency?: number } = {}): Promise<number> {
+  const hintLevels = opts.hintLevels ?? [0];
+  const concurrency = opts.concurrency ?? 3;
+  const jobs: { task: Task; answer: string; hintLevel: number }[] = [];
+  for (const id of taskIds) {
+    const task = await resolveTask(userId, id);
+    if (!task || task.kind !== "choice" || !task.choices) continue;
+    for (let i = 0; i < task.choices.length; i++) for (const h of hintLevels) jobs.push({ task, answer: String(i), hintLevel: h });
+  }
+  let done = 0;
+  let cursor = 0;
+  async function worker() {
+    while (cursor < jobs.length) {
+      const j = jobs[cursor++];
+      const deterministic = checkDeterministic(j.task, j.answer);
+      await evaluateWithCache(userId, j.task, j.answer, deterministic, null, j.hintLevel);
+      done++;
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return done;
+}
+
