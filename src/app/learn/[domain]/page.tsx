@@ -24,16 +24,16 @@ export default async function LearnPage({
   const meta = DOMAIN_META[domain];
   return (
     <div className="flex flex-col gap-4 py-4">
-      <div className="flex items-baseline justify-between">
-        <div>
+      <div>
+        <div className="flex items-baseline justify-between gap-3">
           <h1 className="wordmark text-2xl" style={{ color: meta.color }}>
             {meta.label}
           </h1>
-          <p className="text-xs text-muted">{meta.tagline}</p>
+          <Link href="/dashboard" className="shrink-0 whitespace-nowrap text-xs text-muted hover:text-fg">
+            Dashboard →
+          </Link>
         </div>
-        <Link href="/dashboard" className="text-xs text-muted hover:text-fg">
-          Dashboard →
-        </Link>
+        <p className="mt-0.5 text-xs text-muted">{meta.tagline}</p>
       </div>
       <TaskPlayer domain={domain} preferredTaskId={sp.task} />
     </div>

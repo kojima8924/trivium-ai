@@ -3,8 +3,16 @@ import { auth, authProvidersAvailable, signIn } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
+// 自サイト内のパスだけを許可する（`//evil`・`/\evil`・タブ混入・絶対URLは弾く）
 function safeNext(v: string | undefined): string {
-  return v && v.startsWith("/") && !v.startsWith("//") ? v : "/dashboard";
+  if (!v || !v.startsWith("/")) return "/dashboard";
+  try {
+    const u = new URL(v, "http://n");
+    if (u.origin !== "http://n") return "/dashboard";
+    return u.pathname + u.search;
+  } catch {
+    return "/dashboard";
+  }
 }
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
