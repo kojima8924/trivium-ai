@@ -14,7 +14,7 @@ import type { Task } from "@/lib/tasks";
 import { loadEvents } from "@/lib/profile";
 import { computeXp, xpForEvent } from "@/lib/xp";
 import { computeLevels } from "@/lib/scoring";
-import { XP } from "@/config/trivium.config";
+import { XP, LINE } from "@/config/trivium.config";
 import { buildProfileFlex } from "./flex";
 import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
@@ -164,7 +164,7 @@ export async function answerQuiz(
   const head = result.status === "success" ? `正解（ヒント ${result.hintCount} 回）` : "今回は未達";
   return {
     reply: {
-      text: [`${head}`, `${name}: ${stripName(result.feedback, name)}`, `\n解説: ${result.explanation}`, "\n（集計中… 数秒後に結果を送ります）"].join("\n"),
+      text: [`${head}`, `${name}: ${stripName(result.feedback, name)}`, `\n解説: ${result.explanation}`, "\n（集計中…）"].join("\n"),
     },
     settled: { domain: task.domain, status: result.status },
   };
@@ -178,7 +178,7 @@ export async function giveUpQuiz(userId: string, lineUserId: string, state: Line
   if ("error" in result || result.status === "retry") return { reply: { text: "処理できませんでした。", quickReplies: todayActions() }, settled: null };
   await saveLineState(lineUserId, withPendingTask(state, null));
   return {
-    reply: { text: [`今回はここまで。`, `解説: ${result.explanation}`, "\n（集計中… 数秒後に結果を送ります）"].join("\n") },
+    reply: { text: [`今回はここまで。`, `解説: ${result.explanation}`, "\n（集計中…）"].join("\n") },
     settled: { domain: task.domain, status: "failed" },
   };
 }
@@ -207,13 +207,19 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
   const bonus = missionJustDone ? XP.dailyMissionBonus : 0;
   const xpLine = `+${earnedTask + bonus + streakBonus} XP（課題 ${earnedTask}${bonus ? ` / ミッション +${bonus}` : ""}${streakBonus > 0 ? ` / 連続 +${streakBonus}` : ""}）→ 合計 ${xp.total} XP・${xp.rank.title}`;
 
+  // 基本は「能力の変化 + XP」だけ。人格と案内役の寸評は commentEvery 問ごと（毎回は過剰）
+  const levelLine =
+    r.profile.levelAfter > r.profile.levelBefore
+      ? `${m.label} Lv.${r.profile.levelBefore} → Lv.${r.profile.levelAfter} レベルアップ（${scoreLine(r.profile.before, r.profile.after)}）`
+      : `${m.label} Lv.${r.profile.levelAfter}（${scoreLine(r.profile.before, r.profile.after)}）`;
+  const withComment = events.length > 0 && events.length % LINE.commentEvery === 0;
   const lines = [
-    `${m.label} ${scoreLine(r.profile.before, r.profile.after)}`,
+    levelLine,
     xpLine,
-    r.profile.summary ? `${personas[domain].name}: ${stripName(r.profile.summary, personas[domain].name)}` : "",
-    r.leader ? `\n${personas.LEADER.name}: ${stripName(r.leader.summary, personas.LEADER.name)}` : "",
-    r.leader?.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : "",
-    r.newAchievements.length ? `\n🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : "",
+    r.newAchievements.length ? `🏅 ${r.newAchievements.map(achievementLabel).join("、")}` : "",
+    withComment && r.profile.summary ? `\n${personas[domain].name}: ${stripName(r.profile.summary, personas[domain].name)}` : "",
+    withComment && r.leader ? `\n${personas.LEADER.name}: ${stripName(r.leader.summary, personas.LEADER.name)}` : "",
+    withComment && r.leader?.recommendation ? `次のおすすめ: ${r.leader.recommendation}` : "",
   ].filter(Boolean);
 
   return { text: lines.join("\n"), quickReplies: todayActions() };

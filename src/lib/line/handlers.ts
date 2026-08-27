@@ -8,6 +8,7 @@
 //   (4) 残り（unknown）                → 案内役（LEADER）との会話
 // 未連携ユーザーは (2)(4) を行わず、従来のルールベース応答（連携案内つき）に落ちる。
 import "server-only";
+import { LINE } from "@/config/trivium.config";
 import type { webhook } from "@line/bot-sdk";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -96,7 +97,10 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
     await handleGenerate(lineUserId, replyToken, lu, intent.request, scheduleAfter);
     return;
   }
-  if (intent.kind !== "unknown") {
+  // 連携済みなら、短いコマンド（「READ」「今日のおすすめ」「履歴」など）だけをルールベースで扱い、
+  // 長い自由文（「本を読むのが好きなんだけど…」）は人格との会話に回す（会話の自由度を優先）
+  const isShortCommand = text.trim().length <= LINE.commandMaxChars;
+  if (intent.kind !== "unknown" && (!lu.userId || isShortCommand)) {
     await handleRuleBasedMessage(lineUserId, replyToken, text, intent, lu);
     return;
   }

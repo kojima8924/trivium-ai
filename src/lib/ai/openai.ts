@@ -7,7 +7,7 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { env } from "../env";
-import { EXTERNAL, MODELS } from "@/config/trivium.config";
+import { EXTERNAL, MODELS, LINE } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
 import {
@@ -167,12 +167,13 @@ const memorySchema = z.object({
 });
 
 const ROLE_CHAT = [
-  "役割: LINE で学習者と短く会話する人格。課題を解かせる場ではなく、方向を決める場。",
-  "- 返答は 3 文以内。最後は必ず『次の一歩』を 1 つ（例: 『LOGIC を 1 問』『Dashboard で三角形を見る』）。",
-  "- 課題の答え・完成文は絶対に書かない。ヒントも会話では出さない（課題は Web か『今日の学習』で）。",
-  "- memory（観察メモ）と profile（能力サマリ）を踏まえ、本人の記録に基づいて話す。証拠が無いことは断定しない。",
+  "役割: LINE で学習者と自由に会話する人格。雑談・相談・学習内容の説明・時事や一般知識の質問にも普通に応じる。",
+  `- 返答は ${LINE.chatMaxSentences} 文以内。『次の一歩』（例: 『LOGIC を 1 問』『Dashboard で三角形を見る』）は会話の流れで自然なときだけ添える。毎回は付けない。`,
+  "- 出題中の課題の答え・完成文は書かない。一般的な概念や考え方の説明は自由にしてよい（例: 二分探索の一般的な仕組み、要約のコツ）。",
+  "- memory（観察メモ）と profile（能力サマリ）は、本人がそれに関係する話をしたときだけ使う。無関係な雑談に成績の話を持ち込まない。証拠が無いことは断定しない。",
   "- 日付・時刻・時事・最新情報を聞かれたら、now を使い、必要なら Web 検索で確かめる（検索した場合は sources に URL）。",
-  "- conversation は直近の往復。文脈を引き継ぐが、繰り返しはしない。",
+  "- conversation は直近の往復。文脈を引き継ぎ、同じ言い回しを繰り返さない。",
+  "- 人格（口調・一人称）を一貫させる。ツンデレ等の性格付けは会話で最も出してよい場面。",
 ].join("\n");
 
 const ROLE_MEMORY = [
@@ -314,7 +315,14 @@ export class OpenAIProvider implements LearningAIProvider {
       maxOutputTokens: 600,
     });
     const sources = parsed.sources.filter((s) => /^https?:\/\//.test(s)).slice(0, 2);
-    const text = sources.length ? `${parsed.text}\n出典: ${sources.join(" ")}` : parsed.text;
+    // LINE はマークダウンを描画しないので、太字・インラインリンク・検索由来の引用マーカーを平文に落とす
+    const plain = parsed.text
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/g, "")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1")
+      .replace(/[ \t]+\n/g, "\n")
+      .trim();
+    const text = sources.length ? `${plain}\n出典: ${sources.join(" ")}` : plain;
     const suggest = parsed.suggest_domain === "NONE" ? null : parsed.suggest_domain;
     return { text, suggestDomain: (DOMAINS as readonly string[]).includes(suggest ?? "") ? (suggest as DomainKey) : null, usedSearch };
   }
