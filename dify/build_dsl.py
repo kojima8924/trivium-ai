@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Trivium 用 Dify Workflow DSL の生成スクリプト（OpenAI 版・3 本）。
+"""Trivium 用 Dify DSL の生成スクリプト（OpenAI 版・Workflow 3 本 + Chatflow 1 本）。
 
-  python dify/build_dsl.py     # trivium-domain.yml / trivium-leader.yml / trivium-generate.yml を書き出す
+  python dify/build_dsl.py     # trivium-domain / trivium-leader / trivium-generate / trivium-chat を書き出す
 
 DSL を手で編集すると差分が追いにくいので、プロンプトや変数はここに集約し、
 YAML はこのスクリプトから生成する。生成後は dify/validate.py で
@@ -13,6 +13,12 @@ src/lib/ai/dify.ts の inputs / 出力キーと整合しているか検査する
   trivium-generate Start → IF/ELSE(use_search=="true")
                      ├ true : code(検索リクエスト組立) → HTTP(OpenAI Responses + web_search) → code(要約抽出) → LLM(作問) → End
                      └ false: LLM(作問) → End
+  trivium-chat     Chatflow（advanced-chat）。4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う。
+                   Start → HTTP(/api/agent/context) → code(文脈整形) → IF/ELSE(名前で呼ばれた？)
+                     ├ true : assigner(担当を固定) ─────────────────┐
+                     └ false: question-classifier ─ READ/WRITE/LOGIC/その他 → assigner ┤→ LLM(4 人格) → Answer
+                                                    └ 教材 → knowledge-retrieval → LLM(ミチ) → Answer
+                   会話履歴は 1 つの conversation で共有されるので、担当をまたいでも文脈が続く。
 LLM はすべて OpenAI（langgenius/openai/openai）。Web 検索も OpenAI Responses API の web_search ツールを HTTP ノードから呼ぶ。
 """
 from __future__ import annotations
@@ -341,11 +347,20 @@ def llm_node(node_id: str, title: str, system: str, user: str, x: int, y: int) -
     return node(node_id, "llm", data, x=x, y=y, w=244, h=98)
 
 
-def ifelse_node(node_id: str, title: str, variable_selector: list[str], value: str, x: int, y: int) -> dict[str, Any]:
+def ifelse_node(
+    node_id: str,
+    title: str,
+    variable_selector: list[str],
+    value: str,
+    x: int,
+    y: int,
+    operator: str = "is",
+    desc: str | None = None,
+) -> dict[str, Any]:
     data = {
         "title": title,
         "type": "if-else",
-        "desc": f"{'.'.join(variable_selector)} が {value} なら true 側",
+        "desc": desc if desc is not None else f"{'.'.join(variable_selector)} が {value} なら true 側",
         "selected": False,
         "cases": [
             {
@@ -357,7 +372,7 @@ def ifelse_node(node_id: str, title: str, variable_selector: list[str], value: s
                         "id": f"{node_id}-cond-1",
                         "variable_selector": variable_selector,
                         "varType": "string",
-                        "comparison_operator": "is",
+                        "comparison_operator": operator,
                         "value": value,
                     }
                 ],
@@ -513,6 +528,10 @@ def app_shell(
     nodes: list[dict[str, Any]],
     edges: list[dict[str, Any]],
     env_vars: list[dict[str, Any]] | None = None,
+    mode: str = "workflow",
+    conversation_vars: list[dict[str, Any]] | None = None,
+    opening_statement: str = "",
+    suggested_questions: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "version": "0.6.0",
@@ -520,7 +539,7 @@ def app_shell(
         "app": {
             "name": name,
             "description": description,
-            "mode": "workflow",
+            "mode": mode,
             "icon": icon,
             "icon_type": "emoji",
             "icon_background": "#EFF1F5",
@@ -534,7 +553,7 @@ def app_shell(
             }
         ],
         "workflow": {
-            "conversation_variables": [],
+            "conversation_variables": conversation_vars or [],
             "environment_variables": env_vars or [],
             "rag_pipeline_variables": [],
             "features": {
@@ -546,11 +565,11 @@ def app_shell(
                     "number_limits": 0,
                     "image": {"enabled": False, "number_limits": 0, "transfer_methods": []},
                 },
-                "opening_statement": "",
-                "retriever_resource": {"enabled": False},
+                "opening_statement": opening_statement,
+                "retriever_resource": {"enabled": mode == "advanced-chat"},
                 "sensitive_word_avoidance": {"enabled": False},
                 "speech_to_text": {"enabled": False},
-                "suggested_questions": [],
+                "suggested_questions": suggested_questions or [],
                 "suggested_questions_after_answer": {"enabled": False},
                 "text_to_speech": {"enabled": False, "language": "", "voice": ""},
             },
@@ -660,6 +679,473 @@ def build_generate() -> dict[str, Any]:
     )
 
 
+# =====================================================================
+# trivium-chat（Chatflow）: 4 人格 + 教材おすすめ
+# =====================================================================
+
+CHAT_VARS: list[tuple[str, str, str, bool]] = [
+    ("learner_ref", "学習者の識別子（Trivium の userId。/api/agent/context の ref に渡す）", "text-input", True),
+    ("addressed_agent", "名前で呼ばれた担当（READ / WRITE / CODE / LEADER / AUTO。空か AUTO なら自動判定）", "text-input", False),
+    ("app_url", "Trivium の公開 URL（案内に使う。無くてもよい）", "text-input", False),
+]
+
+CHAT_ENV_VARS = [
+    {
+        "id": "trivium-env-api-base",
+        "name": "TRIVIUM_API_BASE",
+        "value": "https://trivium.example.com",
+        "value_type": "string",
+        "selector": ["env", "TRIVIUM_API_BASE"],
+        "description": "Trivium アプリの公開 URL。/api/agent/context を呼ぶ。インポート後に実際の URL へ差し替える",
+    },
+    {
+        "id": "trivium-env-agent-token",
+        "name": "TRIVIUM_AGENT_TOKEN",
+        "value": "REPLACE_ME",
+        "value_type": "secret",
+        "selector": ["env", "TRIVIUM_AGENT_TOKEN"],
+        "description": "アプリ側の AGENT_API_TOKEN と同じ値。/api/agent/context の Bearer トークン",
+    },
+]
+
+CHAT_CONVERSATION_VARS = [
+    {
+        "id": "trivium-conv-last-agent",
+        "name": "last_agent",
+        "value_type": "string",
+        "value": "",
+        "description": "いま話す担当（READ / WRITE / CODE / LEADER）。会話に残るので、担当をまたいでも文脈が続く",
+        "selector": ["conversation", "last_agent"],
+    }
+]
+
+# code ノード（Dify の Python サンドボックス。標準ライブラリのみ・raw 文字列で生成する）
+CODE_CHAT_CONTEXT = r'''import json
+
+AGENTS = ["READ", "WRITE", "CODE", "LEADER"]
+LABEL = {"READ": "READ", "WRITE": "WRITE", "CODE": "LOGIC", "LEADER": "ADVISOR"}
+UNKNOWN = "(取得できず)"
+POLICY_FALLBACK = [
+    "学習者の課題を代わりに完成させない（答え・完成コード・完成文を渡さない）。",
+    "ヒントは一度に一段だけ。",
+    "答えより問い返しを優先する。",
+    "直前までの学習者の反応に合わせる。",
+    "学習記録で裏づけられない資質の断定をしない。",
+    "評するのは学習行動であって人格ではない。",
+    "根拠が足りないときは、足りないと明言する。",
+]
+
+
+def _persona_line(key, p):
+    p = p or {}
+    name = p.get("name") or ""
+    if not name:
+        return LABEL[key] + " 担当: " + UNKNOWN
+    line = "{0} 担当 {1}（一人称「{2}」／口調: {3}）".format(
+        LABEL[key], name, p.get("firstPerson") or "私", p.get("toneDescription") or p.get("tone") or "ふつう"
+    )
+    extra = p.get("extra") or ""
+    return line + " " + extra if extra else line
+
+
+def main(body: str, addressed_agent: str) -> dict:
+    """/api/agent/context の応答をプロンプト用の文字列に整える。取得できなくても例外を投げない。"""
+    try:
+        data = json.loads(body) if isinstance(body, str) else (body or {})
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+
+    # 担当: アプリが名前呼びかけを検出したときだけ固定する（空なら質問分類に任せる）
+    want = (addressed_agent or "").strip().upper()
+    if want == "LOGIC":
+        want = "CODE"
+    if want == "ADVISOR":
+        want = "LEADER"
+    agent = want if want in AGENTS else ""
+
+    personas = data.get("personas") or {}
+    one = {}
+    for key in AGENTS:
+        one[key] = _persona_line(key, personas.get(key))
+    personas_text = "\n".join("- " + one[k] for k in AGENTS)
+
+    # 能力（集計値のみ。ここで数値を作り直さない）
+    prof = data.get("profile") or {}
+    rows = []
+    for key in ["READ", "WRITE", "CODE"]:
+        d = prof.get(key) or {}
+        ev = d.get("evidenceCount") or 0
+        if not ev:
+            rows.append(LABEL[key] + " 未計測")
+            continue
+        row = "{0} Lv{1}（{2} / 根拠{3}件".format(LABEL[key], d.get("level", 0), d.get("score", 0), ev)
+        weak = d.get("weakestSubskillLabel") or d.get("weakestSubskill") or ""
+        if weak:
+            row = row + "・弱点: " + str(weak)
+        rows.append(row + "）")
+    profile_text = " / ".join(rows) if rows else UNKNOWN
+    tail = []
+    xp = data.get("xp") or {}
+    if xp.get("total") is not None:
+        tail.append("XP {0}（{1}）".format(xp.get("total"), xp.get("rank") or ""))
+    if xp.get("streak"):
+        tail.append("連続 {0} 日".format(xp.get("streak")))
+    rec = data.get("recommendedDomain")
+    if rec:
+        tail.append("次のおすすめ: {0} 難易度 {1}".format(LABEL.get(rec, rec), data.get("recommendedDifficulty") or "-"))
+    if tail:
+        profile_text = profile_text + "\n" + " / ".join(tail)
+
+    # 直近の文脈（決着した課題 → 他の担当とのやり取り）
+    ctx = []
+    for e in (data.get("recentEvents") or [])[:3]:
+        if not ctx:
+            ctx.append("直近に決着した課題:")
+        ctx.append("- {0}「{1}」（難易度 {2}）: {3}（ヒント {4} 回）".format(
+            LABEL.get(e.get("domain"), e.get("domain") or "?"),
+            e.get("title") or e.get("taskId") or "?",
+            e.get("difficulty") or "-",
+            "正解" if e.get("success") else "未達",
+            e.get("hintCount") or 0,
+        ))
+    chat = data.get("recentChat") or []
+    if chat:
+        ctx.append("直近の会話（担当をまたいで共有）:")
+        for c in chat[-6:]:
+            if c.get("role") == "user":
+                who = "learner"
+            else:
+                who = (personas.get(c.get("agent")) or {}).get("name") or LABEL.get(c.get("agent"), "AI")
+            ctx.append("- {0}: {1}".format(who, str(c.get("text") or "")[:160]))
+    context_text = "\n".join(ctx) if ctx else "(まだ記録が無い)"
+
+    # 出題中の課題（答えは含まれない）
+    t = data.get("currentTask")
+    if isinstance(t, dict) and t.get("prompt"):
+        parts = ["{0}「{1}」（難易度 {2}）".format(
+            LABEL.get(t.get("domain"), t.get("domain") or "?"), t.get("title") or "", t.get("difficulty") or "-"
+        )]
+        if t.get("passage"):
+            parts.append(str(t.get("passage"))[:1200])
+        parts.append(str(t.get("prompt"))[:600])
+        letters = ["A", "B", "C", "D", "E", "F"]
+        choices = t.get("choices") or []
+        if choices:
+            parts.append("\n".join(
+                "{0}. {1}".format(letters[i] if i < len(letters) else str(i), c) for i, c in enumerate(choices)
+            ))
+        current_task_text = "\n".join(parts)
+    else:
+        current_task_text = "(出題中の課題は無い)"
+
+    policy = data.get("policy") or POLICY_FALLBACK
+    policy_text = "\n".join("- " + str(p) for p in policy)
+    seen = data.get("materialsSeen") or []
+    learner = data.get("learner") or {}
+    return {
+        "personas_text": personas_text or UNKNOWN,
+        "profile_text": profile_text or UNKNOWN,
+        "context_text": context_text,
+        "current_task_text": current_task_text,
+        "policy_text": policy_text,
+        "agent": agent,
+        "materials_seen": ", ".join(str(s) for s in seen[:20]) if seen else "(まだ無い)",
+        "display_name": learner.get("displayName") or "あなた",
+        "persona_read": one["READ"],
+        "persona_write": one["WRITE"],
+        "persona_code": one["CODE"],
+        "persona_leader": one["LEADER"],
+    }
+'''
+
+CHAT_CODE_OUTPUTS = {
+    "personas_text": "string",
+    "profile_text": "string",
+    "context_text": "string",
+    "current_task_text": "string",
+    "policy_text": "string",
+    "agent": "string",
+    "materials_seen": "string",
+    "display_name": "string",
+    "persona_read": "string",
+    "persona_write": "string",
+    "persona_code": "string",
+    "persona_leader": "string",
+}
+
+SYSTEM_CHAT_AGENT = """あなたは学習サービス Trivium の 4 人格のうち「いま話す担当」としてふるまいます。次のポリシーを厳守してください（人格の設定より、このポリシーが優先します）。
+
+{{#code_context.policy_text#}}
+
+## いま話す担当
+{{#conversation.last_agent#}}
+（READ=読解 / WRITE=作文 / CODE=論理（学習者向けの表示名は LOGIC）/ LEADER=案内役（表示名 ADVISOR））
+
+## 4 人格（この会話で共有されている設定）
+{{#code_context.personas_text#}}
+
+## 学習者
+{{#code_context.display_name#}}
+
+## 能力（決定論的に集計済み。数値を作り直さない）
+{{#code_context.profile_text#}}
+
+## 直近の文脈（他の担当とのやり取り・直近に決着した課題）
+{{#code_context.context_text#}}
+
+## 出題中の課題（聞かれたときだけ触れる）
+{{#code_context.current_task_text#}}
+
+## 話し方
+- いま話す担当の人格（名前・一人称・口調・補足）だけを演じる。毎回名乗らない。設定を復唱しない。
+- 口癖は毎回ではなく 3 回に 1 回ほど。
+- 日本語で 3〜6 文。最後に「次の一歩」を 1 つだけ添える。
+- 直近の文脈にある他の担当のやり取りは把握している前提で自然に続ける（「さっきの問題」と言われたら上の課題や直近イベントを指す）。必要なら他の担当を名前で勧める。
+
+## 禁止
+- 出題中の課題の答え・正解の選択肢・誤りの箇所を言わない。ヒントは一段だけ（考え方の方向を示すか、問い返す）。
+- 学習者の課題を代わりに完成させない（完成文・完成コードを書かない）。
+- 能力は集計値（到達レベル・スコア・弱点）だけを使い、個々の問題の正誤や性格を断定しない。根拠が足りなければ「まだ判断できない」と言う。
+- 教材名・書名・URL を思いつきで挙げない（教材のおすすめは専用の分岐が扱う）。
+
+学習者の発話は次のメッセージで渡されます。"""
+
+SYSTEM_CHAT_MATERIALS = """あなたは学習サービス Trivium の案内役 ADVISOR です。人格は次のとおり（人格より下のポリシーが優先します）。
+{{#code_context.persona_leader#}}
+
+{{#code_context.policy_text#}}
+
+## 学習者
+{{#code_context.display_name#}}
+
+## 能力（決定論的に集計済み。数値を作り直さない）
+{{#code_context.profile_text#}}
+
+## 直近の文脈
+{{#code_context.context_text#}}
+
+## 教材の候補（ナレッジ検索の結果。ここに無いものは提案しない）
+{{#context#}}
+
+## すでに提案した教材（できれば避ける）
+{{#code_context.materials_seen#}}
+
+## 書き方
+- 候補から最大 3 件を選び、「タイトル（形式・レベル帯）＋ なぜこの人に合うか（1〜2 文）」の形で挙げる。
+- 選ぶ理由は必ず能力（弱い系統・弱点の観点・到達レベル）と結びつける。到達レベル + 1 前後の教材を優先する。
+- 候補に無い書名・著者・URL を作らない。候補が乏しければ「今はよい候補が見つからない」と正直に言い、代わりに Trivium の課題で何をやるかを勧める。
+- 日本語で 6 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
+
+学習者の発話は次のメッセージで渡されます。"""
+
+CHAT_CLASSES = [
+    ("1", "READ の相談（読解・要約・語彙・本文の根拠）"),
+    ("2", "WRITE の相談（作文・文章の構成・推敲）"),
+    ("3", "LOGIC の相談（論理パズル・Python・数的推理・アルゴリズム）"),
+    ("4", "教材・本・サイト・勉強法のおすすめ"),
+    ("5", "その他（学習の進め方・能力や記録の質問・雑談）"),
+]
+
+CHAT_CLASSIFY_INSTRUCTION = """学習者の発話を「相談したい相手」で分類する。明示語（「本」「教材」など）が無くても、意味で判断すること。
+- 出題中の課題についての質問（「この問題」「さっきの問題」「わからない」「ヒント」）は、その課題の系統の相談に入れる。系統が読み取れなければ「その他」。
+- Trivium の外の教材（本・参考書・サイト・動画・勉強法）を求める発話だけを「教材・本・サイト・勉強法のおすすめ」にする。「次は何を解けばいい？」のような Trivium 内の課題の相談は「その他」。
+- 能力・レベル・履歴・今日の進め方・励ましは「その他」（案内役 ADVISOR が答える）。"""
+
+CHAT_OPENING = "こんにちは。Trivium の案内役、ミチよ。読解（ヨミ）・作文（フミ）・論理（ロゴス）の担当にも、名前で呼べば代わるわ。何から話す？"
+
+CHAT_SUGGESTED = ["今の私の能力は？", "読解を伸ばす本を教えて", "さっきの問題のヒントがほしい"]
+
+
+def http_get_node(node_id: str, title: str, desc: str, url: str, headers: str, x: int, y: int) -> dict[str, Any]:
+    data = {
+        "title": title,
+        "type": "http-request",
+        "desc": desc,
+        "selected": False,
+        "method": "get",
+        "url": url,
+        "authorization": {"type": "no-auth", "config": None},
+        "headers": headers,
+        "params": "",
+        "body": {"type": "none", "data": []},
+        "variables": [],
+        "ssl_verify": True,
+        "timeout": {"connect": 10, "read": 10, "write": 10, "max_connect_timeout": 300, "max_read_timeout": 600, "max_write_timeout": 600},
+        # チャットの応答が止まらないよう、失敗しても 1 回だけ再試行してすぐ諦める（code 側で欠損を吸収する）
+        "retry_config": {"retry_enabled": True, "max_retries": 1, "retry_interval": 500},
+    }
+    return node(node_id, "http-request", data, x=x, y=y, w=244, h=90)
+
+
+def chat_llm_node(node_id: str, title: str, system: str, x: int, y: int, context_selector: list[str] | None = None) -> dict[str, Any]:
+    """Chatflow の LLM ノード。発話と履歴は memory 経由で渡す（system に文脈を積む）。"""
+    data = {
+        "title": title,
+        "type": "llm",
+        "selected": False,
+        "model": dict(MODEL),
+        "prompt_template": [{"id": f"{node_id}-system", "role": "system", "text": system}],
+        "context": {"enabled": bool(context_selector), "variable_selector": context_selector or []},
+        "memory": {
+            "role_prefix": {"user": "", "assistant": ""},
+            "window": {"enabled": True, "size": 12},
+            "query_prompt_template": "{{#sys.query#}}",
+        },
+        "vision": {"enabled": False},
+    }
+    return node(node_id, "llm", data, x=x, y=y, w=244, h=98)
+
+
+def answer_node(node_id: str, title: str, answer: str, x: int, y: int) -> dict[str, Any]:
+    data = {"title": title, "type": "answer", "selected": False, "answer": answer, "variables": []}
+    return node(node_id, "answer", data, x=x, y=y, w=244, h=104)
+
+
+def assigner_node(node_id: str, title: str, *, constant: str | None = None, variable: list[str] | None = None, x: int, y: int) -> dict[str, Any]:
+    """会話変数 last_agent に「いま話す担当」を書く（Chatflow の変数代入ノード v2）。"""
+    item: dict[str, Any] = {
+        "variable_selector": ["conversation", "last_agent"],
+        "input_type": "variable" if variable else "constant",
+        "operation": "over-write",
+        "value": variable if variable else constant,
+    }
+    data = {"title": title, "type": "assigner", "version": "2", "selected": False, "items": [item]}
+    return node(node_id, "assigner", data, x=x, y=y, w=244, h=88)
+
+
+def classifier_node(node_id: str, title: str, classes: list[tuple[str, str]], instruction: str, x: int, y: int) -> dict[str, Any]:
+    data = {
+        "title": title,
+        "type": "question-classifier",
+        "desc": "明示語ではなく意味で相談先を決める",
+        "selected": False,
+        "query_variable_selector": ["sys", "query"],
+        "model": dict(MODEL),
+        "classes": [{"id": cid, "name": name} for cid, name in classes],
+        "instruction": instruction,
+        "instructions": "",
+        "memory": {
+            "role_prefix": {"user": "", "assistant": ""},
+            "window": {"enabled": True, "size": 6},
+            "query_prompt_template": "{{#sys.query#}}",
+        },
+        "vision": {"enabled": False},
+        "topics": [],
+    }
+    return node(node_id, "question-classifier", data, x=x, y=y, w=244, h=80 + 24 * len(classes))
+
+
+def knowledge_node(node_id: str, title: str, x: int, y: int) -> dict[str, Any]:
+    data = {
+        "title": title,
+        "type": "knowledge-retrieval",
+        "desc": "教材ナレッジ（trivium-materials）。インポート後に Dify の UI でナレッジを選ぶ",
+        "selected": False,
+        "query_variable_selector": ["sys", "query"],
+        "dataset_ids": [],
+        "retrieval_mode": "multiple",
+        "multiple_retrieval_config": {
+            "top_k": 5,
+            "score_threshold": None,
+            "score_threshold_enabled": False,
+            "reranking_enable": False,
+            "reranking_mode": "weighted_score",
+            "reranking_model": {"provider": "", "model": ""},
+            "weights": {
+                "weight_type": "customized",
+                "vector_setting": {"vector_weight": 0.7, "embedding_provider_name": "", "embedding_model_name": ""},
+                "keyword_setting": {"keyword_weight": 0.3},
+            },
+        },
+        "single_retrieval_config": {"model": dict(MODEL)},
+    }
+    return node(node_id, "knowledge-retrieval", data, x=x, y=y, w=244, h=98)
+
+
+def build_chat() -> dict[str, Any]:
+    start = start_node("start", CHAT_VARS, y=340)
+    http = http_get_node(
+        "http_context",
+        "学習者の文脈を取得",
+        "Trivium の /api/agent/context から人格・能力値・直近の文脈・出題中の課題を取る",
+        "{{#env.TRIVIUM_API_BASE#}}/api/agent/context?ref={{#start.learner_ref#}}",
+        "Authorization: Bearer {{#env.TRIVIUM_AGENT_TOKEN#}}\nAccept: application/json",
+        x=400,
+        y=340,
+    )
+    code = code_node(
+        "code_context",
+        "文脈の整形",
+        "API 応答をプロンプト用の文字列にする（取得できなくても落ちない）",
+        CODE_CHAT_CONTEXT,
+        [("body", ["http_context", "body"]), ("addressed_agent", ["start", "addressed_agent"])],
+        CHAT_CODE_OUTPUTS,
+        x=700,
+        y=340,
+    )
+    branch = ifelse_node(
+        "if_addressed",
+        "名前で呼ばれた？",
+        ["code_context", "agent"],
+        "",
+        x=1000,
+        y=340,
+        operator="not empty",
+        desc="code_context.agent が空でなければ、その担当に固定（true 側）",
+    )
+    classifier = classifier_node("classifier", "相談先の判定", CHAT_CLASSES, CHAT_CLASSIFY_INSTRUCTION, x=1300, y=440)
+    assign_direct = assigner_node("assign_direct", "担当を固定（呼ばれた人）", variable=["code_context", "agent"], x=1300, y=180)
+    assign_read = assigner_node("assign_read", "担当 = READ", constant="READ", x=1620, y=300)
+    assign_write = assigner_node("assign_write", "担当 = WRITE", constant="WRITE", x=1620, y=400)
+    assign_code = assigner_node("assign_code", "担当 = CODE", constant="CODE", x=1620, y=500)
+    assign_leader = assigner_node("assign_leader", "担当 = LEADER", constant="LEADER", x=1620, y=600)
+    knowledge = knowledge_node("knowledge", "教材ナレッジ検索", x=1620, y=760)
+    llm_agent = chat_llm_node("llm_agent", "4 人格の応答", SYSTEM_CHAT_AGENT, x=1940, y=380)
+    llm_materials = chat_llm_node("llm_materials", "教材のおすすめ（ADVISOR）", SYSTEM_CHAT_MATERIALS, x=1940, y=760, context_selector=["knowledge", "result"])
+    answer_agent = answer_node("answer_agent", "返答", "{{#llm_agent.text#}}", x=2260, y=380)
+    answer_materials = answer_node("answer_materials", "返答（教材）", "{{#llm_materials.text#}}", x=2260, y=760)
+
+    nodes = [
+        start, http, code, branch, classifier,
+        assign_direct, assign_read, assign_write, assign_code, assign_leader,
+        knowledge, llm_agent, llm_materials, answer_agent, answer_materials,
+    ]
+    edges = [
+        edge("start", "http_context", "start", "http-request"),
+        edge("http_context", "code_context", "http-request", "code"),
+        edge("code_context", "if_addressed", "code", "if-else"),
+        edge("if_addressed", "assign_direct", "if-else", "assigner", source_handle="true"),
+        edge("if_addressed", "classifier", "if-else", "question-classifier", source_handle="false"),
+        edge("classifier", "assign_read", "question-classifier", "assigner", source_handle="1"),
+        edge("classifier", "assign_write", "question-classifier", "assigner", source_handle="2"),
+        edge("classifier", "assign_code", "question-classifier", "assigner", source_handle="3"),
+        edge("classifier", "knowledge", "question-classifier", "knowledge-retrieval", source_handle="4"),
+        edge("classifier", "assign_leader", "question-classifier", "assigner", source_handle="5"),
+        edge("assign_direct", "llm_agent", "assigner", "llm"),
+        edge("assign_read", "llm_agent", "assigner", "llm"),
+        edge("assign_write", "llm_agent", "assigner", "llm"),
+        edge("assign_code", "llm_agent", "assigner", "llm"),
+        edge("assign_leader", "llm_agent", "assigner", "llm"),
+        edge("llm_agent", "answer_agent", "llm", "answer"),
+        edge("knowledge", "llm_materials", "knowledge-retrieval", "llm"),
+        edge("llm_materials", "answer_materials", "llm", "answer"),
+    ]
+    return app_shell(
+        "trivium-chat",
+        "Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。",
+        "🔺",
+        nodes,
+        edges,
+        env_vars=CHAT_ENV_VARS,
+        mode="advanced-chat",
+        conversation_vars=CHAT_CONVERSATION_VARS,
+        opening_statement=CHAT_OPENING,
+        suggested_questions=CHAT_SUGGESTED,
+    )
+
+
 class _Dumper(yaml.SafeDumper):
     pass
 
@@ -683,7 +1169,8 @@ def main() -> int:
     write(os.path.join(HERE, "trivium-domain.yml"), build_domain())
     write(os.path.join(HERE, "trivium-leader.yml"), build_leader())
     write(os.path.join(HERE, "trivium-generate.yml"), build_generate())
-    print("wrote dify/trivium-domain.yml, dify/trivium-leader.yml, dify/trivium-generate.yml")
+    write(os.path.join(HERE, "trivium-chat.yml"), build_chat())
+    print("wrote dify/trivium-domain.yml, dify/trivium-leader.yml, dify/trivium-generate.yml, dify/trivium-chat.yml")
     return 0
 
 

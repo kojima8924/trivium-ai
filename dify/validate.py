@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Dify DSL（3 本）と src/lib/ai/dify.ts の契約が一致しているか検査する。
+"""Dify DSL（Workflow 3 本 + Chatflow 1 本）と src/lib/ai/dify.ts の契約が一致しているか検査する。
 
   python dify/validate.py
 
-検査項目:
+Workflow 3 本（trivium-domain / trivium-leader / trivium-generate）の検査項目:
   1. YAML としてパースできる
   2. Start ノードの変数名が dify.ts の run() に渡す inputs のキーと完全一致（不足・余剰を検出）
   3. End ノードの出力変数名が result で、value_selector が実在する LLM ノードの text を指す
@@ -13,6 +13,15 @@
   7. LLM ノードのプロバイダが OpenAI（langgenius/openai/openai）で統一されている
   8. http-request が {{#env.XXX#}} を参照するなら、その環境変数が environment_variables に宣言されている
   9. code ノードの variables が実在ノードの出力を指し、outputs が下流の参照名と一致する
+
+Chatflow（trivium-chat）の検査項目:
+  A. app.mode が advanced-chat で、End ノードが無い
+  B. Answer ノードがあり、参照先の LLM ノードが実在する
+  C. question-classifier の class id と、そこから出る edge の sourceHandle が 1 対 1 で対応する
+  D. すべての {{#env.XXX#}} が environment_variables に、{{#conversation.x#}} が conversation_variables に宣言済み
+  E. code ノードの main 引数が variables と一致し、下流が参照する出力がすべて outputs にある
+  F. http-request の URL が {{#env.TRIVIUM_API_BASE#}} を使い、Bearer トークンが env 参照である
+  G. プロンプト・条件の {{#node.var#}} 参照がすべて実在（{{#sys.x#}} は許可リストで検査）
 """
 from __future__ import annotations
 
@@ -73,7 +82,17 @@ def node_outputs(n: dict) -> set[str]:
         return {"body", "status_code", "headers", "files"}
     if t == "start":
         return {v["variable"] for v in n["data"]["variables"]}
+    if t == "knowledge-retrieval":
+        return {"result"}
+    if t == "question-classifier":
+        return {"class_name"}
+    if t == "answer":
+        return {"answer"}
     return set()
+
+
+# Chatflow で使える {{#sys.x#}}
+SYS_VARS = {"query", "files", "conversation_id", "user_id", "dialogue_count", "app_id", "workflow_id", "workflow_run_id"}
 
 
 def check(path: str, expected_inputs: set[str], expected_schema_keys: list[set[str]]) -> list[str]:
@@ -222,6 +241,210 @@ def check(path: str, expected_inputs: set[str], expected_schema_keys: list[set[s
     return errors
 
 
+def check_chat(path: str, expected_start_vars: set[str]) -> list[str]:
+    """Chatflow（advanced-chat）の検査。Workflow 用の check() とは別の契約なので分けている。"""
+    errors: list[str] = []
+    doc = load(path)
+    graph = doc["workflow"]["graph"]
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    by_type: dict[str, list[dict]] = {}
+    for n in graph["nodes"]:
+        by_type.setdefault(n["data"]["type"], []).append(n)
+
+    declared_env = {e["name"] for e in doc["workflow"].get("environment_variables", [])}
+    declared_conv = {c["name"] for c in doc["workflow"].get("conversation_variables", [])}
+
+    # A. mode と End の不在
+    if doc.get("app", {}).get("mode") != "advanced-chat":
+        errors.append(f"app.mode が advanced-chat ではない: {doc.get('app', {}).get('mode')}")
+    if by_type.get("end"):
+        errors.append("Chatflow に End ノードがある（Answer ノードで返すべき）")
+
+    # Start 変数
+    starts = by_type.get("start", [])
+    if len(starts) != 1:
+        errors.append(f"start ノードが {len(starts)} 個")
+    start_vars = {v["variable"] for v in starts[0]["data"]["variables"]} if starts else set()
+    if start_vars != expected_start_vars:
+        errors.append(f"Start 変数が想定と違う: {sorted(start_vars)} != {sorted(expected_start_vars)}")
+
+    # B. Answer ノード
+    llm_ids = {n["id"] for n in by_type.get("llm", [])}
+    answers = by_type.get("answer", [])
+    if not answers:
+        errors.append("Answer ノードが無い")
+    for a in answers:
+        refs = REF_RE.findall(a["data"].get("answer", ""))
+        if not refs:
+            errors.append(f"Answer {a['id']} が変数を参照していない")
+        for node_id, var in refs:
+            if node_id not in llm_ids or var != "text":
+                errors.append(f"Answer {a['id']} が LLM の text を参照していない: {node_id}.{var}")
+
+    # 参照チェックの共通処理
+    def check_ref(where: str, node_id: str, var: str) -> None:
+        if node_id == "env":
+            if var not in declared_env:
+                errors.append(f"{where} が未宣言の環境変数 {var} を参照")
+            return
+        if node_id == "conversation":
+            if var not in declared_conv:
+                errors.append(f"{where} が未宣言の会話変数 {var} を参照")
+            return
+        if node_id == "sys":
+            if var not in SYS_VARS:
+                errors.append(f"{where} が不明な sys 変数 {var} を参照")
+            return
+        if node_id not in nodes:
+            errors.append(f"{where} が存在しないノード {node_id} を参照")
+            return
+        if var not in node_outputs(nodes[node_id]):
+            errors.append(f"{where} が {node_id} に無い出力 {var} を参照")
+
+    # C. question-classifier の class id と edge の対応
+    for n in by_type.get("question-classifier", []):
+        class_ids = [c["id"] for c in n["data"].get("classes", [])]
+        if len(class_ids) != len(set(class_ids)):
+            errors.append(f"classifier {n['id']} の class id が重複")
+        if not n["data"].get("instruction"):
+            errors.append(f"classifier {n['id']} に instruction が無い")
+        handles = [ed.get("sourceHandle") for ed in graph["edges"] if ed["source"] == n["id"]]
+        for cid in class_ids:
+            if cid not in handles:
+                errors.append(f"classifier {n['id']} の class {cid} から出るエッジが無い")
+        for h in handles:
+            if h not in class_ids:
+                errors.append(f"classifier {n['id']} の edge sourceHandle {h} が class に無い")
+        if n["data"].get("model", {}).get("provider") != OPENAI_PROVIDER:
+            errors.append(f"classifier {n['id']} のプロバイダが OpenAI ではない")
+
+    # edges（source/target の実在・型・入るエッジ）
+    for ed in graph["edges"]:
+        if ed["source"] not in nodes:
+            errors.append(f"edge {ed['id']}: source {ed['source']} が存在しない")
+            continue
+        if ed["target"] not in nodes:
+            errors.append(f"edge {ed['id']}: target {ed['target']} が存在しない")
+            continue
+        src, tgt = nodes[ed["source"]], nodes[ed["target"]]
+        if ed["data"].get("sourceType") != src["data"]["type"]:
+            errors.append(f"edge {ed['id']}: data.sourceType が実際のノード種別と違う")
+        if ed["data"].get("targetType") != tgt["data"]["type"]:
+            errors.append(f"edge {ed['id']}: data.targetType が実際のノード種別と違う")
+        if src["data"]["type"] == "if-else":
+            case_ids = {c["case_id"] for c in src["data"]["cases"]} | {"false"}
+            if ed.get("sourceHandle") not in case_ids:
+                errors.append(f"edge {ed['id']}: if-else の sourceHandle {ed.get('sourceHandle')} が cases に無い")
+        elif src["data"]["type"] != "question-classifier" and ed.get("sourceHandle") != "source":
+            errors.append(f"edge {ed['id']}: sourceHandle は source であるべき")
+        if ed.get("targetHandle") != "target":
+            errors.append(f"edge {ed['id']}: targetHandle は target であるべき")
+    targets = {ed["target"] for ed in graph["edges"]}
+    for n in graph["nodes"]:
+        if n["data"]["type"] != "start" and n["id"] not in targets:
+            errors.append(f"ノード {n['id']} に入るエッジが無い")
+
+    # G. LLM プロンプト（Chatflow は system のみ + memory で発話を渡す）
+    for n in by_type.get("llm", []):
+        texts = [p["text"] for p in n["data"]["prompt_template"]]
+        for node_id, var in REF_RE.findall("\n".join(texts)):
+            check_ref(f"LLM {n['id']} のプロンプト", node_id, var)
+        if not any(p["role"] == "system" for p in n["data"]["prompt_template"]):
+            errors.append(f"LLM {n['id']} に system プロンプトが無い")
+        if "{{#code_context.policy_text#}}" not in "".join(texts):
+            errors.append(f"LLM {n['id']} がポリシー（code_context.policy_text）を使っていない")
+        if not n["data"].get("memory", {}).get("window", {}).get("enabled"):
+            errors.append(f"LLM {n['id']} の会話メモリ（memory.window）が無効")
+        if n["data"].get("model", {}).get("provider") != OPENAI_PROVIDER:
+            errors.append(f"LLM {n['id']} のプロバイダが OpenAI ではない")
+        ctx = n["data"].get("context", {})
+        if ctx.get("enabled"):
+            sel = ctx.get("variable_selector") or []
+            if len(sel) != 2:
+                errors.append(f"LLM {n['id']} の context.variable_selector が不正: {sel}")
+            else:
+                check_ref(f"LLM {n['id']} の context", sel[0], sel[1])
+            if "{{#context#}}" not in "".join(texts):
+                errors.append(f"LLM {n['id']} は context 有効だがプロンプトに {{{{#context#}}}} が無い")
+
+    # F. http-request（URL / ヘッダの env 参照）
+    for n in by_type.get("http-request", []):
+        texts = [n["data"].get("headers", ""), n["data"].get("url", ""), n["data"].get("params", "")]
+        texts += [d.get("value", "") for d in n["data"].get("body", {}).get("data", [])]
+        joined = "\n".join(texts)
+        for node_id, var in REF_RE.findall(joined):
+            check_ref(f"http {n['id']}", node_id, var)
+        for name in ENV_REF_RE.findall(joined):
+            if name not in declared_env:
+                errors.append(f"http {n['id']} が未宣言の環境変数 {name} を参照")
+        if "{{#env.TRIVIUM_API_BASE#}}" not in n["data"].get("url", ""):
+            errors.append(f"http {n['id']} の URL が {{{{#env.TRIVIUM_API_BASE#}}}} を使っていない（環境ごとに差し替えられない）")
+        if "Bearer {{#env." not in n["data"].get("headers", ""):
+            errors.append(f"http {n['id']} の Authorization が env のトークンを使っていない")
+
+    # E. code ノード（main 引数 == variables、下流の参照が outputs に存在）
+    for n in by_type.get("code", []):
+        for v in n["data"].get("variables", []):
+            sel = v["value_selector"]
+            check_ref(f"code {n['id']} の変数 {v['variable']}", sel[0], sel[1])
+        outputs = n["data"].get("outputs", {})
+        if not outputs:
+            errors.append(f"code {n['id']} に outputs が無い")
+        if n["data"].get("code_language") != "python3":
+            errors.append(f"code {n['id']} の言語が python3 ではない")
+        code = n["data"].get("code", "")
+        m = re.search(r"def main\(([^)]*)\)", code)
+        if not m:
+            errors.append(f"code {n['id']} に main 関数が無い")
+        else:
+            args = {a.split(":")[0].strip() for a in m.group(1).split(",") if a.strip()}
+            declared_vars = {v["variable"] for v in n["data"].get("variables", [])}
+            if args != declared_vars:
+                errors.append(f"code {n['id']} の main 引数 {sorted(args)} と variables {sorted(declared_vars)} が不一致")
+        # 生成コードが Python として妥当か
+        try:
+            compile(code, f"{n['id']}.py", "exec")
+        except SyntaxError as e:
+            errors.append(f"code {n['id']} の Python が構文エラー: {e}")
+        # 宣言した outputs をすべて return しているか（キー名の取りこぼし検出）
+        for name in outputs:
+            if f'"{name}"' not in code:
+                errors.append(f"code {n['id']} が outputs {name} を返していない可能性")
+
+    # if-else / assigner の参照
+    for n in by_type.get("if-else", []):
+        for c in n["data"]["cases"]:
+            for cond in c["conditions"]:
+                sel = cond["variable_selector"]
+                check_ref(f"if-else {n['id']}", sel[0], sel[1])
+    for n in by_type.get("assigner", []):
+        for item in n["data"].get("items", []):
+            sel = item.get("variable_selector") or []
+            if len(sel) != 2:
+                errors.append(f"assigner {n['id']} の variable_selector が不正: {sel}")
+            else:
+                check_ref(f"assigner {n['id']} の代入先", sel[0], sel[1])
+            if item.get("input_type") == "variable":
+                v = item.get("value") or []
+                if len(v) != 2:
+                    errors.append(f"assigner {n['id']} の value（変数）が不正: {v}")
+                else:
+                    check_ref(f"assigner {n['id']} の代入値", v[0], v[1])
+            elif not item.get("value"):
+                errors.append(f"assigner {n['id']} の定数値が空")
+
+    # knowledge-retrieval
+    for n in by_type.get("knowledge-retrieval", []):
+        sel = n["data"].get("query_variable_selector") or []
+        if len(sel) != 2:
+            errors.append(f"knowledge {n['id']} の query_variable_selector が不正: {sel}")
+        else:
+            check_ref(f"knowledge {n['id']} の query", sel[0], sel[1])
+        if n["data"].get("dataset_ids"):
+            errors.append(f"knowledge {n['id']} に dataset_ids が埋め込まれている（環境ごとに違うので空にする）")
+    return errors
+
+
 def main() -> int:
     inputs = inputs_from_ts()
     schemas = schema_keys_from_ts()
@@ -242,6 +465,18 @@ def main() -> int:
                 print(f"    - {e}")
         else:
             print(f"OK  {fname}  (start vars: {len(expected)}, output keys: {[len(k) for k in schema_keys]})")
+
+    # Chatflow（アプリからは会話 API で呼ぶので dify.ts の inputs 契約とは別枠）
+    chat_path = os.path.join(HERE, "trivium-chat.yml")
+    if os.path.exists(chat_path):
+        errors = check_chat(chat_path, {"learner_ref", "addressed_agent", "app_url"})
+        if errors:
+            ok = False
+            print("NG  trivium-chat.yml")
+            for e in errors:
+                print(f"    - {e}")
+        else:
+            print("OK  trivium-chat.yml  (chatflow: 4 人格 + 教材おすすめ)")
     return 0 if ok else 1
 
 

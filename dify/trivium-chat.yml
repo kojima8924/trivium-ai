@@ -1,0 +1,999 @@
+# このファイルは dify/build_dsl.py から生成される。手で編集せず、スクリプトを直して再生成すること。
+version: 0.6.0
+kind: app
+app:
+  name: trivium-chat
+  description: 'Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。'
+  mode: advanced-chat
+  icon: 🔺
+  icon_type: emoji
+  icon_background: '#EFF1F5'
+  use_icon_as_answer_icon: false
+dependencies:
+- type: marketplace
+  current_identifier: null
+  value:
+    marketplace_plugin_unique_identifier: langgenius/openai:1.0.1@b513bf843af4619450bdc15f32e995f90ebdeee143b1cccef442a867099b3397
+    version: null
+workflow:
+  conversation_variables:
+  - id: trivium-conv-last-agent
+    name: last_agent
+    value_type: string
+    value: ''
+    description: いま話す担当（READ / WRITE / CODE / LEADER）。会話に残るので、担当をまたいでも文脈が続く
+    selector:
+    - conversation
+    - last_agent
+  environment_variables:
+  - id: trivium-env-api-base
+    name: TRIVIUM_API_BASE
+    value: https://trivium.example.com
+    value_type: string
+    selector:
+    - env
+    - TRIVIUM_API_BASE
+    description: Trivium アプリの公開 URL。/api/agent/context を呼ぶ。インポート後に実際の URL へ差し替える
+  - id: trivium-env-agent-token
+    name: TRIVIUM_AGENT_TOKEN
+    value: REPLACE_ME
+    value_type: secret
+    selector:
+    - env
+    - TRIVIUM_AGENT_TOKEN
+    description: アプリ側の AGENT_API_TOKEN と同じ値。/api/agent/context の Bearer トークン
+  rag_pipeline_variables: []
+  features:
+    file_upload:
+      enabled: false
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      number_limits: 0
+      image:
+        enabled: false
+        number_limits: 0
+        transfer_methods: []
+    opening_statement: こんにちは。Trivium の案内役、ミチよ。読解（ヨミ）・作文（フミ）・論理（ロゴス）の担当にも、名前で呼べば代わるわ。何から話す？
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - 今の私の能力は？
+    - 読解を伸ばす本を教えて
+    - さっきの問題のヒントがほしい
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    nodes:
+    - id: start
+      type: custom
+      data:
+        title: 開始
+        type: start
+        variables:
+        - variable: learner_ref
+          label: 学習者の識別子（Trivium の userId。/api/agent/context の ref に渡す）
+          type: text-input
+          required: true
+          options: []
+          max_length: 256
+        - variable: addressed_agent
+          label: 名前で呼ばれた担当（READ / WRITE / CODE / LEADER / AUTO。空か AUTO なら自動判定）
+          type: text-input
+          required: false
+          options: []
+          max_length: 256
+        - variable: app_url
+          label: Trivium の公開 URL（案内に使う。無くてもよい）
+          type: text-input
+          required: false
+          options: []
+          max_length: 256
+        selected: false
+      position:
+        x: 80
+        y: 340
+      positionAbsolute:
+        x: 80
+        y: 340
+      width: 244
+      height: 132
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: http_context
+      type: custom
+      data:
+        title: 学習者の文脈を取得
+        type: http-request
+        desc: Trivium の /api/agent/context から人格・能力値・直近の文脈・出題中の課題を取る
+        selected: false
+        method: get
+        url: '{{#env.TRIVIUM_API_BASE#}}/api/agent/context?ref={{#start.learner_ref#}}'
+        authorization:
+          type: no-auth
+          config: null
+        headers: |-
+          Authorization: Bearer {{#env.TRIVIUM_AGENT_TOKEN#}}
+          Accept: application/json
+        params: ''
+        body:
+          type: none
+          data: []
+        variables: []
+        ssl_verify: true
+        timeout:
+          connect: 10
+          read: 10
+          write: 10
+          max_connect_timeout: 300
+          max_read_timeout: 600
+          max_write_timeout: 600
+        retry_config:
+          retry_enabled: true
+          max_retries: 1
+          retry_interval: 500
+      position:
+        x: 400
+        y: 340
+      positionAbsolute:
+        x: 400
+        y: 340
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: code_context
+      type: custom
+      data:
+        title: 文脈の整形
+        type: code
+        desc: API 応答をプロンプト用の文字列にする（取得できなくても落ちない）
+        selected: false
+        code_language: python3
+        code: |
+          import json
+
+          AGENTS = ["READ", "WRITE", "CODE", "LEADER"]
+          LABEL = {"READ": "READ", "WRITE": "WRITE", "CODE": "LOGIC", "LEADER": "ADVISOR"}
+          UNKNOWN = "(取得できず)"
+          POLICY_FALLBACK = [
+              "学習者の課題を代わりに完成させない（答え・完成コード・完成文を渡さない）。",
+              "ヒントは一度に一段だけ。",
+              "答えより問い返しを優先する。",
+              "直前までの学習者の反応に合わせる。",
+              "学習記録で裏づけられない資質の断定をしない。",
+              "評するのは学習行動であって人格ではない。",
+              "根拠が足りないときは、足りないと明言する。",
+          ]
+
+
+          def _persona_line(key, p):
+              p = p or {}
+              name = p.get("name") or ""
+              if not name:
+                  return LABEL[key] + " 担当: " + UNKNOWN
+              line = "{0} 担当 {1}（一人称「{2}」／口調: {3}）".format(
+                  LABEL[key], name, p.get("firstPerson") or "私", p.get("toneDescription") or p.get("tone") or "ふつう"
+              )
+              extra = p.get("extra") or ""
+              return line + " " + extra if extra else line
+
+
+          def main(body: str, addressed_agent: str) -> dict:
+              """/api/agent/context の応答をプロンプト用の文字列に整える。取得できなくても例外を投げない。"""
+              try:
+                  data = json.loads(body) if isinstance(body, str) else (body or {})
+                  if not isinstance(data, dict):
+                      data = {}
+              except Exception:
+                  data = {}
+
+              # 担当: アプリが名前呼びかけを検出したときだけ固定する（空なら質問分類に任せる）
+              want = (addressed_agent or "").strip().upper()
+              if want == "LOGIC":
+                  want = "CODE"
+              if want == "ADVISOR":
+                  want = "LEADER"
+              agent = want if want in AGENTS else ""
+
+              personas = data.get("personas") or {}
+              one = {}
+              for key in AGENTS:
+                  one[key] = _persona_line(key, personas.get(key))
+              personas_text = "\n".join("- " + one[k] for k in AGENTS)
+
+              # 能力（集計値のみ。ここで数値を作り直さない）
+              prof = data.get("profile") or {}
+              rows = []
+              for key in ["READ", "WRITE", "CODE"]:
+                  d = prof.get(key) or {}
+                  ev = d.get("evidenceCount") or 0
+                  if not ev:
+                      rows.append(LABEL[key] + " 未計測")
+                      continue
+                  row = "{0} Lv{1}（{2} / 根拠{3}件".format(LABEL[key], d.get("level", 0), d.get("score", 0), ev)
+                  weak = d.get("weakestSubskillLabel") or d.get("weakestSubskill") or ""
+                  if weak:
+                      row = row + "・弱点: " + str(weak)
+                  rows.append(row + "）")
+              profile_text = " / ".join(rows) if rows else UNKNOWN
+              tail = []
+              xp = data.get("xp") or {}
+              if xp.get("total") is not None:
+                  tail.append("XP {0}（{1}）".format(xp.get("total"), xp.get("rank") or ""))
+              if xp.get("streak"):
+                  tail.append("連続 {0} 日".format(xp.get("streak")))
+              rec = data.get("recommendedDomain")
+              if rec:
+                  tail.append("次のおすすめ: {0} 難易度 {1}".format(LABEL.get(rec, rec), data.get("recommendedDifficulty") or "-"))
+              if tail:
+                  profile_text = profile_text + "\n" + " / ".join(tail)
+
+              # 直近の文脈（決着した課題 → 他の担当とのやり取り）
+              ctx = []
+              for e in (data.get("recentEvents") or [])[:3]:
+                  if not ctx:
+                      ctx.append("直近に決着した課題:")
+                  ctx.append("- {0}「{1}」（難易度 {2}）: {3}（ヒント {4} 回）".format(
+                      LABEL.get(e.get("domain"), e.get("domain") or "?"),
+                      e.get("title") or e.get("taskId") or "?",
+                      e.get("difficulty") or "-",
+                      "正解" if e.get("success") else "未達",
+                      e.get("hintCount") or 0,
+                  ))
+              chat = data.get("recentChat") or []
+              if chat:
+                  ctx.append("直近の会話（担当をまたいで共有）:")
+                  for c in chat[-6:]:
+                      if c.get("role") == "user":
+                          who = "learner"
+                      else:
+                          who = (personas.get(c.get("agent")) or {}).get("name") or LABEL.get(c.get("agent"), "AI")
+                      ctx.append("- {0}: {1}".format(who, str(c.get("text") or "")[:160]))
+              context_text = "\n".join(ctx) if ctx else "(まだ記録が無い)"
+
+              # 出題中の課題（答えは含まれない）
+              t = data.get("currentTask")
+              if isinstance(t, dict) and t.get("prompt"):
+                  parts = ["{0}「{1}」（難易度 {2}）".format(
+                      LABEL.get(t.get("domain"), t.get("domain") or "?"), t.get("title") or "", t.get("difficulty") or "-"
+                  )]
+                  if t.get("passage"):
+                      parts.append(str(t.get("passage"))[:1200])
+                  parts.append(str(t.get("prompt"))[:600])
+                  letters = ["A", "B", "C", "D", "E", "F"]
+                  choices = t.get("choices") or []
+                  if choices:
+                      parts.append("\n".join(
+                          "{0}. {1}".format(letters[i] if i < len(letters) else str(i), c) for i, c in enumerate(choices)
+                      ))
+                  current_task_text = "\n".join(parts)
+              else:
+                  current_task_text = "(出題中の課題は無い)"
+
+              policy = data.get("policy") or POLICY_FALLBACK
+              policy_text = "\n".join("- " + str(p) for p in policy)
+              seen = data.get("materialsSeen") or []
+              learner = data.get("learner") or {}
+              return {
+                  "personas_text": personas_text or UNKNOWN,
+                  "profile_text": profile_text or UNKNOWN,
+                  "context_text": context_text,
+                  "current_task_text": current_task_text,
+                  "policy_text": policy_text,
+                  "agent": agent,
+                  "materials_seen": ", ".join(str(s) for s in seen[:20]) if seen else "(まだ無い)",
+                  "display_name": learner.get("displayName") or "あなた",
+                  "persona_read": one["READ"],
+                  "persona_write": one["WRITE"],
+                  "persona_code": one["CODE"],
+                  "persona_leader": one["LEADER"],
+              }
+        variables:
+        - variable: body
+          value_selector:
+          - http_context
+          - body
+        - variable: addressed_agent
+          value_selector:
+          - start
+          - addressed_agent
+        outputs:
+          personas_text:
+            type: string
+            children: null
+          profile_text:
+            type: string
+            children: null
+          context_text:
+            type: string
+            children: null
+          current_task_text:
+            type: string
+            children: null
+          policy_text:
+            type: string
+            children: null
+          agent:
+            type: string
+            children: null
+          materials_seen:
+            type: string
+            children: null
+          display_name:
+            type: string
+            children: null
+          persona_read:
+            type: string
+            children: null
+          persona_write:
+            type: string
+            children: null
+          persona_code:
+            type: string
+            children: null
+          persona_leader:
+            type: string
+            children: null
+      position:
+        x: 700
+        y: 340
+      positionAbsolute:
+        x: 700
+        y: 340
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: if_addressed
+      type: custom
+      data:
+        title: 名前で呼ばれた？
+        type: if-else
+        desc: code_context.agent が空でなければ、その担当に固定（true 側）
+        selected: false
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - id: if_addressed-cond-1
+            variable_selector:
+            - code_context
+            - agent
+            varType: string
+            comparison_operator: not empty
+            value: ''
+      position:
+        x: 1000
+        y: 340
+      positionAbsolute:
+        x: 1000
+        y: 340
+      width: 244
+      height: 126
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: classifier
+      type: custom
+      data:
+        title: 相談先の判定
+        type: question-classifier
+        desc: 明示語ではなく意味で相談先を決める
+        selected: false
+        query_variable_selector:
+        - sys
+        - query
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
+          mode: chat
+          completion_params: &id001 {}
+        classes:
+        - id: '1'
+          name: READ の相談（読解・要約・語彙・本文の根拠）
+        - id: '2'
+          name: WRITE の相談（作文・文章の構成・推敲）
+        - id: '3'
+          name: LOGIC の相談（論理パズル・Python・数的推理・アルゴリズム）
+        - id: '4'
+          name: 教材・本・サイト・勉強法のおすすめ
+        - id: '5'
+          name: その他（学習の進め方・能力や記録の質問・雑談）
+        instruction: |-
+          学習者の発話を「相談したい相手」で分類する。明示語（「本」「教材」など）が無くても、意味で判断すること。
+          - 出題中の課題についての質問（「この問題」「さっきの問題」「わからない」「ヒント」）は、その課題の系統の相談に入れる。系統が読み取れなければ「その他」。
+          - Trivium の外の教材（本・参考書・サイト・動画・勉強法）を求める発話だけを「教材・本・サイト・勉強法のおすすめ」にする。「次は何を解けばいい？」のような Trivium 内の課題の相談は「その他」。
+          - 能力・レベル・履歴・今日の進め方・励ましは「その他」（案内役 ADVISOR が答える）。
+        instructions: ''
+        memory:
+          role_prefix:
+            user: ''
+            assistant: ''
+          window:
+            enabled: true
+            size: 6
+          query_prompt_template: '{{#sys.query#}}'
+        vision:
+          enabled: false
+        topics: []
+      position:
+        x: 1300
+        y: 440
+      positionAbsolute:
+        x: 1300
+        y: 440
+      width: 244
+      height: 200
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: assign_direct
+      type: custom
+      data:
+        title: 担当を固定（呼ばれた人）
+        type: assigner
+        version: '2'
+        selected: false
+        items:
+        - variable_selector:
+          - conversation
+          - last_agent
+          input_type: variable
+          operation: over-write
+          value:
+          - code_context
+          - agent
+      position:
+        x: 1300
+        y: 180
+      positionAbsolute:
+        x: 1300
+        y: 180
+      width: 244
+      height: 88
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: assign_read
+      type: custom
+      data:
+        title: 担当 = READ
+        type: assigner
+        version: '2'
+        selected: false
+        items:
+        - variable_selector:
+          - conversation
+          - last_agent
+          input_type: constant
+          operation: over-write
+          value: READ
+      position:
+        x: 1620
+        y: 300
+      positionAbsolute:
+        x: 1620
+        y: 300
+      width: 244
+      height: 88
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: assign_write
+      type: custom
+      data:
+        title: 担当 = WRITE
+        type: assigner
+        version: '2'
+        selected: false
+        items:
+        - variable_selector:
+          - conversation
+          - last_agent
+          input_type: constant
+          operation: over-write
+          value: WRITE
+      position:
+        x: 1620
+        y: 400
+      positionAbsolute:
+        x: 1620
+        y: 400
+      width: 244
+      height: 88
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: assign_code
+      type: custom
+      data:
+        title: 担当 = CODE
+        type: assigner
+        version: '2'
+        selected: false
+        items:
+        - variable_selector:
+          - conversation
+          - last_agent
+          input_type: constant
+          operation: over-write
+          value: CODE
+      position:
+        x: 1620
+        y: 500
+      positionAbsolute:
+        x: 1620
+        y: 500
+      width: 244
+      height: 88
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: assign_leader
+      type: custom
+      data:
+        title: 担当 = LEADER
+        type: assigner
+        version: '2'
+        selected: false
+        items:
+        - variable_selector:
+          - conversation
+          - last_agent
+          input_type: constant
+          operation: over-write
+          value: LEADER
+      position:
+        x: 1620
+        y: 600
+      positionAbsolute:
+        x: 1620
+        y: 600
+      width: 244
+      height: 88
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: knowledge
+      type: custom
+      data:
+        title: 教材ナレッジ検索
+        type: knowledge-retrieval
+        desc: 教材ナレッジ（trivium-materials）。インポート後に Dify の UI でナレッジを選ぶ
+        selected: false
+        query_variable_selector:
+        - sys
+        - query
+        dataset_ids: []
+        retrieval_mode: multiple
+        multiple_retrieval_config:
+          top_k: 5
+          score_threshold: null
+          score_threshold_enabled: false
+          reranking_enable: false
+          reranking_mode: weighted_score
+          reranking_model:
+            provider: ''
+            model: ''
+          weights:
+            weight_type: customized
+            vector_setting:
+              vector_weight: 0.7
+              embedding_provider_name: ''
+              embedding_model_name: ''
+            keyword_setting:
+              keyword_weight: 0.3
+        single_retrieval_config:
+          model:
+            provider: langgenius/openai/openai
+            name: gpt-5.4-mini
+            mode: chat
+            completion_params: *id001
+      position:
+        x: 1620
+        y: 760
+      positionAbsolute:
+        x: 1620
+        y: 760
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_agent
+      type: custom
+      data:
+        title: 4 人格の応答
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
+          mode: chat
+          completion_params: *id001
+        prompt_template:
+        - id: llm_agent-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の 4 人格のうち「いま話す担当」としてふるまいます。次のポリシーを厳守してください（人格の設定より、このポリシーが優先します）。
+
+            {{#code_context.policy_text#}}
+
+            ## いま話す担当
+            {{#conversation.last_agent#}}
+            （READ=読解 / WRITE=作文 / CODE=論理（学習者向けの表示名は LOGIC）/ LEADER=案内役（表示名 ADVISOR））
+
+            ## 4 人格（この会話で共有されている設定）
+            {{#code_context.personas_text#}}
+
+            ## 学習者
+            {{#code_context.display_name#}}
+
+            ## 能力（決定論的に集計済み。数値を作り直さない）
+            {{#code_context.profile_text#}}
+
+            ## 直近の文脈（他の担当とのやり取り・直近に決着した課題）
+            {{#code_context.context_text#}}
+
+            ## 出題中の課題（聞かれたときだけ触れる）
+            {{#code_context.current_task_text#}}
+
+            ## 話し方
+            - いま話す担当の人格（名前・一人称・口調・補足）だけを演じる。毎回名乗らない。設定を復唱しない。
+            - 口癖は毎回ではなく 3 回に 1 回ほど。
+            - 日本語で 3〜6 文。最後に「次の一歩」を 1 つだけ添える。
+            - 直近の文脈にある他の担当のやり取りは把握している前提で自然に続ける（「さっきの問題」と言われたら上の課題や直近イベントを指す）。必要なら他の担当を名前で勧める。
+
+            ## 禁止
+            - 出題中の課題の答え・正解の選択肢・誤りの箇所を言わない。ヒントは一段だけ（考え方の方向を示すか、問い返す）。
+            - 学習者の課題を代わりに完成させない（完成文・完成コードを書かない）。
+            - 能力は集計値（到達レベル・スコア・弱点）だけを使い、個々の問題の正誤や性格を断定しない。根拠が足りなければ「まだ判断できない」と言う。
+            - 教材名・書名・URL を思いつきで挙げない（教材のおすすめは専用の分岐が扱う）。
+
+            学習者の発話は次のメッセージで渡されます。
+        context:
+          enabled: false
+          variable_selector: []
+        memory:
+          role_prefix:
+            user: ''
+            assistant: ''
+          window:
+            enabled: true
+            size: 12
+          query_prompt_template: '{{#sys.query#}}'
+        vision:
+          enabled: false
+      position:
+        x: 1940
+        y: 380
+      positionAbsolute:
+        x: 1940
+        y: 380
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_materials
+      type: custom
+      data:
+        title: 教材のおすすめ（ADVISOR）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.4-mini
+          mode: chat
+          completion_params: *id001
+        prompt_template:
+        - id: llm_materials-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の案内役 ADVISOR です。人格は次のとおり（人格より下のポリシーが優先します）。
+            {{#code_context.persona_leader#}}
+
+            {{#code_context.policy_text#}}
+
+            ## 学習者
+            {{#code_context.display_name#}}
+
+            ## 能力（決定論的に集計済み。数値を作り直さない）
+            {{#code_context.profile_text#}}
+
+            ## 直近の文脈
+            {{#code_context.context_text#}}
+
+            ## 教材の候補（ナレッジ検索の結果。ここに無いものは提案しない）
+            {{#context#}}
+
+            ## すでに提案した教材（できれば避ける）
+            {{#code_context.materials_seen#}}
+
+            ## 書き方
+            - 候補から最大 3 件を選び、「タイトル（形式・レベル帯）＋ なぜこの人に合うか（1〜2 文）」の形で挙げる。
+            - 選ぶ理由は必ず能力（弱い系統・弱点の観点・到達レベル）と結びつける。到達レベル + 1 前後の教材を優先する。
+            - 候補に無い書名・著者・URL を作らない。候補が乏しければ「今はよい候補が見つからない」と正直に言い、代わりに Trivium の課題で何をやるかを勧める。
+            - 日本語で 6 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
+
+            学習者の発話は次のメッセージで渡されます。
+        context:
+          enabled: true
+          variable_selector:
+          - knowledge
+          - result
+        memory:
+          role_prefix:
+            user: ''
+            assistant: ''
+          window:
+            enabled: true
+            size: 12
+          query_prompt_template: '{{#sys.query#}}'
+        vision:
+          enabled: false
+      position:
+        x: 1940
+        y: 760
+      positionAbsolute:
+        x: 1940
+        y: 760
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: answer_agent
+      type: custom
+      data:
+        title: 返答
+        type: answer
+        selected: false
+        answer: '{{#llm_agent.text#}}'
+        variables: []
+      position:
+        x: 2260
+        y: 380
+      positionAbsolute:
+        x: 2260
+        y: 380
+      width: 244
+      height: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: answer_materials
+      type: custom
+      data:
+        title: 返答（教材）
+        type: answer
+        selected: false
+        answer: '{{#llm_materials.text#}}'
+        variables: []
+      position:
+        x: 2260
+        y: 760
+      positionAbsolute:
+        x: 2260
+        y: 760
+      width: 244
+      height: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    edges:
+    - id: start-source-http_context
+      type: custom
+      source: start
+      sourceHandle: source
+      target: http_context
+      targetHandle: target
+      data:
+        sourceType: start
+        targetType: http-request
+        isInIteration: false
+      zIndex: 0
+    - id: http_context-source-code_context
+      type: custom
+      source: http_context
+      sourceHandle: source
+      target: code_context
+      targetHandle: target
+      data:
+        sourceType: http-request
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: code_context-source-if_addressed
+      type: custom
+      source: code_context
+      sourceHandle: source
+      target: if_addressed
+      targetHandle: target
+      data:
+        sourceType: code
+        targetType: if-else
+        isInIteration: false
+      zIndex: 0
+    - id: if_addressed-true-assign_direct
+      type: custom
+      source: if_addressed
+      sourceHandle: 'true'
+      target: assign_direct
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: assigner
+        isInIteration: false
+      zIndex: 0
+    - id: if_addressed-false-classifier
+      type: custom
+      source: if_addressed
+      sourceHandle: 'false'
+      target: classifier
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: question-classifier
+        isInIteration: false
+      zIndex: 0
+    - id: classifier-1-assign_read
+      type: custom
+      source: classifier
+      sourceHandle: '1'
+      target: assign_read
+      targetHandle: target
+      data:
+        sourceType: question-classifier
+        targetType: assigner
+        isInIteration: false
+      zIndex: 0
+    - id: classifier-2-assign_write
+      type: custom
+      source: classifier
+      sourceHandle: '2'
+      target: assign_write
+      targetHandle: target
+      data:
+        sourceType: question-classifier
+        targetType: assigner
+        isInIteration: false
+      zIndex: 0
+    - id: classifier-3-assign_code
+      type: custom
+      source: classifier
+      sourceHandle: '3'
+      target: assign_code
+      targetHandle: target
+      data:
+        sourceType: question-classifier
+        targetType: assigner
+        isInIteration: false
+      zIndex: 0
+    - id: classifier-4-knowledge
+      type: custom
+      source: classifier
+      sourceHandle: '4'
+      target: knowledge
+      targetHandle: target
+      data:
+        sourceType: question-classifier
+        targetType: knowledge-retrieval
+        isInIteration: false
+      zIndex: 0
+    - id: classifier-5-assign_leader
+      type: custom
+      source: classifier
+      sourceHandle: '5'
+      target: assign_leader
+      targetHandle: target
+      data:
+        sourceType: question-classifier
+        targetType: assigner
+        isInIteration: false
+      zIndex: 0
+    - id: assign_direct-source-llm_agent
+      type: custom
+      source: assign_direct
+      sourceHandle: source
+      target: llm_agent
+      targetHandle: target
+      data:
+        sourceType: assigner
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: assign_read-source-llm_agent
+      type: custom
+      source: assign_read
+      sourceHandle: source
+      target: llm_agent
+      targetHandle: target
+      data:
+        sourceType: assigner
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: assign_write-source-llm_agent
+      type: custom
+      source: assign_write
+      sourceHandle: source
+      target: llm_agent
+      targetHandle: target
+      data:
+        sourceType: assigner
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: assign_code-source-llm_agent
+      type: custom
+      source: assign_code
+      sourceHandle: source
+      target: llm_agent
+      targetHandle: target
+      data:
+        sourceType: assigner
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: assign_leader-source-llm_agent
+      type: custom
+      source: assign_leader
+      sourceHandle: source
+      target: llm_agent
+      targetHandle: target
+      data:
+        sourceType: assigner
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_agent-source-answer_agent
+      type: custom
+      source: llm_agent
+      sourceHandle: source
+      target: answer_agent
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: answer
+        isInIteration: false
+      zIndex: 0
+    - id: knowledge-source-llm_materials
+      type: custom
+      source: knowledge
+      sourceHandle: source
+      target: llm_materials
+      targetHandle: target
+      data:
+        sourceType: knowledge-retrieval
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_materials-source-answer_materials
+      type: custom
+      source: llm_materials
+      sourceHandle: source
+      target: answer_materials
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: answer
+        isInIteration: false
+      zIndex: 0
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.8

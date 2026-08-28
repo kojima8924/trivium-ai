@@ -162,28 +162,34 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
 
 ### 5.1 DSL をインポートする（推奨・10 分）
 
-リポジトリの `dify/` に、そのまま取り込める Workflow アプリ定義が **3 本**あります（`dify/build_dsl.py` から生成。詳細は `dify/README.md`）。
+リポジトリの `dify/` に、そのまま取り込めるアプリ定義が **4 本**あります（`dify/build_dsl.py` から生成。詳細は `dify/README.md`）。
 
 | ファイル | アプリ名 | 用途 | ノード構成 | API key の環境変数 |
 |---|---|---|---|---|
 | `dify/trivium-domain.yml` | `trivium-domain` | 回答評価＋一段ヒント（`workflow=domain`）／domain 寸評（`workflow=interpret`） | Start → IF/ELSE → LLM×2 → End | `DIFY_DOMAIN_API_KEY` |
 | `dify/trivium-leader.yml` | `trivium-leader` | 3 domain の要約から総合寸評・次のおすすめ | Start → **現在日時**（組み込み time ツール, Asia/Tokyo）→ LLM → End | `DIFY_LEADER_API_KEY` |
 | `dify/trivium-generate.yml` | `trivium-generate` | 依頼文（「論理パズルを 1 問」等）から課題を作る | Start → IF/ELSE(`use_search`) → [true] code → **HTTP（OpenAI Responses + web_search）** → code → LLM → End ／ [false] LLM → End | `DIFY_GENERATE_API_KEY` |
+| `dify/trivium-chat.yml` | `trivium-chat` | **Chatflow**。4 人格（ヨミ/フミ/ロゴス/ミチ）の会話と教材おすすめを 1 本で。文脈は 1 conversation で共有 | Start → **HTTP `GET /api/agent/context`** → code → IF/ELSE → [true] assigner ／ [false] **question-classifier** → assigner×4 or **knowledge-retrieval** → LLM×2 → Answer×2 | `DIFY_CHAT_API_KEY` |
 
 手順:
 
 1. Dify → **設定 → モデルプロバイダー** で **OpenAI** を有効化し API キーを登録（LLM ノードはすべて `langgenius/openai/openai`）
-2. **Studio → Import DSL file** で 3 本を順に取り込む。各 LLM ノードのモデル既定は `gpt-5.4-mini`（アプリ側の `OPENAI_MODEL` と同じ）。ワークスペースで選べなければ使えるモデルに差し替える
+2. **Studio → Import DSL file** で 4 本を順に取り込む。各 LLM ノードのモデル既定は `gpt-5.4-mini`（アプリ側の `OPENAI_MODEL` と同じ）。ワークスペースで選べなければ使えるモデルに差し替える
 3. `trivium-generate` を開き、**環境変数 `OPENAI_API_KEY`（secret）** を実際のキーに差し替える（Web 検索の HTTP ノードが `Authorization: Bearer` に使う。DSL には `sk-REPLACE_ME` が入っている）
 4. `trivium-leader` の「現在日時」ノードは Dify 組み込みの `time` ツール（認証不要）。インポート時に警告が出たらノードを開いて保存し直す
-5. 右上 **Publish** → **API Access** → **API Key** を 3 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`。`AI_PROVIDER=dify` にして Restart
-6. Dify の「実行」で試す:
+5. **`trivium-chat`（Chatflow）の設定** — この 3 つをやらないと会話が既定値で動く／教材が出ない:
+   - 環境変数 `TRIVIUM_API_BASE` を公開 URL（例 `https://trivium.153.126.213.251.sslip.io`）に、`TRIVIUM_AGENT_TOKEN`（secret）を Coolify の `AGENT_API_TOKEN` と**同じ値**に差し替える
+   - ノード「**教材ナレッジ検索**」を開き、ナレッジ **`trivium-materials`**（5.6 で投入）を選ぶ。`dataset_ids` は環境ごとに違うので DSL には入れていない
+   - ノード「相談先の判定」（question-classifier）のモデルを確認する
+6. 右上 **Publish** → **API Access** → **API Key** を 4 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_CHAT_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`。`AI_PROVIDER=dify` にして Restart
+7. **Chatflow の動作確認** — 「デバッグとプレビュー」で `learner_ref` に実在の userId を入れて: 「僕の能力は？」→ ミチが集計値を踏まえて答える／`addressed_agent=CODE` で「さっきの問題のヒント」→ ロゴスが答えを言わずに一段だけ導く／「読解を伸ばす本は？」→ ナレッジの候補から 3 件（候補外の書名が出ないこと）
+8. Workflow 3 本は Dify の「実行」で試す:
    - domain: `workflow=domain`、`task` に JSON、`learner_answer` に誤答、`deterministic_result=incorrect`、`hint_level=0` → `result` に `status: "retry"` の JSON
    - leader: `workflow=leader`、`domains` に JSON 配列、`total_events=23` → `summary` に「今日/今週」の言葉が入る
    - generate: `workflow=generate`、`request=論理パズルを1問`、`domain=CODE`、`kind=choice`、`difficulty=3`、`allowed_skill_tags=tracing,debugging,algorithms,design`、`use_search=false` → 4 択の JSON。`use_search=true`＋`request=最近のニュースで読解を1問`、`domain=READ` で検索経由も確認
    いずれも `result` に**コードフェンス無しの JSON** が入ること
 
-`python dify/validate.py` が **Start 変数名 = `src/lib/ai/dify.ts` の inputs キー（完全一致）・End 出力が `result`・LLM が OpenAI・環境変数の宣言・code ノードの入出力**を検査しています。`dify.ts` の inputs や出力 schema を変えたら、`dify/build_dsl.py` を直して再生成してください。
+`python dify/validate.py` が **Start 変数名 = `src/lib/ai/dify.ts` の inputs キー（完全一致）・End 出力が `result`・LLM が OpenAI・環境変数の宣言・code ノードの入出力**を検査しています（Chatflow は `advanced-chat` / Answer ノード / classifier の class とエッジ / 会話変数と env の宣言 / ナレッジ id を焼き込んでいないこと、を別途検査）。`dify.ts` の inputs や出力 schema を変えたら、`dify/build_dsl.py` を直して再生成してください。
 
 ### 5.2 入力変数（参考: DSL に含まれている内容）
 
