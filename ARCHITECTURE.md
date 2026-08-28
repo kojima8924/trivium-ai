@@ -170,7 +170,7 @@ GET では消費しない（プレビュー取得やクローラで無効化さ�
 | `src/lib/scoring.ts` / `src/lib/xp.ts` | 到達レベルと観点別の証拠 / XP・ミッション・streak・ランク |
 | `src/lib/tasks/{read,write,code,composite}.ts` / `stock/*.generated.ts` / `index.ts` | 手書き課題とストック（段階ヒント・解説・skill tags・難易度ベクトル・taskType）、決定論採点、正規化 |
 | `src/lib/task-types.ts` / `src/lib/task-prefs.ts` | 問題タイプ 15 種＋複合の定義と、出題設定の保存・判定 |
-| `src/lib/materials/*` | 教材カタログ（85 件）・推薦エンジン（純粋）・Dify ナレッジ検索・今日の 1 冊 |
+| `src/lib/materials/*` | 教材カタログ（145 件）・推薦エンジン（純粋）・Dify ナレッジ検索・今日の 1 冊 |
 | `src/lib/achievement-defs.ts` / `src/lib/achievements.pure.ts` | 実績 61 個の定義と解除判定（純粋） |
 | `src/lib/characters.ts` / `public/characters/` | ちびキャラ画像（全身・顔・表情差分）のパス |
 | `src/lib/learn/{service,generate,digest}.ts` | 学習ループ、作問、今日の 3 問通知 |

@@ -313,7 +313,7 @@ Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作�
 
 ### 5.6 教材ナレッジ（ADVISOR の教材推薦）
 
-1. アプリ内の教材カタログ `src/lib/materials/catalog.ts`（定番書・公式サイト 85 件）を `npx tsx scripts/dify/export_materials.mts` で `dify/materials/*.md` に書き出す（1 教材 1 ファイル。手動アップロードなら `--single` で `ALL.md`）
+1. アプリ内の教材カタログ `src/lib/materials/catalog.ts`（定番書・公式サイト 145 件）を `npx tsx scripts/dify/export_materials.mts` で `dify/materials/*.md` に書き出す（1 教材 1 ファイル。手動アップロードなら `--single` で `ALL.md`）
 2. Dify → **ナレッジ → API** でナレッジ用 API キーを発行し、`.env` に `DIFY_DATASET_API_KEY`（と必要なら `DIFY_BASE_URL`）を設定
 3. `npx tsx scripts/dify/upload_materials.mts --dry-run` で内容を確認 → `--dry-run` を外して投入（Dataset `trivium-materials` を自動作成し、id を表示。以後は `DIFY_MATERIALS_DATASET_ID` に入れると同じ Dataset を上書き更新）
 4. Coolify の環境変数にも `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` を登録して Restart。未設定でもアプリ内カタログだけで推薦は動く（Dify は「ナレッジ検索のスコア」を加える追加情報源）
