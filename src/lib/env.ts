@@ -37,7 +37,15 @@ export const env = {
     difyDomainApiKey: process.env.DIFY_DOMAIN_API_KEY ?? "",
     difyLeaderApiKey: process.env.DIFY_LEADER_API_KEY ?? "",
     difyGenerateApiKey: process.env.DIFY_GENERATE_API_KEY ?? "",
+    /** 統合 Chatflow（trivium-chat）のアプリ API キー。LINE の会話を Dify 経由にするときだけ使う */
+    difyChatApiKey: process.env.DIFY_CHAT_API_KEY ?? "",
     difyTimeoutMs: Number(process.env.DIFY_TIMEOUT_MS ?? 20000),
+    /**
+     * LINE の「会話」だけ Dify の統合 Chatflow に流すか（既定 false）。
+     * true でも DIFY_CHAT_API_KEY が無ければ従来どおり OpenAI 直呼び出し。
+     * 評価・寸評・作問・意図判定は速度優先で常に OpenAI 直呼び出しのまま。
+     */
+    lineChatViaDify: bool(process.env.LINE_CHAT_VIA_DIFY, false),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-opus-5",
     anthropicTimeoutMs: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 25000),

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { aiStatus } from "@/lib/ai";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,8 @@ export async function GET() {
     status: db === "ok" ? "ok" : "degraded",
     db,
     ai: aiStatus(),
+    // LINE の会話を Dify 統合 Chatflow に流しているか（秘密は出さない）
+    dify: { chat: env.ai.lineChatViaDify && env.ai.difyChatApiKey ? "on" : "off", keyConfigured: Boolean(env.ai.difyChatApiKey) },
     latencyMs: Date.now() - startedAt,
     time: new Date().toISOString(),
   };

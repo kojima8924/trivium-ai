@@ -100,6 +100,89 @@ function wantsSearch(request: string): boolean {
   return /(ニュース|時事|最近の|今日の|今週の|今月の|話題|最新)/.test(request);
 }
 
+// ---------------------------------------------------------------------------
+// 統合 Chatflow（trivium-chat）: 4 人格の会話と教材おすすめを 1 本で扱う。
+// Workflow API（/workflows/run）ではなく Chat API（/chat-messages）を使う。
+// Chatflow 側が自分で GET /api/agent/context を呼ぶので、履歴やプロフィールは渡さない。
+// ---------------------------------------------------------------------------
+
+export type DifyChatArgs = {
+  /** Trivium の userId（Chatflow が /api/agent/context?ref= に使う） */
+  learnerRef: string;
+  /** 呼びかけ先。担当が決まっていなければ "AUTO"（Chatflow 側の分類に任せる） */
+  addressedAgent: "READ" | "WRITE" | "CODE" | "LEADER" | "AUTO";
+  text: string;
+  appUrl: string;
+  /** 会話の継続。Dify 側で会話が消えていれば 404 になるので、その場合は新規会話でやり直す */
+  conversationId?: string;
+};
+
+export type DifyChatResult = { text: string; conversationId: string };
+
+type DifyChatResponse = { answer?: string; conversation_id?: string; message_id?: string; message?: string; code?: string };
+
+/** LINE の返答は Flex のプレーンテキストなので、マークダウンの装飾とリンク記法を落とす */
+function plainForLine(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "・")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/g, "")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1 $2")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function postChatMessage(args: DifyChatArgs, conversationId: string | undefined, signal: AbortSignal): Promise<Response> {
+  return fetch(`${env.ai.difyApiBase.replace(/\/$/, "")}/chat-messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.ai.difyChatApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      inputs: { learner_ref: args.learnerRef, addressed_agent: args.addressedAgent, app_url: args.appUrl },
+      query: args.text.slice(0, 2000),
+      response_mode: "blocking",
+      user: args.learnerRef,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    }),
+    signal,
+  });
+}
+
+/**
+ * 統合 Chatflow と 1 往復する。失敗（キー未設定・タイムアウト・エラー応答・空回答）は null を返し、
+ * 呼び出し側が OpenAI 直呼び出しにフォールバックできるようにする（デモ中に無言になるのを避けるため）。
+ */
+export async function difyChat(args: DifyChatArgs): Promise<DifyChatResult | null> {
+  if (!env.ai.difyChatApiKey) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), env.ai.difyTimeoutMs);
+  try {
+    let res = await postChatMessage(args, args.conversationId, controller.signal);
+    // 会話が消えている（404 / conversation not exists）ときは、id を捨てて新規会話で 1 回だけやり直す
+    if (!res.ok && args.conversationId && (res.status === 404 || res.status === 400)) {
+      console.warn(`[dify] chat conversation reset (HTTP ${res.status})`);
+      res = await postChatMessage(args, undefined, controller.signal);
+    }
+    if (!res.ok) {
+      console.warn(`[dify] chat HTTP ${res.status}`);
+      return null;
+    }
+    const json = (await res.json()) as DifyChatResponse;
+    const text = plainForLine(json.answer ?? "");
+    if (!text) {
+      console.warn("[dify] chat returned an empty answer");
+      return null;
+    }
+    return { text: text.slice(0, 1500), conversationId: json.conversation_id ?? "" };
+  } catch (err) {
+    console.warn("[dify] chat failed:", (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class DifyProvider implements LearningAIProvider {
   readonly name = "dify";
   private fallback = new MockProvider();
@@ -308,9 +391,20 @@ export class DifyProvider implements LearningAIProvider {
     };
   }
 
-  /** 会話・観察メモは OpenAI provider の担当。Dify ではワークフロー未定義なので Mock に委譲する */
+  /**
+   * 会話は統合 Chatflow（trivium-chat）に流す。conversation_id を持てないぶん文脈は
+   * Chatflow 側の /api/agent/context に依存する（LINE からは difyChat() を直接呼び、会話を継続する）。
+   * キーが無い・失敗したときは Mock に委譲する（LearningAIService のフォールバックとは別の保険）。
+   */
   async chat(input: ChatInput): Promise<ChatOutput> {
-    return this.fallback.chat(input);
+    const r = await difyChat({
+      learnerRef: input.learnerRef,
+      addressedAgent: input.persona.agent,
+      text: input.userText,
+      appUrl: env.appUrl,
+    });
+    if (!r) return this.fallback.chat(input);
+    return { text: r.text, suggestDomain: null, usedSearch: false };
   }
 
   async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {

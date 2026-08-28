@@ -25,6 +25,8 @@ export type LineState = {
   passedTaskIds?: string[];
   /** 案内役が勧めた教材 id（直近 20 件。「他の候補」で除外し、同じものを繰り返さない） */
   recommendedMaterialIds?: string[];
+  /** Dify 統合 Chatflow の会話 id（LINE_CHAT_VIA_DIFY のときだけ使う。会話を継続するため） */
+  difyConversationId?: string;
 };
 
 export function emptyCounts(): Record<DomainKey, number> {
@@ -62,6 +64,7 @@ export function parseLineState(json: unknown): LineState {
   if (Array.isArray(o.recommendedMaterialIds)) {
     state.recommendedMaterialIds = o.recommendedMaterialIds.filter((x): x is string => typeof x === "string").slice(-20);
   }
+  if (typeof o.difyConversationId === "string" && o.difyConversationId) state.difyConversationId = o.difyConversationId.slice(0, 100);
   if (o.pendingTask && typeof o.pendingTask === "object" && !Array.isArray(o.pendingTask)) {
     const t = o.pendingTask as Record<string, unknown>;
     if (
@@ -146,6 +149,14 @@ export function withPassedTask(state: LineState, taskId: string): LineState {
 export function withRecommendedMaterials(state: LineState, ids: string[]): LineState {
   const prev = (state.recommendedMaterialIds ?? []).filter((id) => !ids.includes(id));
   return { ...state, recommendedMaterialIds: [...prev, ...ids].slice(-20) };
+}
+
+/** Dify Chatflow の会話 id を記録/解除する（純粋関数。空文字なら解除） */
+export function withDifyConversationId(state: LineState, conversationId: string | undefined): LineState {
+  const { difyConversationId: _c, ...rest } = state;
+  void _c;
+  if (!conversationId) return rest;
+  return { ...rest, difyConversationId: conversationId };
 }
 
 /** 出題中の課題を記録/解除する（純粋関数） */

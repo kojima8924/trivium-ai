@@ -7,7 +7,9 @@ import "server-only";
 import { formatScore } from "@/lib/scoring";
 import { EXTERNAL } from "@/config/trivium.config";
 import { prisma } from "@/lib/prisma";
+import { env } from "@/lib/env";
 import { learningAI, type ChatTurnInput } from "@/lib/ai";
+import { difyChat } from "@/lib/ai/dify";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { getAllMemories, getMemory } from "@/lib/memory";
 import { resolveTask } from "@/lib/learn/service";
@@ -16,6 +18,7 @@ import { loadPersonas, personaPrompts, type AgentKey } from "@/lib/persona";
 import { getDashboardData } from "@/lib/profile";
 import type { LeaderAction, LeaderReply } from "./leader";
 import { trimHistory } from "./chat.pure";
+import { parseLineState, saveLineState, withDifyConversationId } from "./state";
 
 type ChatResult = { agent: AgentKey; text: string; suggestDomain: DomainKey | null; usedSearch: boolean };
 
@@ -92,7 +95,44 @@ async function loadSharedContext(userId: string, agent: AgentKey): Promise<strin
   return lines.join("\n").slice(0, 2500);
 }
 
+/**
+ * Dify 統合 Chatflow で 1 往復する（LINE_CHAT_VIA_DIFY のときだけ）。
+ * 会話 id は LineUser.state に持ち、担当が変わっても同じ会話を続ける（Chatflow 側で文脈が共有される）。
+ * 失敗したら null を返し、呼び出し側が OpenAI 直呼び出しにフォールバックする。
+ */
+async function chatViaDify(userId: string, agent: AgentKey, userText: string): Promise<string | null> {
+  if (!env.ai.lineChatViaDify || !env.ai.difyChatApiKey) return null;
+  const link = await prisma.lineUser
+    .findFirst({ where: { userId }, orderBy: { updatedAt: "desc" }, select: { lineUserId: true, state: true } })
+    .catch(() => null);
+  const state = link ? parseLineState(link.state) : {};
+  const started = Date.now();
+  const r = await difyChat({
+    learnerRef: userId,
+    addressedAgent: agent,
+    text: userText,
+    appUrl: env.appUrl,
+    conversationId: state.difyConversationId,
+  });
+  if (!r) return null;
+  console.log(`[dify] chat ok agent=${agent} ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  if (link && r.conversationId && r.conversationId !== state.difyConversationId) {
+    await saveLineState(link.lineUserId, withDifyConversationId(state, r.conversationId)).catch(() => undefined);
+  }
+  return r.text;
+}
+
 export async function chatWithAgent(userId: string, agent: AgentKey, userText: string, extra: { currentTask?: string } = {}): Promise<ChatResult> {
+  // Dify 経由が有効なら先に試す（成功時は Chatflow 側が文脈を持つので、ここでの収集は不要）。
+  // 失敗したら下の OpenAI 直呼び出しにそのまま落ちる。
+  const difyText = await chatViaDify(userId, agent, userText).catch(() => null);
+  if (difyText) {
+    await prisma.chatTurn.create({ data: { userId, agent, role: "user", text: userText.slice(0, 2000) } });
+    await prisma.chatTurn.create({ data: { userId, agent, role: "assistant", text: difyText } });
+    await pruneHistory(userId, agent).catch(() => undefined);
+    return { agent, text: difyText, suggestDomain: null, usedSearch: false };
+  }
+
   const [personas, history, sharedContext] = await Promise.all([personaPrompts(userId), loadHistory(userId, agent), loadSharedContext(userId, agent).catch(() => "")]);
   const memoryNotes =
     agent === "LEADER"

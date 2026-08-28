@@ -160,6 +160,7 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `AI_PROVIDER` | `openai`（既定）/ `dify` / `anthropic` / `mock` |
 | `OPENAI_API_KEY` / `OPENAI_TIMEOUT_MS` / `OPENAI_MODEL` | OpenAI（server only）。モデルは `trivium.config.ts` の `MODELS` が役割ごとに決める。`OPENAI_MODEL` は役割指定が無い呼び出しの予備 |
 | `DIFY_API_BASE` / `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_TIMEOUT_MS` | Dify Workflow（server only。`AI_PROVIDER=dify` のとき） |
+| `DIFY_CHAT_API_KEY` / `LINE_CHAT_VIA_DIFY` | **LINE の会話だけ**統合 Chatflow（`trivium-chat`）経由にする。`AI_PROVIDER` は `openai` のままでよく、評価・寸評・作問・意図判定は直呼び出しのまま。Dify が失敗したら自動で OpenAI にフォールバック |
 | `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` | 教材ナレッジ（Dify Dataset）。設定時だけナレッジ検索のスコアを教材推薦に加える。未設定ならアプリ内カタログのみ |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_TIMEOUT_MS` | Claude API（任意・非推奨） |
 | `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API |

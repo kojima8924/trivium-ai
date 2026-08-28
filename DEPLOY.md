@@ -134,6 +134,8 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `DIFY_DOMAIN_API_KEY` | | `trivium-domain` workflow の API key（回答評価・寸評） | 不要 |
 | `DIFY_LEADER_API_KEY` | | `trivium-leader` workflow の API key（総合寸評） | 不要 |
 | `DIFY_GENERATE_API_KEY` | | `trivium-generate` workflow の API key（作問。無ければ作問だけ定型問題にフォールバック） | 不要 |
+| `DIFY_CHAT_API_KEY` | | `trivium-chat`（統合 Chatflow）のアプリ API key。**LINE の会話だけ Dify 経由**にするときに使う（`AI_PROVIDER` は `openai` のままでよい） | 不要 |
+| `LINE_CHAT_VIA_DIFY` | | `true` で LINE の会話を統合 Chatflow に流す（既定 `false`）。キーが無い・Dify が失敗したときは自動で OpenAI 直呼び出しにフォールバック | 不要 |
 | `DIFY_TIMEOUT_MS` | | 既定 20000（Web 検索を挟む作問は 10 秒以上かかるので 30000 推奨） | 不要 |
 | `TRIVIUM_AGENT_TOKEN` | | Dify の Chatflow（4 人格 + 教材おすすめ）が `GET /api/agent/context` で人格・能力値・出題中の課題を読むためのサーバ間トークン。`openssl rand -base64 32` で生成し、Dify 側の環境変数にも同じ値を入れる。未設定ならこの API は 503（アプリ本体は影響なし） | 不要 |
 | `LINE_CHANNEL_SECRET` | | LINE Messaging API のチャネルシークレット（署名検証に必須） | 不要 |
@@ -181,7 +183,10 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
    - 環境変数 `TRIVIUM_API_BASE` を公開 URL（例 `https://trivium.153.126.213.251.sslip.io`）に、`TRIVIUM_AGENT_TOKEN`（secret）を Coolify の `AGENT_API_TOKEN` と**同じ値**に差し替える
    - ノード「**教材ナレッジ検索**」を開き、ナレッジ **`trivium-materials`**（5.6 で投入）を選ぶ。`dataset_ids` は環境ごとに違うので DSL には入れていない
    - ノード「相談先の判定」（question-classifier）のモデルを確認する
-6. 右上 **Publish** → **API Access** → **API Key** を 4 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_CHAT_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`。`AI_PROVIDER=dify` にして Restart
+6. 右上 **Publish** → **API Access** → **API Key** を 4 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_CHAT_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`
+   - **LINE の会話だけ Dify 経由にする**（推奨）: `AI_PROVIDER=openai` のまま `DIFY_CHAT_API_KEY` と `LINE_CHAT_VIA_DIFY=true` を設定して Restart。評価・寸評・作問・意図判定は速い OpenAI 直呼び出しのまま、会話（人格・教材おすすめ）だけ統合 Chatflow を通る。Dify が落ちても自動で OpenAI にフォールバックする
+   - **全部 Dify 経由にする**: `AI_PROVIDER=dify` にして Restart（評価・作問も Workflow を通るため遅くなる）
+   - 疎通確認: `npx tsx --conditions=react-server scripts/dev/dify-chat-check.ts "読解を伸ばせる本を教えて"`。`/api/health` の `dify.chat` が `on` なら LINE の会話が Chatflow 経由
 7. **Chatflow の動作確認** — 「デバッグとプレビュー」で `learner_ref` に実在の userId を入れて: 「僕の能力は？」→ ミチが集計値を踏まえて答える／`addressed_agent=CODE` で「さっきの問題のヒント」→ ロゴスが答えを言わずに一段だけ導く／「読解を伸ばす本は？」→ ナレッジの候補から 3 件（候補外の書名が出ないこと）
 8. Workflow 3 本は Dify の「実行」で試す:
    - domain: `workflow=domain`、`task` に JSON、`learner_answer` に誤答、`deterministic_result=incorrect`、`hint_level=0` → `result` に `status: "retry"` の JSON

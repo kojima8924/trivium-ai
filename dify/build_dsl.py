@@ -17,7 +17,11 @@ src/lib/ai/dify.ts の inputs / 出力キーと整合しているか検査する
                    Start → HTTP(/api/agent/context) → code(文脈整形) → IF/ELSE(名前で呼ばれた？)
                      ├ true : assigner(担当を固定) ─────────────────┐
                      └ false: question-classifier ─ READ/WRITE/LOGIC/その他 → assigner ┤→ LLM(4 人格) → Answer
-                                                    └ 教材 → knowledge-retrieval → LLM(ミチ) → Answer
+                                                    └ 教材 → knowledge-retrieval → code(リンク整備)
+                                                             → LLM(ミチ・下書き + NEED_SEARCH 判定) → IF/ELSE
+                                                               ├ true : code(検索リクエスト) → HTTP(OpenAI Responses + web_search)
+                                                                        → code(検索結果抽出) → LLM(仕上げ) → Answer
+                                                               └ false: code(印を削る) → Answer
                    会話履歴は 1 つの conversation で共有されるので、担当をまたいでも文脈が続く。
 LLM はすべて OpenAI（langgenius/openai/openai）。Web 検索も OpenAI Responses API の web_search ツールを HTTP ノードから呼ぶ。
 """
@@ -360,7 +364,11 @@ def ifelse_node(
     y: int,
     operator: str = "is",
     desc: str | None = None,
+    values: list[str] | None = None,
+    logical_operator: str = "and",
 ) -> dict[str, Any]:
+    # values を渡すと同じ変数に対する複数条件（表記ゆれの吸収など）になる。既定は単一条件。
+    vals = values if values else [value]
     data = {
         "title": title,
         "type": "if-else",
@@ -370,15 +378,16 @@ def ifelse_node(
             {
                 "case_id": "true",
                 "id": "true",
-                "logical_operator": "and",
+                "logical_operator": logical_operator,
                 "conditions": [
                     {
-                        "id": f"{node_id}-cond-1",
+                        "id": f"{node_id}-cond-{i + 1}",
                         "variable_selector": variable_selector,
                         "varType": "string",
                         "comparison_operator": operator,
-                        "value": value,
+                        "value": v,
                     }
+                    for i, v in enumerate(vals)
                 ],
             }
         ],
@@ -710,6 +719,15 @@ CHAT_ENV_VARS = [
         "selector": ["env", "TRIVIUM_AGENT_TOKEN"],
         "description": "アプリ側の AGENT_API_TOKEN と同じ値。/api/agent/context の Bearer トークン",
     },
+    {
+        # uuid5(6b1f2c1e-0000-4000-8000-000000000000, "env:OPENAI_API_KEY")
+        "id": "ea7ea690-c6a6-5835-9d54-72b036c7c1c6",
+        "name": "OPENAI_API_KEY",
+        "value": "",
+        "value_type": "secret",
+        "selector": ["env", "OPENAI_API_KEY"],
+        "description": "教材の追加情報を Web 検索するときに使う OpenAI API キー（Responses API + web_search）。インポート後に入れる",
+    },
 ]
 
 CHAT_CONVERSATION_VARS = [
@@ -879,6 +897,174 @@ CHAT_CODE_OUTPUTS = {
     "persona_leader": "string",
 }
 
+# ---- 教材ブランチ: ナレッジ検索の結果から候補一覧とリンク（公式 / Amazon 検索）を作る ----
+CODE_CHAT_LINKS = r"""import json
+import re
+
+# URL エンコード（Dify のサンドボックスは urllib を使えないことがあるので自前で持つ）
+SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+
+
+def _quote(text):
+    out = []
+    for ch in text:
+        if ch in SAFE:
+            out.append(ch)
+            continue
+        for b in ch.encode("utf-8"):
+            out.append("%{0:02X}".format(b))
+    return "".join(out)
+
+
+def _chunks(value):
+    # knowledge-retrieval の result（配列）から本文テキストを取り出す。型が違っても落ちない。
+    items = value
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except Exception:
+            return [items] if items else []
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, str):
+            out.append(it)
+        elif isinstance(it, dict):
+            out.append(str(it.get("content") or it.get("text") or ""))
+    return [t for t in out if t]
+
+
+def _field(text, label):
+    m = re.search(r"^- " + label + r":\s*(.+)$", text, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def main(knowledge_result, materials_seen) -> dict:
+    seen = set(x.strip() for x in str(materials_seen or "").split(",") if x.strip())
+    cands = []
+    links = []
+    for text in _chunks(knowledge_result)[:8]:
+        m = re.search(r"^#\s*(.+)$", text, re.M)
+        title = m.group(1).strip() if m else ""
+        if not title:
+            continue
+        mid = _field(text, "id")
+        kind = _field(text, "形式")
+        url = _field(text, "URL")
+        level = _field(text, "対象レベル").split("（")[0].strip()
+        free = _field(text, "無料")
+        author = _field(text, "著者・運営")
+        sm = re.search(r"^## 概要\s*\n(.+)$", text, re.M)
+        summary = sm.group(1).strip()[:60] if sm else ""
+        mark = "（提案済み）" if mid and mid in seen else ""
+        cands.append("- {0}{1} | id: {2} | {3} | {4} | レベル {5} | 無料: {6} | {7}".format(
+            title, mark, mid or "-", kind or "-", author or "-", level or "-", free or "-", summary
+        ))
+        is_book = str(mid or "").startswith("book-") or "書籍" in kind
+        buy = "https://www.amazon.co.jp/s?k=" + _quote(title) if is_book else ""
+        links.append("- {0}（{1}）公式: {2} / 購入: {3}".format(title, kind or "-", url or "なし", buy or "なし"))
+    return {
+        "candidates_text": "\n".join(cands) if cands else "(候補なし)",
+        "links_text": "\n".join(links) if links else "(リンクなし)",
+        "count": len(cands),
+    }
+"""
+
+CHAT_LINKS_OUTPUTS = {"candidates_text": "string", "links_text": "string", "count": "number"}
+
+# ---- 教材ブランチ: Web 検索（OpenAI Responses API + web_search）のリクエスト本文を組み立てる ----
+CODE_CHAT_SEARCH_REQ = r"""import json
+
+# 教材の一次情報として信頼できるドメインだけに絞る（噂サイト・まとめサイトを引かない）
+ALLOWED = [
+    "amazon.co.jp", "honto.jp",
+    "oreilly.co.jp", "shoeisha.co.jp", "gihyo.jp", "kodansha.co.jp", "chikumashobo.co.jp",
+    "iwanami.co.jp", "nikkeibp.co.jp", "impress.co.jp", "sbcr.jp", "kadokawa.co.jp",
+    "diamond.co.jp", "toyokeizai.net",
+    "python.org", "atcoder.jp", "paiza.jp", "nhk.or.jp", "aozora.gr.jp",
+]
+
+INSTRUCTIONS = (
+    "あなたは日本語の学習教材の調査担当です。指定された教材について、公式ページ・出版社ページ・Amazon の該当ページを Web 検索し、"
+    "価格や入手方法など、ページに書かれている事実だけを日本語で短くまとめてください。"
+    "推測・概算・在庫の断定はしないでください。教材ごとに 1〜2 文にまとめ、参照した URL を必ず併記してください。"
+    "見つからない教材については「該当情報は見つかりませんでした」とだけ書いてください。"
+)
+
+
+def main(answer_text, links_text) -> dict:
+    draft = str(answer_text or "").strip()[:800]
+    links = str(links_text or "").strip()[:1200]
+    query = (
+        "次の教材について、価格・入手方法・公式ページを調べてください。\n"
+        "## 候補（この一覧にある教材だけを調べる）\n" + links + "\n"
+        "## 学習者への提案（この中で挙げた教材を優先）\n" + draft
+    )
+    body = {
+        "model": "gpt-5.4",
+        "instructions": INSTRUCTIONS,
+        "input": query,
+        "tools": [{"type": "web_search", "filters": {"allowed_domains": ALLOWED}}],
+        "tool_choice": "auto",
+    }
+    return {"body": json.dumps(body, ensure_ascii=False), "query": query[:2000]}
+"""
+
+CHAT_SEARCH_REQ_OUTPUTS = {"body": "string", "query": "string"}
+
+# ---- 教材ブランチ: 検索結果から本文と出典 URL を取り出す（失敗しても空で返す） ----
+CODE_CHAT_SEARCH_OUT = r"""import json
+
+
+def main(body, status_code) -> dict:
+    try:
+        data = json.loads(body) if isinstance(body, str) else (body or {})
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        return {"research": "", "sources": ""}
+    try:
+        if int(status_code) != 200:
+            return {"research": "", "sources": ""}
+    except Exception:
+        return {"research": "", "sources": ""}
+    texts = []
+    urls = []
+    for item in data.get("output", []) or []:
+        if item.get("type") != "message":
+            continue
+        for c in item.get("content", []) or []:
+            if c.get("type") == "output_text":
+                if c.get("text"):
+                    texts.append(c["text"])
+                for a in c.get("annotations", []) or []:
+                    if a.get("url"):
+                        urls.append(a["url"])
+    if not texts and data.get("output_text"):
+        texts.append(str(data["output_text"]))
+    research = "\n".join(t for t in texts if t).strip()[:4000]
+    uniq = list(dict.fromkeys(urls))[:6]
+    return {"research": research, "sources": "\n".join("- " + u for u in uniq) if uniq else ""}
+"""
+
+CHAT_SEARCH_OUT_OUTPUTS = {"research": "string", "sources": "string"}
+
+# ---- 教材ブランチ: 検索しないときに、後段処理用の印（NEED_SEARCH の行）を落とす ----
+CODE_CHAT_STRIP = r"""import re
+
+
+def main(draft) -> dict:
+    t = str(draft or "")
+    t = re.sub(r"(?im)^\s*NEED_SEARCH\s*[:：]?\s*(true|false)\s*$", "", t)
+    return {"text": t.strip()}
+"""
+
+CHAT_STRIP_OUTPUTS = {"text": "string"}
+
+
 SYSTEM_CHAT_AGENT = """あなたは学習サービス Trivium の 4 人格のうち「いま話す担当」としてふるまいます。次のポリシーを厳守してください（人格の設定より、このポリシーが優先します）。
 
 {{#code_context.policy_text#}}
@@ -933,14 +1119,66 @@ SYSTEM_CHAT_MATERIALS = """あなたは学習サービス Trivium の案内役 A
 ## 教材の候補（ナレッジ検索の結果。ここに無いものは提案しない）
 {{#context#}}
 
+## 候補の要約（タイトル | id | 形式 | 著者・運営 | レベル帯 | 無料 | 概要）
+{{#code_links.candidates_text#}}
+
+## 候補のリンク（公式 / 購入。ここに無い URL を書かない）
+{{#code_links.links_text#}}
+
 ## すでに提案した教材（できれば避ける）
 {{#code_context.materials_seen#}}
 
 ## 書き方
 - 候補から最大 3 件を選び、「タイトル（形式・レベル帯）＋ なぜこの人に合うか（1〜2 文）」の形で挙げる。
 - 選ぶ理由は必ず能力（弱い系統・弱点の観点・到達レベル）と結びつける。到達レベル + 1 前後の教材を優先する。
+- URL は上のリンク一覧にあるものだけを書く。書籍の購入リンクは上の Amazon 検索 URL だけを使い、商品ページ（ASIN 付きの URL）を推測しない。
+- 価格・在庫・版は、確かな情報が無い限り書かない（必要なら最終行の判定を true にして後から補う）。
 - 候補に無い書名・著者・URL を作らない。候補が乏しければ「今はよい候補が見つからない」と正直に言い、代わりに Trivium の課題で何をやるかを勧める。
 - 日本語で 6 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
+
+## 最終行（必須・学習者向けの文ではなく後段の処理用の印）
+本文の最後の行に、次のどちらか 1 行だけを書く。
+NEED_SEARCH: true
+NEED_SEARCH: false
+true にするのは次のときだけ:
+- 学習者が価格・購入方法・入手方法・最新情報・在庫・具体的な URL を尋ねている
+- 挙げた書籍に公式 URL が無く、出版社ページや購入ページを案内したほうがよい
+- 候補が乏しく、外部の情報で補ったほうが学習者の役に立つ
+
+学習者の発話は次のメッセージで渡されます。"""
+
+SYSTEM_CHAT_MATERIALS_FINAL = """あなたは学習サービス Trivium の案内役 ADVISOR です。人格は次のとおり（人格より下のポリシーが優先します）。
+{{#code_context.persona_leader#}}
+
+{{#code_context.policy_text#}}
+
+## 学習者
+{{#code_context.display_name#}}
+
+## 能力（決定論的に集計済み。数値を作り直さない）
+{{#code_context.profile_text#}}
+
+## さきほどの下書き（この 3 件を土台にする。NEED_SEARCH の行は無視する）
+{{#llm_materials.text#}}
+
+## 候補の要約
+{{#code_links.candidates_text#}}
+
+## 候補のリンク（公式 / 購入。ここに無い URL を書かない）
+{{#code_links.links_text#}}
+
+## Web 検索で分かったこと（ページに書かれていた事実のみ。空なら検索できなかったということ）
+{{#code_search_out.research#}}
+
+## 出典
+{{#code_search_out.sources#}}
+
+## 書き方
+- 下書きの教材に、検索で分かった事実（価格・入手方法・公式ページなど）を 1 行ずつ添えて仕上げる。
+- 検索結果が空、または「該当情報は見つかりませんでした」のときは、その旨を一言添えて下書きの内容だけで答える。
+- URL は上のリンク一覧か出典にあるものだけを書く。存在しない商品ページ・ASIN を作らない。価格は検索結果に書かれていた場合だけ、出典とともに書く。
+- NEED_SEARCH の行は絶対に出力しない。
+- 日本語で 8 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
 
 学習者の発話は次のメッセージで渡されます。"""
 
