@@ -128,7 +128,7 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `ADMIN_EMAILS` | | 管理者メール（カンマ区切り）。`/api/demo/warm` はこのアドレスでログインしたユーザーだけ実行でき、1 回 20 課題・ヒント 1 段・同時 1 本に制限される | 不要 |
 | `AI_PROVIDER` | | `openai`（既定・推奨）/ `dify` / `anthropic` / `mock`。キー未設定なら自動で mock | 不要 |
 | `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・ADVISOR・作問をすべて OpenAI Responses API で行う） | 不要 |
-| `OPENAI_MODEL` | | 役割指定の無い呼び出しの予備（既定 `gpt-5.4-mini`）。**実際に使うモデルは `src/config/trivium.config.ts` の `MODELS`**（採点・寸評・会話 `gpt-5.4-mini`、作問 `gpt-5.5`）で決まる | 不要 |
+| `OPENAI_MODEL` | | 役割指定の無い呼び出しの予備（既定 `gpt-5.6-luna`）。**実際に使うモデルと推論の深さは `src/config/trivium.config.ts` の `MODELS`**（採点・寸評・会話・意図判定 `gpt-5.6-luna`・effort low、作問 `gpt-5.6-sol`・effort medium）で決まる | 不要 |
 | `OPENAI_TIMEOUT_MS` | | 既定 25000 | 不要 |
 | `DIFY_API_BASE` | | `https://api.dify.ai/v1`（`AI_PROVIDER=dify` のとき） | 不要 |
 | `DIFY_DOMAIN_API_KEY` | | `trivium-domain` workflow の API key（回答評価・寸評） | 不要 |
@@ -137,6 +137,9 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `DIFY_CHAT_API_KEY` | | `trivium-chat`（統合 Chatflow）のアプリ API key。**LINE の会話だけ Dify 経由**にするときに使う（`AI_PROVIDER` は `openai` のままでよい） | 不要 |
 | `LINE_CHAT_VIA_DIFY` | | `true` で LINE の会話を統合 Chatflow に流す（既定 `false`）。キーが無い・Dify が失敗したときは自動で OpenAI 直呼び出しにフォールバック | 不要 |
 | `DIFY_TIMEOUT_MS` | | 既定 20000（Web 検索を挟む作問は 10 秒以上かかるので 30000 推奨） | 不要 |
+| `DIFY_DATASET_API_KEY` | | 教材ナレッジ（Dify Dataset）の API キー。アプリの API キーとは別物。設定時だけナレッジ検索のスコアを教材推薦に加える（5.6 章） | 不要 |
+| `DIFY_MATERIALS_DATASET_ID` | | 教材を投入した Dataset の id（`scripts/dify/upload_materials.mts` が作成時に表示） | 不要 |
+| `DIFY_BASE_URL` | | Dify の API ベース（末尾に `/v1` を付けない。Dify Cloud なら `https://api.dify.ai`） | 不要 |
 | `TRIVIUM_AGENT_TOKEN` | | Dify の Chatflow（4 人格 + 教材おすすめ）が `GET /api/agent/context` で人格・能力値・出題中の課題を読むためのサーバ間トークン。`openssl rand -base64 32` で生成し、Dify 側の環境変数にも同じ値を入れる。未設定ならこの API は 503（アプリ本体は影響なし） | 不要 |
 | `CRON_TOKEN` | | デイリーミッションのリマインダー（`POST /api/cron/reminder`）の Bearer トークン。`openssl rand -base64 32` で生成し、**同じ値を GitHub の Secrets `CRON_TOKEN` にも入れる**（下の 11 章）。未設定ならこの API は 503（リマインダーが飛ばないだけ） | 不要 |
 | `LINE_CHANNEL_SECRET` | | LINE Messaging API のチャネルシークレット（署名検証に必須） | 不要 |
@@ -177,7 +180,7 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
 手順:
 
 1. Dify → **設定 → モデルプロバイダー** で **OpenAI** を有効化し API キーを登録（LLM ノードはすべて `langgenius/openai/openai`）
-2. **Studio → Import DSL file** で 4 本を順に取り込む。各 LLM ノードのモデル既定は `gpt-5.4-mini`（アプリ側の `OPENAI_MODEL` と同じ）。ワークスペースで選べなければ使えるモデルに差し替える
+2. **Studio → Import DSL file** で 4 本を順に取り込む。各 LLM ノードのモデル既定は `gpt-5.6-luna`（作問ノードだけ `gpt-5.6-sol`。アプリ側の `MODELS` と揃えてある）。ワークスペースで選べなければ使えるモデルに差し替える
 3. `trivium-generate` を開き、**環境変数 `OPENAI_API_KEY`（secret）** を実際のキーに差し替える（Web 検索の HTTP ノードが `Authorization: Bearer` に使う。DSL には `sk-REPLACE_ME` が入っている）
 4. `trivium-leader` の「現在日時」ノードは Dify 組み込みの `time` ツール（認証不要）。インポート時に警告が出たらノードを開いて保存し直す
 5. **`trivium-chat`（Chatflow）の設定** — この 3 つをやらないと会話が既定値で動く／教材が出ない:
@@ -362,12 +365,14 @@ Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock:
 4. LINE Official Account Manager（応答設定）で **応答メッセージ: OFF**、**Webhook: ON**（あいさつメッセージも OFF 推奨。follow 時は Webhook が歓迎文を返す）
 5. Rich Menu を作成（`NEXT_PUBLIC_APP_URL` を公開URLにしてから、ローカルの開発環境で実行）
    ```bash
-   NEXT_PUBLIC_APP_URL=https://<本番URL> npm run line:richmenu
-npx tsx scripts/line-howto-image.mts   # 使い方画像（public/line/howto.png）。友だち追加時と「使い方」ボタンで配信する  # ← ボタンのリンク先が焼き込まれるので、必ず本番 URL を渡す（.env の localhost のままだと Dashboard ボタンが localhost:3000 になる）
+   # ボタンのリンク先が焼き込まれるので、必ず本番 URL を渡す
+   # （.env の localhost のままだと Dashboard ボタンが localhost:3000 になる。スクリプトは localhost を渡されたら中断する）
+   APP_URL=https://<本番URL> NEXT_PUBLIC_APP_URL=https://<本番URL> npm run line:richmenu
    ```
    - 2行×3列: 上段 `READ | WRITE | LOGIC`（postback。LINE 上でその系統の選択式を 1 問）、下段 `使い方 | Dashboard | PROFILE`（使い方＝案内と `/guide` へのボタン、Dashboard＝メインサイトへ、PROFILE＝Flex カード）
    - 画像は `public/line/richmenu.png`（`npx tsx scripts/line-richmenu-image.ts` で再生成）。本番に反映するときは `APP_URL=<公開URL> NEXT_PUBLIC_APP_URL=<公開URL> npm run line:richmenu`（新しいメニューを作って既定にする。古いものは LINE API で削除）
-6. LINE と Google アカウントは「連携」で紐づく（`LineUser.userId`。ワンタイム URL・単回・15 分）。未連携でも会話と Web への誘導は動くが、**出題・記録・人格の記憶は連携が必要**
+6. 友だち追加時に配る**使い方画像**は `public/line/howto.png`（`npx tsx scripts/line-howto-image.mts` で再生成）。アプリが自分の公開 URL から配信するので、LINE 側の設定は不要
+7. LINE と Google アカウントは「連携」で紐づく（`LineUser.userId`。ワンタイム URL・単回・15 分）。未連携でも会話と Web への誘導は動くが、**出題・記録・人格の記憶は連携が必要**
 
 ### 6.1 ローカルで Webhook を検証する
 

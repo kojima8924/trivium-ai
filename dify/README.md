@@ -1,7 +1,7 @@
 # dify/ — Dify DSL（OpenAI 版・Workflow 3 本 + Chatflow 1 本）
 
 Trivium の AI レイヤーを Dify で動かすためのアプリ定義（DSL）。
-Dify Cloud / self-hosted の **Studio → Import DSL file** でそのまま取り込めます。LLM はすべて **OpenAI**（`langgenius/openai/openai`、既定モデル `gpt-5.4-mini`。アプリ側の直接呼び出しは `src/config/trivium.config.ts` の `MODELS` で役割ごとに決まる）。
+Dify Cloud / self-hosted の **Studio → Import DSL file** でそのまま取り込めます。LLM はすべて **OpenAI**（`langgenius/openai/openai`、既定モデル `gpt-5.6-luna`、作問ノードは `gpt-5.6-sol`。アプリ側の直接呼び出しは `src/config/trivium.config.ts` の `MODELS` で役割ごとに決まる）。
 
 | ファイル | アプリ名 | 種別 | 役割 | 対応する環境変数 |
 |---|---|---|---|---|
@@ -84,7 +84,7 @@ Chatflow（`trivium-chat.yml`）については別関数 `check_chat()` が検�
 
 ## インポート後に必ず手で行うこと
 
-1. **OpenAI プラグインとモデル** — ワークスペースに OpenAI プロバイダ（Marketplace の `langgenius/openai`）を入れて API キーを設定。各 LLM ノード（domain 2・leader 1・generate 2・chat 2＋分類 1）のモデルが選べる状態になっていることを確認（`gpt-5.4-mini` が無ければ使えるモデルに差し替え）
+1. **OpenAI プラグインとモデル** — ワークスペースに OpenAI プロバイダ（Marketplace の `langgenius/openai`）を入れて API キーを設定。各 LLM ノード（domain 2・leader 1・generate 2・chat 2＋分類 1）のモデルが選べる状態になっていることを確認（`gpt-5.6-luna` / `gpt-5.6-sol` が無ければ使えるモデルに差し替え）
 2. **`trivium-generate` の環境変数** — アプリの環境変数 `OPENAI_API_KEY`（secret）を実際のキーに差し替える。Web 検索の HTTP ノードがこれを `Authorization: Bearer` に使う（LLM ノードのキーとは別管理）
 3. **`trivium-leader` の time ツール** — 組み込みツール（`time` / `current_time`）なので認証は不要。インポート時に警告が出たらノードを一度開いて保存する
 4. **`trivium-chat` の設定（3 つ）**

@@ -1,7 +1,7 @@
 // LINE webhook の振り分け確認（開発用・dev サーバに署名付きで送る）。
 //   npx tsx --conditions=react-server scripts/dev/line-dispatch-check.ts
 // 架空の LINE ユーザーを Web の使い捨てユーザーに連携させ、次を確認する（実 LINE への送信は 401 になるだけで記録は残る）:
-//   1. 「論理パズルを出して」 → 会話ではなく作問（ChatTurn が増えず、GeneratedTask が増える）
+//   1. 「論理パズルを出して」 → 会話ではなく課題（ChatTurn が増えず、ストックから出題されるか作問される）
 //   2. 「READで1問」          → 出題（pendingTask.domain === READ）
 //   3. 「今日の学習」          → 出題（pendingTask が設定される）
 //   4. 「ロゴス、これ教えて」  → 会話（ChatTurn に CODE 宛ての発話が入る）

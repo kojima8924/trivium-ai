@@ -7,7 +7,7 @@
 - 対象レベル: 4〜7（1=誰でも、3=中学、5=高校標準、7=大学入試応用・社会人実務、9=専門家）
 - 無料: はい
 - 言語: 日本語
-- URL: https://gkz781swok1ivzu2.www.mext.go.jp/a_menu/shotou/new-cs/gengo/1322283.htm
+- URL: https://www.mext.go.jp/a_menu/shotou/new-cs/gengo/1322283.htm
 - タグ: 文部科学省、高校、言語活動、指導事例、論述
 ## 概要
 思考力・判断力・表現力を育てる言語活動について、教科横断の考え方と多数の授業事例を収録する。

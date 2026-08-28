@@ -29,14 +29,16 @@ READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教え�
 - **3 系統の課題** — **READ** 要旨・推論・批判的読解 / **WRITE** 構成・明確さ・根拠・推敲 / **LOGIC** 短い Python の読解と、手順・条件・推論のパズル（内部キーは `CODE`）。手書きの課題 **63 問**（単独 51 問 + 2〜3 系統にまたがる複合課題 12 問）に加えて、生成・検証済みのストック **246 問**（READ 70 / WRITE 70 / LOGIC 76 / 複合 30。問題タイプ 15 種＋複合）。難易度は系統ごとに **1（誰でも解ける）〜10（非常に難しい）**、各課題は難易度ベクトル `{ read, write, code }` を持つ
 - **一段ヒント** — 誤答すると AI が問い返し／ヒントを 1 つだけ。3 回まで。完成解は出さない（決定論採点が確定しているときは AI の判定を上書きする安全弁付き）
 - **到達レベルの三角形** — READ / WRITE / LOGIC の到達レベル（Lv.0〜10）と観点別の証拠バー、信頼度。再計算のたびにスナップショットを保存
+- **推移のグラフ** — Dashboard の「これまでの推移」で 3 系統のスコアの折れ線（`ProfileSnapshot` を日ごとに間引き）と、実績を獲得順に並べたタイムラインを表示。記録が 2 点に満たないうちは「まだ計測が足りません」と案内する
 - **三角グラフの SNS 共有** — Dashboard の「三角グラフを共有」で、能力プロフィール（三角形・Lv・XP・キャラ）を 1200×630 の画像にブラウザ側で描き、Web Share API で LINE / X 等へ直接共有（使えない環境では画像保存＋X / LINE の投稿リンク）
 - **XP・デイリーミッション・streak・ランク** — 課題 XP（難易度 × ヒント倍率）、3 系統を 1 日 1 問ずつ解くミッション、連続日数、Novice → Trivium Master のランク。Dashboard のカードと LINE の Flex カードで表示
+- **リマインダー（LINE 通知）** — `/settings` の「LINE の通知」で、まだ 3 問そろっていない日にリマインドする時刻（JST・30 分刻み。既定 20:00）と、達成時の総評を受け取るかを設定。GitHub Actions の cron が 30 分ごとに `POST /api/cron/reminder` を叩き、条件（連携済み・その時刻を過ぎた・今日まだ未達成・その日 1 通だけ）を満たす人にだけ push する
 - **4 人格の AI** — READ=ヨミ（黄泉の司書） / WRITE=フミ（赤ペン先輩） / LOGIC=ロゴス（論理の番人） / ADVISOR=ミチ（三叉路の案内人。既定はツンデレ）。ちびキャラは `public/characters/`。`/settings` で名前・口調（12 プリセット）・一人称・補足を変更でき、講評・寸評・LINE の会話に反映
 - **出題する問題タイプの設定** — `/settings` で系統ごとに問題タイプ（READ: 要旨把握／推論／批判的読解／語彙・表現／図表・データ読解、WRITE: 推敲／構成／意見文／要約／書き換え、LOGIC: Python 読解／Python バグ発見／論理パズル／数的推理／手順・アルゴリズム）をチェックボックスで外せる（「Python はいらない」など）。複合問題（2 系統以上）の可否も切替。Web・LINE の出題と AI 作問の両方に効く（`src/lib/task-types.ts`、保存先は `LeaderProfile.preferences`）
 - **系統ごとの観察メモと会話の記憶** — 各人格は担当系統の観察メモ（本人には見せない）を持ち、ADVISOR は 4 つのメモを読んで話す。LINE の会話は人格ごとに直近 10 往復を記憶。現在日時を知っていて、必要なときだけ Web 検索を使う
 - **AI 作問** — 学習ページや LINE で「論理パズルを 1 問」「短い読解を出して」と頼むと、その場で課題を生成（系統・形式・難易度は決定論で推定し、同じ 3 系統で評価）。LINE で「LOGICで難易度8」のように指定すると、その難易度（1〜10）の検証済みストックから即出題（±1 に未回答が無ければ自動で作問。「難易度8で作って」なら常に作問）し、以後の「次」「もう1問」も同じ難易度を保つ
-- **教材の推薦（ADVISOR と会話）** — 「おすすめの本は？」「LOGIC を伸ばす教材」と聞くと、到達レベル・弱い小分類・直近の失敗から、定番書・公式サイト・演習サイトのカタログ（`src/lib/materials/catalog.ts`、145 件。実在の定番書・公式サイト・演習サイト）と Dify ナレッジ検索（設定時）のスコアで候補を選び、案内役が理由つきで提案
-- **LINE 公式アカウント** — 「今日の学習」で選択式を Quick Reply 出題（「パス」で記録に残さず次へ、「ヒント」で担当キャラが一段だけ、出題中の質問は担当が課題の文脈で答える（答えは言わない）。Web で解いた問題は LINE 側の回答待ちも自動解除）、出題・寸評・会話は担当キャラのちびアイコン付き吹き出し（Flex）、自由文で作問、名前で呼ぶとその人格が応答、今日の 3 問を解き終えると総評と「今日の 1 冊」を push。署名検証付き Webhook・Rich Menu
+- **教材の推薦（ADVISOR と会話）** — 「おすすめの本は？」「LOGIC を伸ばす教材」と聞くと、到達レベル・弱い小分類・直近の失敗から、定番書・公式サイト・演習サイトのカタログ（`src/lib/materials/catalog.ts`、145 件。実在の定番書・公式サイト・演習サイト。URL は `scripts/dev/materials-url-check.mts` で全件検査できる）と Dify ナレッジ検索（設定時）のスコアで候補を選び、案内役が理由つきで提案
+- **LINE 公式アカウント** — 「今日の学習」で選択式を Quick Reply 出題（選択肢と並んで **💡 ヒント / パス / Webで解く** のボタン。「パス」は記録に残さず次へ、「ヒント」は担当キャラが一段だけ、出題中の質問は担当が課題の文脈で答える（答えは言わない）。Web で解いた問題は LINE 側の回答待ちも自動解除）、出題・寸評・会話は担当キャラのちびアイコン付き吹き出し（Flex）、自由文で作問、名前で呼ぶとその人格が応答、今日の 3 問を解き終えると総評と「今日の 1 冊」を push。署名検証付き Webhook・Rich Menu（上段 READ / WRITE / LOGIC = その場で 1 問、下段 使い方 / Dashboard / PROFILE）。友だち追加時はコンセプトの挨拶に続けて **使い方画像**（`public/line/howto.png`）を配信する
 - **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイム URL が届き、Google ログイン後に紐づく。以降 LINE の人格は実際の学習記録で答える（「連携解除」でいつでも解除）
 - **○ ✕ △ の明示** — 正解は ○、誤答→ヒントで再挑戦は △、ヒント切れ・ギブアップは ✕。Web の吹き出し・結果カードと LINE の返信で大きく表示
 - **実績 61 個** — 初回・連続日数・累計・系統別レベル・XP・ランク・ノーヒント・高難度・複合・時間帯など。解除時は Web の中央トースト（担当キャラの cheer 画像＋紙吹雪）と LINE の独立メッセージで目立たせる。Dashboard はカテゴリ・ティア別に未解除も薄く表示
@@ -100,8 +102,8 @@ LLM に任せるのは**解釈**だけです: 講評とヒントの選択、系�
 
 | provider | 説明 |
 |---|---|
-| `openai` | **既定**。OpenAI Responses API を server-side から直接呼ぶ（structured outputs で JSON 固定、system にポリシー 7 か条と人格）。役割ごとのモデルは `src/config/trivium.config.ts` の `MODELS`（採点・寸評・会話 `gpt-5.4-mini`、作問 `gpt-5.5`） |
-| `dify` | Dify Workflow 経由。`dify/*.yml`（3 本、LLM は OpenAI）をインポートすればそのまま動く |
+| `openai` | **既定**。OpenAI Responses API を server-side から直接呼ぶ（structured outputs で JSON 固定、system にポリシー 7 か条と人格）。役割ごとのモデルと推論の深さは `src/config/trivium.config.ts` の `MODELS`（採点・寸評・会話・意図判定 `gpt-5.6-luna` / effort low、作問 `gpt-5.6-sol` / effort medium） |
+| `dify` | Dify 経由。`dify/*.yml`（Workflow 3 本 + 統合 Chatflow `trivium-chat` 1 本、LLM は OpenAI）をインポートすればそのまま動く。`LINE_CHAT_VIA_DIFY=true` にすると **LINE の会話だけ** Chatflow 経由にでき、失敗時は OpenAI 直呼び出しへ自動フォールバック |
 | `anthropic` | Claude API（任意・非推奨。整理予定 [#7](https://github.com/kojima8924/trivium-ai/issues/7)） |
 | `mock` | ルールベース。キー不要。上のどれかが失敗したときも **自動でここにフォールバック** し、アプリは止まらない |
 
@@ -138,9 +140,14 @@ Google OAuth を用意しなくても、`DEMO_LOGIN_ENABLED=true` にすれば�
 npm run typecheck && npm run lint && npm test && npm run build
 npm run seed:demo -- --email you@example.com   # CLI から demo seed（--reset で入れ直し）
 npm run warm-cache -- --email you@example.com --concurrency 1   # 選択式の講評キャッシュを事前生成
-npm run line:richmenu                          # LINE Rich Menu 作成（APP_URL を公開 URL にして実行）
+npm run line:richmenu                          # LINE Rich Menu 作成・適用（APP_URL を公開 URL にして実行。localhost なら中断する）
 npm run preflight -- https://<公開URL>         # デプロイ先の健全性チェック（デモ直前に実行）
+
+npx tsx scripts/line-richmenu-image.ts         # リッチメニューの背景画像（2500×1686）を作り直す
+npx tsx scripts/line-howto-image.mts           # 友だち追加時に配る使い方画像 public/line/howto.png（1080×1440）
 ```
+
+画像は生成 AI ではなく SVG 合成（sharp）で作っています。日本語の文字が崩れないためです。
 
 > ローカルの `prisma dev`（PGlite）は並列アクセスに弱く、落ちることがあります（[#8](https://github.com/kojima8924/trivium-ai/issues/8)）。`warm-cache` は `--concurrency 1` で実行してください。開発用スクリプトの一覧は [`scripts/dev/README.md`](scripts/dev/README.md)。
 
@@ -163,6 +170,8 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `DIFY_CHAT_API_KEY` / `LINE_CHAT_VIA_DIFY` | **LINE の会話だけ**統合 Chatflow（`trivium-chat`）経由にする。`AI_PROVIDER` は `openai` のままでよく、評価・寸評・作問・意図判定は直呼び出しのまま。Dify が失敗したら自動で OpenAI にフォールバック |
 | `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` | 教材ナレッジ（Dify Dataset）。設定時だけナレッジ検索のスコアを教材推薦に加える。未設定ならアプリ内カタログのみ |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_TIMEOUT_MS` | Claude API（任意・非推奨） |
+| `TRIVIUM_AGENT_TOKEN` | Dify の Chatflow が `GET /api/agent/context` を読むためのサーバ間トークン（Dify 側の環境変数にも同じ値）。未設定ならこのエンドポイントだけ 503 |
+| `CRON_TOKEN` | `POST /api/cron/reminder` の Bearer トークン。GitHub の Secrets（`CRON_TOKEN`）にも同じ値を入れる。未設定ならリマインダーが飛ばないだけ |
 | `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API |
 
 ## 主なエンドポイント
@@ -176,6 +185,9 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 | `GET /api/profile` | Dashboard と同じプロフィール JSON（到達レベル・XP を含む） |
 | `POST /api/demo/seed` / `POST /api/demo/reset` / `POST /api/demo/warm` | デモ履歴の投入 / 初期状態に戻す（ボタンは確認ステップ付き） / 選択式講評のキャッシュ生成（warm は `ADMIN_EMAILS` の管理者のみ・上限付き） |
 | `GET` / `POST /api/settings/task-types` | 出題する問題タイプ・複合問題の設定（系統ごと。選択式が 0 になる設定は拒否） |
+| `GET` / `POST /api/settings/notifications` | LINE 通知の設定（リマインダー時刻・総評の ON/OFF） |
+| `POST /api/cron/reminder` | 未達成の人にリマインダーを push（Bearer `CRON_TOKEN`。GitHub Actions の cron が 30 分ごとに叩く。未設定なら 503） |
+| `GET /api/agent/context` | Dify の Chatflow が読む学習者コンテキスト（人格・到達レベル・弱点・XP・直近の課題と会話・出題中の課題。Bearer `TRIVIUM_AGENT_TOKEN`。答え・ヒント・解説は含めない） |
 | `GET /settings` | 4 人格の設定と出題する問題タイプ |
 | `GET /guide` | 使い方ガイド（ログイン不要） |
 | `POST /api/line/webhook` | LINE Webhook（署名検証） |
@@ -191,11 +203,11 @@ npm run preflight -- https://<公開URL>         # デプロイ先の健全性�
 
 ## 24 時間でどう作ったか
 
-- 2026-08-27 21:00 に空のリポジトリから開始。feature 単位のコミットは **75 本以上**（`git log --oneline | wc -l`）
+- 2026-08-27 21:00 に空のリポジトリから開始。feature 単位のコミットは **99 本**（`git log --oneline | wc -l`）
 - Claude Code を使い、土台（schema・採点・AI 抽象層・認証）を先に固めてから、UI / LINE / Dify / テスト / デプロイ / 問題コンテンツ / ゲーミフィケーション / 人格と記憶を**並列のサブエージェントと Codex CLI に分担**。ファイル所有を分けて衝突を避け、統合とレビューは 1 か所で行った。問題ストックの大量生成・検証はサブスクの Codex CLI に任せ、OpenAI API は本番の実行時だけに使う
 - 統合後に**多角レビュー**（正確性・セキュリティ・フレームワーク API・デプロイ・UX・ドキュメント）と敵対的検証を回し、実在した問題だけを修正 — 例: 全角入力で正解判定が落ちる、`/login?next=` のオープンリダイレクト、ヒント回数の自己申告による水増し、ヒント文に完成解が混ざっていた問題
-- テストは **175 件**（`node:test`。採点・XP・実績・意図判定・ストックの品質ゲート・教材推薦）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**し、main への push で GHCR にイメージを公開。Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）
-- 製品化に向けた課題は [Issues](https://github.com/kojima8924/trivium-ai/issues) に整理（時系列グラフ、LINE の三角形画像、評価軸の一般化、作問ナレッジの蓄積、出題スケジュール、答えやすさの設定 など）
+- テストは **218 件**（`node:test`。採点・XP・実績・意図判定・LINE の振り分け・ストックの品質ゲート・教材推薦・履歴・通知条件）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**し、main への push で GHCR にイメージを公開。Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）
+- 製品化に向けた課題は [Issues](https://github.com/kojima8924/trivium-ai/issues) に整理（LINE の三角形画像 [#2](https://github.com/kojima8924/trivium-ai/issues/2)、評価軸の一般化 [#3](https://github.com/kojima8924/trivium-ai/issues/3)、作問ナレッジの蓄積と RAG [#4](https://github.com/kojima8924/trivium-ai/issues/4)、出題スケジュール [#5](https://github.com/kojima8924/trivium-ai/issues/5)、答えやすさの設定 [#6](https://github.com/kojima8924/trivium-ai/issues/6)、複合課題の失敗帰属 [#9](https://github.com/kojima8924/trivium-ai/issues/9) など）。時系列グラフ [#1](https://github.com/kojima8924/trivium-ai/issues/1) は実装済み
 
 ## セキュリティ方針
 
