@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { buildAgentContext } from "@/lib/agent-context";
 import { env } from "@/lib/env";
 import { rateLimit } from "@/lib/http";
+import { PERSONA_DEFAULTS, TONE_PRESETS } from "@/config/trivium.config";
+import { AI_SYSTEM_POLICY } from "@/lib/ai/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,29 @@ function tokenMatches(given: string, expected: string): boolean {
   const a = createHash("sha256").update(given).digest();
   const b = createHash("sha256").update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/** 学習者が見つからないときの最小コンテキスト（Dify から呼ばれても止まらないように 200 で返す） */
+function notFoundContext(ref: string) {
+  return {
+    found: false,
+    learner: { ref, displayName: "あなた" },
+    personas: Object.fromEntries(
+      (["READ", "WRITE", "CODE", "LEADER"] as const).map((k) => [
+        k,
+        { name: PERSONA_DEFAULTS[k].name, tone: PERSONA_DEFAULTS[k].tone, toneDescription: TONE_PRESETS[PERSONA_DEFAULTS[k].tone as keyof typeof TONE_PRESETS] ?? "", firstPerson: PERSONA_DEFAULTS[k].firstPerson, extra: PERSONA_DEFAULTS[k].extra },
+      ]),
+    ),
+    profile: {},
+    recommendedDomain: null,
+    recommendedDifficulty: 2,
+    xp: { total: 0, rank: "", streak: 0, missionToday: false },
+    recentEvents: [],
+    currentTask: null,
+    recentChat: [],
+    materialsSeen: [],
+    policy: AI_SYSTEM_POLICY,
+  };
 }
 
 export async function GET(req: Request) {
@@ -36,7 +61,9 @@ export async function GET(req: Request) {
   if (limited) return limited;
 
   const context = await buildAgentContext(ref);
-  if (!context) return NextResponse.json({ error: "learner not found" }, { status: 404 });
+  // 見つからないときも 200 で返す（Dify の HTTP ノードは非 2xx でワークフローを止めるため）。
+  // found:false と既定の人格・ポリシーだけを返し、会話は文脈なしで続けられるようにする。
+  if (!context) return NextResponse.json(notFoundContext(ref), { status: 200 });
   console.log(`[agent] context ref=${ref.slice(-6)} ok`);
   return NextResponse.json(context);
 }

@@ -583,7 +583,7 @@ def app_shell(
 
 
 OPENAI_ENV_VAR = {
-    "id": "trivium-env-openai-api-key",
+    "id": "ded12a1a-edb6-533b-bd5d-25c09f077887",
     "name": "OPENAI_API_KEY",
     "value": "sk-REPLACE_ME",
     "value_type": "secret",
@@ -695,7 +695,7 @@ CHAT_VARS: list[tuple[str, str, str, bool]] = [
 
 CHAT_ENV_VARS = [
     {
-        "id": "trivium-env-api-base",
+        "id": "c0668b08-83e2-573f-8a4a-990535fdf160",
         "name": "TRIVIUM_API_BASE",
         "value": "https://trivium.153.126.213.251.sslip.io",
         "value_type": "string",
@@ -703,7 +703,7 @@ CHAT_ENV_VARS = [
         "description": "Trivium アプリの公開 URL。/api/agent/context を呼ぶ。インポート後に実際の URL へ差し替える",
     },
     {
-        "id": "trivium-env-agent-token",
+        "id": "ad8da0a8-e4a9-543b-a899-8b5056e3284c",
         "name": "TRIVIUM_AGENT_TOKEN",
         "value": "REPLACE_ME",
         "value_type": "secret",
@@ -714,7 +714,7 @@ CHAT_ENV_VARS = [
 
 CHAT_CONVERSATION_VARS = [
     {
-        "id": "trivium-conv-last-agent",
+        "id": "4bb43379-1c82-5519-8d36-7a2f67b9e40b",
         "name": "last_agent",
         "value_type": "string",
         "value": "",
