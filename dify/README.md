@@ -36,7 +36,7 @@ Start（learner_ref / addressed_agent / app_url）
 
 ## 教材ナレッジ（`materials/`）
 
-`materials/*.md` は `src/lib/materials/catalog.ts`（教材カタログ）から `scripts/dify/export_materials.mts` が書き出した Dify ナレッジ用の Markdown（1 教材 1 ファイル、生成物なので手で編集しない）。`scripts/dify/upload_materials.mts` が Dataset API で Dataset `trivium-materials` に投入する（手順は DEPLOY.md 5.6）。アプリ側は `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` があるときだけナレッジ検索を推薦スコアに加え、無ければカタログだけで動く。
+`materials/*.md` は `src/lib/materials/catalog.ts`（教材カタログ）から `scripts/dify/export_materials.mts` が書き出した Dify ナレッジ用の Markdown（1 教材 1 ファイル、生成物なので手で編集しない）。`scripts/dify/upload_materials.mts` が Dataset API で Dataset `trivium-materials` に投入する（手順は DEPLOY.md 5.6）。 無料プランはドキュメント数の上限と「1 ファイルずつ」の制約があるので、`--single`（`export_materials.mts --single` → `ALL.md` を 1 ドキュメントで投入。区切り線 `---` でチャンク分割）を使う。アプリ側は `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` があるときだけナレッジ検索を推薦スコアに加え、無ければカタログだけで動く。
 
 ## 生成と検証
 

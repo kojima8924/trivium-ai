@@ -326,6 +326,21 @@ Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作�
 4. Coolify の環境変数にも `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` を登録して Restart。未設定でもアプリ内カタログだけで推薦は動く（Dify は「ナレッジ検索のスコア」を加える追加情報源）
 5. カタログを更新したら 1 と 3 をやり直す（既存ドキュメントは教材 id で照合して上書き）
 
+**無料プラン（Sandbox）の場合**: ドキュメント数の上限が小さく、UI からは 1 ファイルずつしか上げられないので、**145 教材を 1 ファイルにまとめて 1 回で投入**します。
+
+```bash
+npx tsx scripts/dify/export_materials.mts --single   # dify/materials/ALL.md（145 教材・約 58,000 字）を書き出す
+npx tsx scripts/dify/upload_materials.mts --single   # API で 1 ドキュメントとして投入（区切り線でチャンク分割）
+```
+
+API を使わず UI から入れる場合は、ナレッジ作成 → `dify/materials/ALL.md` を 1 つだけアップロード →
+**チャンク設定を「カスタム」にして、区切り記号を `
+
+---
+
+`、最大チャンク長 1000** にしてください（1 教材 = 1 チャンクになります）。
+チャンク内に `- id: <教材 id>` が入っているので、アプリ側はセグメント本文から教材を特定できます（ドキュメント名には依存しません）。
+
 ### 5.7 動作確認
 
 Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock: ...` が出ていれば Dify 側の設定（変数名・key・出力形式・モデル）を見直してください。`/api/health` の `ai.lastUsed` が `dify` なら直近の呼び出しが Dify で成功しています。`ai.lastError` に直近の失敗理由（鍵は伏字）が出ます。

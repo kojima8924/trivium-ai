@@ -1,7 +1,11 @@
 // 教材カタログを Dify のナレッジ（Dataset）に投入する。
 //
 //   npx tsx scripts/dify/upload_materials.mts --dry-run   # 送る内容を表示するだけ
-//   npx tsx scripts/dify/upload_materials.mts             # 投入（DIFY_DATASET_API_KEY が必要）
+//   npx tsx scripts/dify/upload_materials.mts             # 1 教材 = 1 ドキュメントで投入（有料プラン向け）
+//   npx tsx scripts/dify/upload_materials.mts --single    # 全教材を 1 ドキュメントにまとめて投入（無料プラン向け）
+//
+// 無料プラン（Sandbox）はドキュメント数の上限が小さく、UI からは 1 ファイルずつしか上げられないので --single を使う。
+// --single では区切り線 `---` でセグメント分割する custom ルールを送るので、検索結果は教材単位で返る（1 教材 = 1 チャンク）。
 //
 // 環境変数（.env）:
 //   DIFY_DATASET_API_KEY        ナレッジ API キー（Dify → ナレッジ → API → API キー）。アプリの API キーとは別物
@@ -15,6 +19,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MATERIALS } from "../../src/lib/materials/catalog";
 import { materialToMarkdown } from "./materials_markdown";
+
+/** --single のときのドキュメント名（更新時に照合する） */
+const SINGLE_DOC_NAME = "trivium-materials-all";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../..");
@@ -70,11 +77,31 @@ async function listDocs(datasetId: string): Promise<Doc[]> {
   return docs;
 }
 
+/** 教材ごとに 1 チャンクになるよう、区切り線でセグメント分割する（--single 用） */
+const SINGLE_RULE = {
+  indexing_technique: "high_quality",
+  process_rule: {
+    mode: "custom",
+    rules: {
+      pre_processing_rules: [
+        { id: "remove_extra_spaces", enabled: true },
+        { id: "remove_urls_emails", enabled: false },
+      ],
+      segmentation: { separator: "\n\n---\n\n", max_tokens: 1000 },
+    },
+  },
+} as const;
+
 async function main() {
-  const docsBody = MATERIALS.map((m) => ({ name: m.id, text: materialToMarkdown(m) }));
+  const single = process.argv.includes("--single");
+  const docsBody = single
+    ? [{ name: SINGLE_DOC_NAME, text: MATERIALS.map(materialToMarkdown).join("\n\n---\n\n") + "\n" }]
+    : MATERIALS.map((m) => ({ name: m.id, text: materialToMarkdown(m) }));
   if (dryRun) {
-    console.log(`[dry-run] ${docsBody.length} documents -> ${BASE} (dataset: ${env.DIFY_MATERIALS_DATASET_ID ?? `(create "${DATASET_NAME}")`})`);
-    console.log(docsBody[0].text);
+    console.log(
+      `[dry-run] ${single ? `1 document（${MATERIALS.length} 教材をまとめる。${docsBody[0].text.length} 文字）` : `${docsBody.length} documents`} -> ${BASE} (dataset: ${env.DIFY_MATERIALS_DATASET_ID ?? `(create "${DATASET_NAME}")`})`,
+    );
+    console.log(docsBody[0].text.slice(0, 1200));
     return;
   }
   if (!KEY) throw new Error("DIFY_DATASET_API_KEY が未設定です（ナレッジの API キー。アプリの API キーとは別）");
@@ -83,7 +110,7 @@ async function main() {
   let created = 0;
   let updated = 0;
   for (const d of docsBody) {
-    const rule = { indexing_technique: "high_quality", process_rule: { mode: "automatic" } };
+    const rule = single ? SINGLE_RULE : { indexing_technique: "high_quality", process_rule: { mode: "automatic" } };
     const id = existing.get(d.name);
     if (id) {
       await api("POST", `/datasets/${datasetId}/documents/${id}/update-by-text`, { name: d.name, text: d.text, ...rule });
@@ -95,7 +122,7 @@ async function main() {
     // レート制限に配慮して少し待つ
     await new Promise((r) => setTimeout(r, 300));
   }
-  console.log(`done: dataset=${datasetId} created=${created} updated=${updated}`);
+  console.log(`done: dataset=${datasetId} created=${created} updated=${updated}${single ? `（1 ドキュメントに ${MATERIALS.length} 教材）` : ""}`);
 }
 
 await main();
