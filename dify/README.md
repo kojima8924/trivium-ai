@@ -22,7 +22,13 @@ Start（learner_ref / addressed_agent / app_url）
       ├ true  → assigner（会話変数 last_agent ← その担当）───────────────┐
       └ false → question-classifier（意味で相談先を判定）                  │
                   ├ READ / WRITE / LOGIC / その他 → assigner（担当を決める）┤→ LLM（4 人格の応答）→ Answer
-                  └ 教材・本・サイト → knowledge-retrieval（trivium-materials）→ LLM（ミチ）→ Answer
+                  └ 教材・本・サイト → knowledge-retrieval（trivium-materials）
+                        → code（リンク整備: 公式 URL / Amazon 検索 URL）
+                        → LLM（ミチ・下書き。最終行に NEED_SEARCH: true|false）
+                        → IF/ELSE（NEED_SEARCH: true を含む？）
+                            ├ true  → code（検索リクエスト）→ HTTP（OpenAI Responses + web_search・ドメイン限定）
+                            │          → code（本文と出典を抽出）→ LLM（仕上げ）→ Answer
+                            └ false → code（NEED_SEARCH の行を削る）→ Answer
 ```
 
 設計上のポイント:
@@ -33,6 +39,10 @@ Start（learner_ref / addressed_agent / app_url）
 - **教材おすすめはミチ（ADVISOR）の発言** — ナレッジ検索の候補だけから 3 件選び、理由を能力値に結びつけます。候補外の書名・URL を作らない制約を System に明記
 - **担当の決め方** — アプリが名前呼びかけ（「ロゴス、〜」）を検出したら `addressed_agent` で固定。無ければ question-classifier が**明示語ではなく意味で**振り分けます
 - API が落ちても code ノードが既定値（ポリシー 7 か条のコピー・「未計測」）を返すので、会話は止まりません
+- **教材のリンク（検索なしでも付く）** — `code_links` がナレッジのチャンクから id / 形式 / 公式 URL / レベル帯を抜き、書籍には `https://www.amazon.co.jp/s?k=<タイトル>` の**検索 URL**を作ります。商品ページ（ASIN 付き URL）は実在しないものを作らないため生成しません
+- **Web 検索は「必要なときだけ」** — 下書き LLM が最終行に `NEED_SEARCH: true|false` を出し、IF/ELSE がそれで分岐します。true になるのは (1) 価格・購入方法・入手方法・最新情報・在庫・具体的な URL を聞かれた (2) 挙げた書籍に公式 URL が無い (3) 候補が乏しい、のいずれか。false のときは `code_strip` が印の行を落としてそのまま返すので、余計な API 呼び出しもレイテンシも増えません
+- **検索の安全弁** — 検索は OpenAI Responses API の `web_search` を `allowed_domains`（Amazon・honto・主要出版社・python.org / atcoder.jp / paiza.jp / nhk.or.jp / aozora.gr.jp）に限定し、`code_search_out` が本文と出典 URL だけを取り出します。非 200・パース失敗時は空文字を返し、仕上げ LLM が「検索できなかった」旨を添えて下書きだけで答えます（会話は止まりません）
+- **リクエスト本文は code ノードが組み立てる** — 外部 API を叩く HTTP ノードの body は必ず code ノードの出力を参照します（プロンプトから直接 JSON を書かせない）。`validate.py` がこれを検査します
 
 ## 教材ナレッジ（`materials/`）
 
@@ -81,11 +91,13 @@ Chatflow（`trivium-chat.yml`）については別関数 `check_chat()` が検�
    - 環境変数 `TRIVIUM_API_BASE`（例 `https://trivium.153.126.213.251.sslip.io`）と `TRIVIUM_AGENT_TOKEN`（secret。アプリの `AGENT_API_TOKEN` と同じ値）を差し替える
    - **ナレッジ検索ノード「教材ナレッジ検索」を開き、ナレッジ `trivium-materials` を選ぶ**（`dataset_ids` は環境ごとに違うので DSL には入れていない。未選択だと教材ブランチが候補ゼロになる）
    - 「相談先の判定」（question-classifier）のモデルを確認する
+   - 環境変数 `OPENAI_API_KEY`（secret）を入れる。**教材ブランチの Web 検索**（`http_search`）が `Authorization: Bearer` に使う。空のままでも会話・教材おすすめは動くが、`NEED_SEARCH: true` になったときの検索が失敗し、「検索できなかった」旨を添えた回答になる
 5. **公開と API key 発行** — 各アプリを Publish → API Access → API Key。`DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_CHAT_API_KEY` として Coolify（本番）や `.env`（ローカル）に設定し、`AI_PROVIDER=dify` にする
 6. **動作確認** — Workflow は Dify の「実行」で `workflow=domain` / `interpret` / `leader` / `generate`（`use_search` 両方）を試し、`result` にコードフェンス無しの JSON が入ることを見る。Chatflow は「デバッグとプレビュー」で `learner_ref` に実在の userId を入れ、
    - 「僕の能力は？」→ ミチが集計値を踏まえて答える
    - `addressed_agent=CODE` で「さっきの問題のヒント」→ ロゴスが答えを言わずに一段だけ導く
-   - 「読解を伸ばす本は？」→ ナレッジの候補から 3 件（候補外の書名が出ないこと）
+   - 「読解を伸ばす本は？」→ ナレッジの候補から 3 件（候補外の書名が出ないこと・書籍に Amazon 検索リンクが付くこと・`NEED_SEARCH` の行が表に出ないこと）
+   - 「その本いくらで買える？」→ `NEED_SEARCH: true` 側に入り、`http_search` が動いて価格・入手方法と出典 URL が添えられること（`OPENAI_API_KEY` 未設定なら「検索できなかった」旨になる）
    アプリ側は `/api/health` の `ai.lastUsed` が `dify` なら成功
 
 ## 設計メモ

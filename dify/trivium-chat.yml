@@ -3,7 +3,7 @@ version: 0.6.0
 kind: app
 app:
   name: trivium-chat
-  description: 'Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。'
+  description: 'Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。教材は公式 URL と Amazon 検索リンクを添え、価格・入手方法が要るときだけ Web 検索で補う。'
   mode: advanced-chat
   icon: 🔺
   icon_type: emoji
@@ -42,6 +42,14 @@ workflow:
     - env
     - TRIVIUM_AGENT_TOKEN
     description: アプリ側の AGENT_API_TOKEN と同じ値。/api/agent/context の Bearer トークン
+  - id: ea7ea690-c6a6-5835-9d54-72b036c7c1c6
+    name: OPENAI_API_KEY
+    value: ''
+    value_type: secret
+    selector:
+    - env
+    - OPENAI_API_KEY
+    description: 教材の追加情報を Web 検索するときに使う OpenAI API キー（Responses API + web_search）。インポート後に入れる
   rag_pipeline_variables: []
   features:
     file_upload:
@@ -613,6 +621,118 @@ workflow:
       selected: false
       sourcePosition: right
       targetPosition: left
+    - id: code_links
+      type: custom
+      data:
+        title: 教材リンクの整備
+        type: code
+        desc: 候補の一覧と、公式 URL / Amazon の検索 URL を作る（商品ページは推測しない）
+        selected: false
+        code_language: python3
+        code: |
+          import json
+          import re
+
+          # URL エンコード（Dify のサンドボックスは urllib を使えないことがあるので自前で持つ）
+          SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+
+
+          def _quote(text):
+              out = []
+              for ch in text:
+                  if ch in SAFE:
+                      out.append(ch)
+                      continue
+                  for b in ch.encode("utf-8"):
+                      out.append("%{0:02X}".format(b))
+              return "".join(out)
+
+
+          def _chunks(value):
+              # knowledge-retrieval の result（配列）から本文テキストを取り出す。型が違っても落ちない。
+              items = value
+              if isinstance(items, str):
+                  try:
+                      items = json.loads(items)
+                  except Exception:
+                      return [items] if items else []
+              if isinstance(items, dict):
+                  items = [items]
+              if not isinstance(items, list):
+                  return []
+              out = []
+              for it in items:
+                  if isinstance(it, str):
+                      out.append(it)
+                  elif isinstance(it, dict):
+                      out.append(str(it.get("content") or it.get("text") or ""))
+              return [t for t in out if t]
+
+
+          def _field(text, label):
+              m = re.search(r"^- " + label + r":\s*(.+)$", text, re.M)
+              return m.group(1).strip() if m else ""
+
+
+          def main(knowledge_result, materials_seen) -> dict:
+              seen = set(x.strip() for x in str(materials_seen or "").split(",") if x.strip())
+              cands = []
+              links = []
+              for text in _chunks(knowledge_result)[:8]:
+                  m = re.search(r"^#\s*(.+)$", text, re.M)
+                  title = m.group(1).strip() if m else ""
+                  if not title:
+                      continue
+                  mid = _field(text, "id")
+                  kind = _field(text, "形式")
+                  url = _field(text, "URL")
+                  level = _field(text, "対象レベル").split("（")[0].strip()
+                  free = _field(text, "無料")
+                  author = _field(text, "著者・運営")
+                  sm = re.search(r"^## 概要\s*\n(.+)$", text, re.M)
+                  summary = sm.group(1).strip()[:60] if sm else ""
+                  mark = "（提案済み）" if mid and mid in seen else ""
+                  cands.append("- {0}{1} | id: {2} | {3} | {4} | レベル {5} | 無料: {6} | {7}".format(
+                      title, mark, mid or "-", kind or "-", author or "-", level or "-", free or "-", summary
+                  ))
+                  is_book = str(mid or "").startswith("book-") or "書籍" in kind
+                  buy = "https://www.amazon.co.jp/s?k=" + _quote(title) if is_book else ""
+                  links.append("- {0}（{1}）公式: {2} / 購入: {3}".format(title, kind or "-", url or "なし", buy or "なし"))
+              return {
+                  "candidates_text": "\n".join(cands) if cands else "(候補なし)",
+                  "links_text": "\n".join(links) if links else "(リンクなし)",
+                  "count": len(cands),
+              }
+        variables:
+        - variable: knowledge_result
+          value_selector:
+          - knowledge
+          - result
+        - variable: materials_seen
+          value_selector:
+          - code_context
+          - materials_seen
+        outputs:
+          candidates_text:
+            type: string
+            children: null
+          links_text:
+            type: string
+            children: null
+          count:
+            type: number
+            children: null
+      position:
+        x: 1940
+        y: 760
+      positionAbsolute:
+        x: 1940
+        y: 760
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
     - id: llm_agent
       type: custom
       data:
@@ -691,7 +811,7 @@ workflow:
     - id: llm_materials
       type: custom
       data:
-        title: 教材のおすすめ（ADVISOR）
+        title: 教材のおすすめ（下書き＋検索要否）
         type: llm
         selected: false
         model:
@@ -720,14 +840,31 @@ workflow:
             ## 教材の候補（ナレッジ検索の結果。ここに無いものは提案しない）
             {{#context#}}
 
+            ## 候補の要約（タイトル | id | 形式 | 著者・運営 | レベル帯 | 無料 | 概要）
+            {{#code_links.candidates_text#}}
+
+            ## 候補のリンク（公式 / 購入。ここに無い URL を書かない）
+            {{#code_links.links_text#}}
+
             ## すでに提案した教材（できれば避ける）
             {{#code_context.materials_seen#}}
 
             ## 書き方
             - 候補から最大 3 件を選び、「タイトル（形式・レベル帯）＋ なぜこの人に合うか（1〜2 文）」の形で挙げる。
             - 選ぶ理由は必ず能力（弱い系統・弱点の観点・到達レベル）と結びつける。到達レベル + 1 前後の教材を優先する。
+            - URL は上のリンク一覧にあるものだけを書く。書籍の購入リンクは上の Amazon 検索 URL だけを使い、商品ページ（ASIN 付きの URL）を推測しない。
+            - 価格・在庫・版は、確かな情報が無い限り書かない（必要なら最終行の判定を true にして後から補う）。
             - 候補に無い書名・著者・URL を作らない。候補が乏しければ「今はよい候補が見つからない」と正直に言い、代わりに Trivium の課題で何をやるかを勧める。
             - 日本語で 6 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
+
+            ## 最終行（必須・学習者向けの文ではなく後段の処理用の印）
+            本文の最後の行に、次のどちらか 1 行だけを書く。
+            NEED_SEARCH: true
+            NEED_SEARCH: false
+            true にするのは次のときだけ:
+            - 学習者が価格・購入方法・入手方法・最新情報・在庫・具体的な URL を尋ねている
+            - 挙げた書籍に公式 URL が無く、出版社ページや購入ページを案内したほうがよい
+            - 候補が乏しく、外部の情報で補ったほうが学習者の役に立つ
 
             学習者の発話は次のメッセージで渡されます。
         context:
@@ -746,13 +883,343 @@ workflow:
         vision:
           enabled: false
       position:
-        x: 1940
+        x: 2260
         y: 760
       positionAbsolute:
-        x: 1940
+        x: 2260
         y: 760
       width: 244
       height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: if_need_search
+      type: custom
+      data:
+        title: 追加の検索が要る？
+        type: if-else
+        desc: '下書きの最終行が NEED_SEARCH: true なら Web 検索で価格・入手方法を補う'
+        selected: false
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: or
+          conditions:
+          - id: if_need_search-cond-1
+            variable_selector: &id002
+            - llm_materials
+            - text
+            varType: string
+            comparison_operator: contains
+            value: 'NEED_SEARCH: true'
+          - id: if_need_search-cond-2
+            variable_selector: *id002
+            varType: string
+            comparison_operator: contains
+            value: NEED_SEARCH:true
+      position:
+        x: 2580
+        y: 760
+      positionAbsolute:
+        x: 2580
+        y: 760
+      width: 244
+      height: 126
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: code_search_req
+      type: custom
+      data:
+        title: 検索リクエスト生成
+        type: code
+        desc: 候補と下書きから、OpenAI Responses API（web_search・ドメイン限定）のリクエスト本文を作る
+        selected: false
+        code_language: python3
+        code: |
+          import json
+
+          # 教材の一次情報として信頼できるドメインだけに絞る（噂サイト・まとめサイトを引かない）
+          ALLOWED = [
+              "amazon.co.jp", "honto.jp",
+              "oreilly.co.jp", "shoeisha.co.jp", "gihyo.jp", "kodansha.co.jp", "chikumashobo.co.jp",
+              "iwanami.co.jp", "nikkeibp.co.jp", "impress.co.jp", "sbcr.jp", "kadokawa.co.jp",
+              "diamond.co.jp", "toyokeizai.net",
+              "python.org", "atcoder.jp", "paiza.jp", "nhk.or.jp", "aozora.gr.jp",
+          ]
+
+          INSTRUCTIONS = (
+              "あなたは日本語の学習教材の調査担当です。指定された教材について、公式ページ・出版社ページ・Amazon の該当ページを Web 検索し、"
+              "価格や入手方法など、ページに書かれている事実だけを日本語で短くまとめてください。"
+              "推測・概算・在庫の断定はしないでください。教材ごとに 1〜2 文にまとめ、参照した URL を必ず併記してください。"
+              "見つからない教材については「該当情報は見つかりませんでした」とだけ書いてください。"
+          )
+
+
+          def main(answer_text, links_text) -> dict:
+              draft = str(answer_text or "").strip()[:800]
+              links = str(links_text or "").strip()[:1200]
+              query = (
+                  "次の教材について、価格・入手方法・公式ページを調べてください。\n"
+                  "## 候補（この一覧にある教材だけを調べる）\n" + links + "\n"
+                  "## 学習者への提案（この中で挙げた教材を優先）\n" + draft
+              )
+              body = {
+                  "model": "gpt-5.4",
+                  "instructions": INSTRUCTIONS,
+                  "input": query,
+                  "tools": [{"type": "web_search", "filters": {"allowed_domains": ALLOWED}}],
+                  "tool_choice": "auto",
+              }
+              return {"body": json.dumps(body, ensure_ascii=False), "query": query[:2000]}
+        variables:
+        - variable: answer_text
+          value_selector:
+          - llm_materials
+          - text
+        - variable: links_text
+          value_selector:
+          - code_links
+          - links_text
+        outputs:
+          body:
+            type: string
+            children: null
+          query:
+            type: string
+            children: null
+      position:
+        x: 2900
+        y: 660
+      positionAbsolute:
+        x: 2900
+        y: 660
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: http_search
+      type: custom
+      data:
+        title: 教材の追加情報を検索
+        type: http-request
+        desc: OpenAI Responses API を web_search ツール付きで呼ぶ。API キーは環境変数 OPENAI_API_KEY（secret）
+        selected: false
+        method: post
+        url: https://api.openai.com/v1/responses
+        authorization:
+          type: no-auth
+          config: null
+        headers: |-
+          Authorization: Bearer {{#env.OPENAI_API_KEY#}}
+          Content-Type: application/json
+        params: ''
+        body:
+          type: json
+          data:
+          - id: http_search-body
+            key: ''
+            type: text
+            value: '{{#code_search_req.body#}}'
+        variables: []
+        ssl_verify: true
+        timeout:
+          connect: 10
+          read: 90
+          write: 30
+          max_connect_timeout: 300
+          max_read_timeout: 600
+          max_write_timeout: 600
+        retry_config:
+          retry_enabled: true
+          max_retries: 2
+          retry_interval: 1000
+      position:
+        x: 3220
+        y: 660
+      positionAbsolute:
+        x: 3220
+        y: 660
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: code_search_out
+      type: custom
+      data:
+        title: 検索結果の抽出
+        type: code
+        desc: 本文と出典 URL を取り出す。失敗・非 200 なら空文字（会話は止めない）
+        selected: false
+        code_language: python3
+        code: |
+          import json
+
+
+          def main(body, status_code) -> dict:
+              try:
+                  data = json.loads(body) if isinstance(body, str) else (body or {})
+                  if not isinstance(data, dict):
+                      data = {}
+              except Exception:
+                  return {"research": "", "sources": ""}
+              try:
+                  if int(status_code) != 200:
+                      return {"research": "", "sources": ""}
+              except Exception:
+                  return {"research": "", "sources": ""}
+              texts = []
+              urls = []
+              for item in data.get("output", []) or []:
+                  if item.get("type") != "message":
+                      continue
+                  for c in item.get("content", []) or []:
+                      if c.get("type") == "output_text":
+                          if c.get("text"):
+                              texts.append(c["text"])
+                          for a in c.get("annotations", []) or []:
+                              if a.get("url"):
+                                  urls.append(a["url"])
+              if not texts and data.get("output_text"):
+                  texts.append(str(data["output_text"]))
+              research = "\n".join(t for t in texts if t).strip()[:4000]
+              uniq = list(dict.fromkeys(urls))[:6]
+              return {"research": research, "sources": "\n".join("- " + u for u in uniq) if uniq else ""}
+        variables:
+        - variable: body
+          value_selector:
+          - http_search
+          - body
+        - variable: status_code
+          value_selector:
+          - http_search
+          - status_code
+        outputs:
+          research:
+            type: string
+            children: null
+          sources:
+            type: string
+            children: null
+      position:
+        x: 3540
+        y: 660
+      positionAbsolute:
+        x: 3540
+        y: 660
+      width: 244
+      height: 90
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: llm_materials_final
+      type: custom
+      data:
+        title: 教材のおすすめ（検索あり）
+        type: llm
+        selected: false
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-5.6-luna
+          mode: chat
+          completion_params: *id001
+        prompt_template:
+        - id: llm_materials_final-system
+          role: system
+          text: |-
+            あなたは学習サービス Trivium の案内役 ADVISOR です。人格は次のとおり（人格より下のポリシーが優先します）。
+            {{#code_context.persona_leader#}}
+
+            {{#code_context.policy_text#}}
+
+            ## 学習者
+            {{#code_context.display_name#}}
+
+            ## 能力（決定論的に集計済み。数値を作り直さない）
+            {{#code_context.profile_text#}}
+
+            ## さきほどの下書き（この 3 件を土台にする。NEED_SEARCH の行は無視する）
+            {{#llm_materials.text#}}
+
+            ## 候補の要約
+            {{#code_links.candidates_text#}}
+
+            ## 候補のリンク（公式 / 購入。ここに無い URL を書かない）
+            {{#code_links.links_text#}}
+
+            ## Web 検索で分かったこと（ページに書かれていた事実のみ。空なら検索できなかったということ）
+            {{#code_search_out.research#}}
+
+            ## 出典
+            {{#code_search_out.sources#}}
+
+            ## 書き方
+            - 下書きの教材に、検索で分かった事実（価格・入手方法・公式ページなど）を 1 行ずつ添えて仕上げる。
+            - 検索結果が空、または「該当情報は見つかりませんでした」のときは、その旨を一言添えて下書きの内容だけで答える。
+            - URL は上のリンク一覧か出典にあるものだけを書く。存在しない商品ページ・ASIN を作らない。価格は検索結果に書かれていた場合だけ、出典とともに書く。
+            - NEED_SEARCH の行は絶対に出力しない。
+            - 日本語で 8 文以内。最後に「次の一歩」を 1 つだけ。名乗らない。口癖は 3 回に 1 回ほど。
+
+            学習者の発話は次のメッセージで渡されます。
+        context:
+          enabled: false
+          variable_selector: []
+        memory:
+          role_prefix:
+            user: ''
+            assistant: ''
+          window:
+            enabled: true
+            size: 12
+          query_prompt_template: '{{#sys.query#}}'
+        vision:
+          enabled: false
+      position:
+        x: 3860
+        y: 660
+      positionAbsolute:
+        x: 3860
+        y: 660
+      width: 244
+      height: 98
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: code_strip
+      type: custom
+      data:
+        title: 印を削る
+        type: code
+        desc: 下書きから NEED_SEARCH の行を落として、そのまま返答にする
+        selected: false
+        code_language: python3
+        code: |
+          import re
+
+
+          def main(draft) -> dict:
+              t = str(draft or "")
+              t = re.sub(r"(?im)^\s*NEED_SEARCH\s*[:：]?\s*(true|false)\s*$", "", t)
+              return {"text": t.strip()}
+        variables:
+        - variable: draft
+          value_selector:
+          - llm_materials
+          - text
+        outputs:
+          text:
+            type: string
+            children: null
+      position:
+        x: 2900
+        y: 900
+      positionAbsolute:
+        x: 2900
+        y: 900
+      width: 244
+      height: 90
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -781,14 +1248,33 @@ workflow:
         title: 返答（教材）
         type: answer
         selected: false
-        answer: '{{#llm_materials.text#}}'
+        answer: '{{#code_strip.text#}}'
         variables: []
       position:
-        x: 2260
-        y: 760
+        x: 3220
+        y: 900
       positionAbsolute:
-        x: 2260
-        y: 760
+        x: 3220
+        y: 900
+      width: 244
+      height: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+    - id: answer_materials_search
+      type: custom
+      data:
+        title: 返答（教材・検索あり）
+        type: answer
+        selected: false
+        answer: '{{#llm_materials_final.text#}}'
+        variables: []
+      position:
+        x: 4180
+        y: 660
+      positionAbsolute:
+        x: 4180
+        y: 660
       width: 244
       height: 104
       selected: false
@@ -971,25 +1457,113 @@ workflow:
         targetType: answer
         isInIteration: false
       zIndex: 0
-    - id: knowledge-source-llm_materials
+    - id: knowledge-source-code_links
       type: custom
       source: knowledge
+      sourceHandle: source
+      target: code_links
+      targetHandle: target
+      data:
+        sourceType: knowledge-retrieval
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: code_links-source-llm_materials
+      type: custom
+      source: code_links
       sourceHandle: source
       target: llm_materials
       targetHandle: target
       data:
-        sourceType: knowledge-retrieval
+        sourceType: code
         targetType: llm
         isInIteration: false
       zIndex: 0
-    - id: llm_materials-source-answer_materials
+    - id: llm_materials-source-if_need_search
       type: custom
       source: llm_materials
+      sourceHandle: source
+      target: if_need_search
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: if-else
+        isInIteration: false
+      zIndex: 0
+    - id: if_need_search-true-code_search_req
+      type: custom
+      source: if_need_search
+      sourceHandle: 'true'
+      target: code_search_req
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: code_search_req-source-http_search
+      type: custom
+      source: code_search_req
+      sourceHandle: source
+      target: http_search
+      targetHandle: target
+      data:
+        sourceType: code
+        targetType: http-request
+        isInIteration: false
+      zIndex: 0
+    - id: http_search-source-code_search_out
+      type: custom
+      source: http_search
+      sourceHandle: source
+      target: code_search_out
+      targetHandle: target
+      data:
+        sourceType: http-request
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: code_search_out-source-llm_materials_final
+      type: custom
+      source: code_search_out
+      sourceHandle: source
+      target: llm_materials_final
+      targetHandle: target
+      data:
+        sourceType: code
+        targetType: llm
+        isInIteration: false
+      zIndex: 0
+    - id: llm_materials_final-source-answer_materials_search
+      type: custom
+      source: llm_materials_final
+      sourceHandle: source
+      target: answer_materials_search
+      targetHandle: target
+      data:
+        sourceType: llm
+        targetType: answer
+        isInIteration: false
+      zIndex: 0
+    - id: if_need_search-false-code_strip
+      type: custom
+      source: if_need_search
+      sourceHandle: 'false'
+      target: code_strip
+      targetHandle: target
+      data:
+        sourceType: if-else
+        targetType: code
+        isInIteration: false
+      zIndex: 0
+    - id: code_strip-source-answer_materials
+      type: custom
+      source: code_strip
       sourceHandle: source
       target: answer_materials
       targetHandle: target
       data:
-        sourceType: llm
+        sourceType: code
         targetType: answer
         isInIteration: false
       zIndex: 0

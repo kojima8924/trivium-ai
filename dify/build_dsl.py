@@ -1344,15 +1344,74 @@ def build_chat() -> dict[str, Any]:
     assign_code = assigner_node("assign_code", "担当 = CODE", constant="CODE", x=1620, y=500)
     assign_leader = assigner_node("assign_leader", "担当 = LEADER", constant="LEADER", x=1620, y=600)
     knowledge = knowledge_node("knowledge", "教材ナレッジ検索", x=1620, y=760)
+    code_links = code_node(
+        "code_links",
+        "教材リンクの整備",
+        "候補の一覧と、公式 URL / Amazon の検索 URL を作る（商品ページは推測しない）",
+        CODE_CHAT_LINKS,
+        [("knowledge_result", ["knowledge", "result"]), ("materials_seen", ["code_context", "materials_seen"])],
+        CHAT_LINKS_OUTPUTS,
+        x=1940,
+        y=760,
+    )
     llm_agent = chat_llm_node("llm_agent", "4 人格の応答", SYSTEM_CHAT_AGENT, x=1940, y=380)
-    llm_materials = chat_llm_node("llm_materials", "教材のおすすめ（ADVISOR）", SYSTEM_CHAT_MATERIALS, x=1940, y=760, context_selector=["knowledge", "result"])
+    llm_materials = chat_llm_node(
+        "llm_materials", "教材のおすすめ（下書き＋検索要否）", SYSTEM_CHAT_MATERIALS, x=2260, y=760, context_selector=["knowledge", "result"]
+    )
+    need_search = ifelse_node(
+        "if_need_search",
+        "追加の検索が要る？",
+        ["llm_materials", "text"],
+        "NEED_SEARCH: true",
+        x=2580,
+        y=760,
+        operator="contains",
+        desc="下書きの最終行が NEED_SEARCH: true なら Web 検索で価格・入手方法を補う",
+        values=["NEED_SEARCH: true", "NEED_SEARCH:true"],
+        logical_operator="or",
+    )
+    code_search_req = code_node(
+        "code_search_req",
+        "検索リクエスト生成",
+        "候補と下書きから、OpenAI Responses API（web_search・ドメイン限定）のリクエスト本文を作る",
+        CODE_CHAT_SEARCH_REQ,
+        [("answer_text", ["llm_materials", "text"]), ("links_text", ["code_links", "links_text"])],
+        CHAT_SEARCH_REQ_OUTPUTS,
+        x=2900,
+        y=660,
+    )
+    http_search = http_node("http_search", "教材の追加情報を検索", "https://api.openai.com/v1/responses", "{{#code_search_req.body#}}", x=3220, y=660)
+    code_search_out = code_node(
+        "code_search_out",
+        "検索結果の抽出",
+        "本文と出典 URL を取り出す。失敗・非 200 なら空文字（会話は止めない）",
+        CODE_CHAT_SEARCH_OUT,
+        [("body", ["http_search", "body"]), ("status_code", ["http_search", "status_code"])],
+        CHAT_SEARCH_OUT_OUTPUTS,
+        x=3540,
+        y=660,
+    )
+    llm_materials_final = chat_llm_node("llm_materials_final", "教材のおすすめ（検索あり）", SYSTEM_CHAT_MATERIALS_FINAL, x=3860, y=660)
+    code_strip = code_node(
+        "code_strip",
+        "印を削る",
+        "下書きから NEED_SEARCH の行を落として、そのまま返答にする",
+        CODE_CHAT_STRIP,
+        [("draft", ["llm_materials", "text"])],
+        CHAT_STRIP_OUTPUTS,
+        x=2900,
+        y=900,
+    )
     answer_agent = answer_node("answer_agent", "返答", "{{#llm_agent.text#}}", x=2260, y=380)
-    answer_materials = answer_node("answer_materials", "返答（教材）", "{{#llm_materials.text#}}", x=2260, y=760)
+    answer_materials = answer_node("answer_materials", "返答（教材）", "{{#code_strip.text#}}", x=3220, y=900)
+    answer_materials_search = answer_node("answer_materials_search", "返答（教材・検索あり）", "{{#llm_materials_final.text#}}", x=4180, y=660)
 
     nodes = [
         start, http, code, branch, classifier,
         assign_direct, assign_read, assign_write, assign_code, assign_leader,
-        knowledge, llm_agent, llm_materials, answer_agent, answer_materials,
+        knowledge, code_links, llm_agent, llm_materials, need_search,
+        code_search_req, http_search, code_search_out, llm_materials_final, code_strip,
+        answer_agent, answer_materials, answer_materials_search,
     ]
     edges = [
         edge("start", "http_context", "start", "http-request"),
@@ -1371,12 +1430,23 @@ def build_chat() -> dict[str, Any]:
         edge("assign_code", "llm_agent", "assigner", "llm"),
         edge("assign_leader", "llm_agent", "assigner", "llm"),
         edge("llm_agent", "answer_agent", "llm", "answer"),
-        edge("knowledge", "llm_materials", "knowledge-retrieval", "llm"),
-        edge("llm_materials", "answer_materials", "llm", "answer"),
+        # 教材ブランチ: ナレッジ → リンク整備 → 下書き（検索要否の判定つき）
+        edge("knowledge", "code_links", "knowledge-retrieval", "code"),
+        edge("code_links", "llm_materials", "code", "llm"),
+        edge("llm_materials", "if_need_search", "llm", "if-else"),
+        # 検索あり: Responses API（web_search）で価格・入手方法を補ってから仕上げる
+        edge("if_need_search", "code_search_req", "if-else", "code", source_handle="true"),
+        edge("code_search_req", "http_search", "code", "http-request"),
+        edge("http_search", "code_search_out", "http-request", "code"),
+        edge("code_search_out", "llm_materials_final", "code", "llm"),
+        edge("llm_materials_final", "answer_materials_search", "llm", "answer"),
+        # 検索なし: 判定の印だけ落として返す
+        edge("if_need_search", "code_strip", "if-else", "code", source_handle="false"),
+        edge("code_strip", "answer_materials", "code", "answer"),
     ]
     return app_shell(
         "trivium-chat",
-        "Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。",
+        "Trivium: 4 人格（ヨミ/フミ/ロゴス/ミチ）と教材おすすめを 1 本で扱う Chatflow。能力値は /api/agent/context から取得し、会話履歴は担当をまたいで共有する。教材は公式 URL と Amazon 検索リンクを添え、価格・入手方法が要るときだけ Web 検索で補う。",
         "🔺",
         nodes,
         edges,

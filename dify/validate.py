@@ -20,8 +20,11 @@ Chatflow（trivium-chat）の検査項目:
   C. question-classifier の class id と、そこから出る edge の sourceHandle が 1 対 1 で対応する
   D. すべての {{#env.XXX#}} が environment_variables に、{{#conversation.x#}} が conversation_variables に宣言済み
   E. code ノードの main 引数が variables と一致し、下流が参照する出力がすべて outputs にある
-  F. http-request の URL が {{#env.TRIVIUM_API_BASE#}} を使い、Bearer トークンが env 参照である
+  F. http-request の URL が {{#env.XXX#}} か許可した外部 API（OpenAI Responses）で、Bearer トークンが env 参照である
   G. プロンプト・条件の {{#node.var#}} 参照がすべて実在（{{#sys.x#}} は許可リストで検査）
+  H. Answer は LLM の text か code ノードの出力を参照する（後処理を挟む分岐があるため）
+  I. NEED_SEARCH の印で分岐する if-else は、その印を出力するよう指示された LLM を参照している
+  J. 外部 API を叩く http-request は、body を code ノードが組み立てている（プロンプト直書きを防ぐ）
 """
 from __future__ import annotations
 
@@ -45,6 +48,9 @@ REF_RE = re.compile(r"\{\{#([\w-]+)\.([\w-]+)#\}\}")
 ENV_REF_RE = re.compile(r"\{\{#env\.([\w-]+)#\}\}")
 
 OPENAI_PROVIDER = "langgenius/openai/openai"
+
+# http-request が env 参照なしで叩いてよい外部 API（Web 検索に使う）
+EXTERNAL_APIS = {"https://api.openai.com/v1/responses"}
 
 
 def inputs_from_ts() -> dict[str, set[str]]:
@@ -268,8 +274,9 @@ def check_chat(path: str, expected_start_vars: set[str]) -> list[str]:
     if start_vars != expected_start_vars:
         errors.append(f"Start 変数が想定と違う: {sorted(start_vars)} != {sorted(expected_start_vars)}")
 
-    # B. Answer ノード
+    # B/H. Answer ノード（LLM の text か、後処理の code ノードの出力を参照する）
     llm_ids = {n["id"] for n in by_type.get("llm", [])}
+    code_ids = {n["id"] for n in by_type.get("code", [])}
     answers = by_type.get("answer", [])
     if not answers:
         errors.append("Answer ノードが無い")
@@ -278,8 +285,14 @@ def check_chat(path: str, expected_start_vars: set[str]) -> list[str]:
         if not refs:
             errors.append(f"Answer {a['id']} が変数を参照していない")
         for node_id, var in refs:
-            if node_id not in llm_ids or var != "text":
-                errors.append(f"Answer {a['id']} が LLM の text を参照していない: {node_id}.{var}")
+            if node_id in llm_ids:
+                if var != "text":
+                    errors.append(f"Answer {a['id']} が LLM の text 以外を参照: {node_id}.{var}")
+            elif node_id in code_ids:
+                if var not in nodes[node_id]["data"].get("outputs", {}):
+                    errors.append(f"Answer {a['id']} が code の未定義出力を参照: {node_id}.{var}")
+            else:
+                errors.append(f"Answer {a['id']} が LLM / code 以外を参照している: {node_id}.{var}")
 
     # 参照チェックの共通処理
     def check_ref(where: str, node_id: str, var: str) -> None:
@@ -377,10 +390,20 @@ def check_chat(path: str, expected_start_vars: set[str]) -> list[str]:
         for name in ENV_REF_RE.findall(joined):
             if name not in declared_env:
                 errors.append(f"http {n['id']} が未宣言の環境変数 {name} を参照")
-        if "{{#env.TRIVIUM_API_BASE#}}" not in n["data"].get("url", ""):
-            errors.append(f"http {n['id']} の URL が {{{{#env.TRIVIUM_API_BASE#}}}} を使っていない（環境ごとに差し替えられない）")
+        url = n["data"].get("url", "")
+        if "{{#env." not in url and url not in EXTERNAL_APIS:
+            errors.append(f"http {n['id']} の URL が env 参照でも許可した外部 API でもない: {url}")
         if "Bearer {{#env." not in n["data"].get("headers", ""):
             errors.append(f"http {n['id']} の Authorization が env のトークンを使っていない")
+        # J. 外部 API はリクエスト本文を code ノードが組み立てる（プロンプト直書き・改ざんを防ぐ）
+        if url in EXTERNAL_APIS:
+            body_refs = [
+                (nid, var)
+                for d in n["data"].get("body", {}).get("data", [])
+                for nid, var in REF_RE.findall(d.get("value", ""))
+            ]
+            if not body_refs or any(nid not in code_ids for nid, _ in body_refs):
+                errors.append(f"http {n['id']} の body が code ノードの出力ではない（外部 API は code で組み立てる）")
 
     # E. code ノード（main 引数 == variables、下流の参照が outputs に存在）
     for n in by_type.get("code", []):
@@ -417,6 +440,12 @@ def check_chat(path: str, expected_start_vars: set[str]) -> list[str]:
             for cond in c["conditions"]:
                 sel = cond["variable_selector"]
                 check_ref(f"if-else {n['id']}", sel[0], sel[1])
+                # I. 印（NEED_SEARCH）で分岐するなら、参照先の LLM がその印を出すよう指示されていること
+                val = str(cond.get("value") or "")
+                if val.upper().startswith("NEED_SEARCH") and sel[0] in llm_ids:
+                    system = "".join(p["text"] for p in nodes[sel[0]]["data"]["prompt_template"])
+                    if "NEED_SEARCH" not in system:
+                        errors.append(f"if-else {n['id']} は NEED_SEARCH で分岐するが、{sel[0]} の指示に NEED_SEARCH が無い")
     for n in by_type.get("assigner", []):
         for item in n["data"].get("items", []):
             sel = item.get("variable_selector") or []
