@@ -4,7 +4,8 @@
 //   npx tsx scripts/stock/gen_stock.mts --domain code,mix     # 一部だけ
 //   npx tsx scripts/stock/gen_stock.mts --emit-only           # 生成せず out/*.json から .generated.ts を書き出す
 //
-// 生成: OpenAI Responses API（gpt-5.5）。問題タイプは src/lib/task-types.ts のキーと一致させる。
+// 生成: 既定はサブスクの Codex CLI（`codex exec --output-schema`。API 課金なし）。`STOCK_BACKEND=openai` で OpenAI Responses API。
+//       問題タイプは src/lib/task-types.ts のキーと一致させる。
 // 検証（合格したものだけ採用）:
 //   - 構造: 4 択・重複なし・answer_index 0..3・hints 3 段・explanation あり・バッククォート無し
 //   - python / debug: ローカルの python で実際に実行（python は正解の選択肢と照合。別の選択肢が一致すれば index を修正）
@@ -15,8 +16,9 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SUBSKILLS } from "../../src/lib/domain";
@@ -30,7 +32,10 @@ const STOCK_DIR = path.join(ROOT, "src/lib/tasks/stock");
 const GEN_MODEL = "gpt-5.5";
 const SOLVER_MODEL = "gpt-5.5";
 const REVIEW_MODEL = "gpt-5.4-mini";
-const CONCURRENCY = 8;
+/** codex = サブスクの Codex CLI（既定）/ openai = API（残高に注意） */
+const BACKEND = (process.env.STOCK_BACKEND ?? "codex") as "codex" | "openai";
+const CODEX_MODEL = process.env.CODEX_MODEL ?? "";
+const CONCURRENCY = BACKEND === "codex" ? 4 : 8;
 const MAX_ATTEMPTS = 3;
 
 type Domain = "READ" | "WRITE" | "CODE" | "MIX";
@@ -142,10 +147,10 @@ function difficultyGuide(domain: Domain, key: string, d: number): string {
 }
 
 // ---- OpenAI ----
-const envText = readFileSync(path.join(ROOT, ".env"), "utf8");
+const envText = existsSync(path.join(ROOT, ".env")) ? readFileSync(path.join(ROOT, ".env"), "utf8") : "";
 const apiKey = envText.split(/\r?\n/).find((l) => l.startsWith("OPENAI_API_KEY="))?.slice("OPENAI_API_KEY=".length).trim().replace(/^"|"$/g, "");
-if (!apiKey) throw new Error("OPENAI_API_KEY not found in .env");
-const client = new OpenAI({ apiKey });
+if (BACKEND === "openai" && !apiKey) throw new Error("OPENAI_API_KEY not found in .env");
+const client = apiKey ? new OpenAI({ apiKey }) : null;
 
 const genSchema = z.object({
   title: z.string(),
@@ -168,6 +173,8 @@ const solveSchema = z.object({
   difficulty_rating: z.number().int(),
   ambiguous: z.boolean(),
   hints_leak_answer: z.boolean(),
+  /** 紙と鉛筆で 10 分以内に解けるか（総当たり・プログラム前提の計算問題は false） */
+  hand_solvable: z.boolean(),
   note: z.string(),
 });
 const reviewSchema = z.object({ score: z.number().int(), issues: z.string() });
@@ -187,7 +194,7 @@ const GEN_ROLE = [
   "- 改行は実際の改行で書く（文字列として \\n と書かない）。マークダウンの装飾・コードフェンス・バッククォート（`）を使わない。",
   "- Python の出力予測問題: passage はコードのみ（説明文を混ぜない）。標準ライブラリのみ、input()・乱数・時刻・ファイル・ネットワークを使わない。必ず print で決定的な出力を出す。正解の選択肢は print の出力そのまま（Python の表記: 文字列はシングルクォート、複数行は改行で区切る）。コードを一行ずつ実行して確かめてから答えを決める。",
   "- Python バグ発見問題: passage は『期待どおり動かないコード』のみ。prompt に期待する出力（または動作）と実際の出力を明記し、原因の行（行番号と内容）または正しい修正を 4 択で選ばせる。修正が一意に決まるバグにする。",
-  "- 論理パズル・数的推理・手順問題: プログラムコードを使わない。条件から一意に答えが決まることを確認する。",
+  "- 論理パズル・数的推理・手順問題: プログラムコードを使わない。条件から一意に答えが決まることを確認する。**紙と鉛筆で 10 分以内に解ける**規模にする（数千件の総当たりや巨大な数の剰余計算は不可。難しさは推論の段数で作る）。",
   "- 複合問題（READ+LOGIC など）: 本文の読み取りと論理的判断の両方が必要な設計にする（どちらか片方だけでは解けない）。",
   "- skill_tags は allowed_skill_tags から 1〜2 個。",
 ].join("\n");
@@ -197,6 +204,7 @@ const SOLVER_ROLE = [
   "- 根拠を一つずつ確かめ、複数の選択肢が正しく読める／どれも正しくない場合は ambiguous=true にして note に理由を書く。",
   "- difficulty_rating は 1（小学校中学年でも解ける）〜10（専門家でも慎重な検証が要る）で、この課題の難しさを評価する。",
   "- hints（段階ヒント）を読み、答えの値・正解の選択肢がそのまま書かれていれば hints_leak_answer=true。",
+  "- hand_solvable: 紙と鉛筆で 10 分以内に解けるなら true。数千件の総当たり・大きな数の剰余の周期計算・プログラムを書かないと現実的でない問題は false。",
   "- confidence は 0〜1。",
 ].join("\n");
 
@@ -210,7 +218,73 @@ function fmt(tag: string, v: unknown): string {
   return `<${tag}>\n${typeof v === "string" ? v : JSON.stringify(v, null, 2)}\n</${tag}>`;
 }
 
+let codexSeq = 0;
+/**
+ * Codex CLI（サブスク）で構造化出力を得る。`codex exec --output-schema` の最終メッセージを JSON として読む。
+ * stdin を閉じないとハングするので必ず ignore。読み取り専用サンドボックス・一時ディレクトリで実行。
+ */
+async function codexParse<T extends z.ZodTypeAny>(instructions: string, input: string, schema: T, name: string, effort: "low" | "medium" | "high"): Promise<z.infer<T>> {
+  const dir = path.join(tmpdir(), "trivium-codex");
+  mkdirSync(dir, { recursive: true });
+  const id = `${process.pid}-${Date.now()}-${codexSeq++}`;
+  const schemaFile = path.join(dir, `${id}.schema.json`);
+  const outFile = path.join(dir, `${id}.out.json`);
+  const jsonSchema = zodTextFormat(schema, name).schema;
+  writeFileSync(schemaFile, JSON.stringify(jsonSchema));
+  const prompt = `${instructions}\n\n以下の入力に対して、指定の JSON スキーマに従う JSON だけを最終回答として返す（説明文は不要）。\n\n${input}`;
+  const args = [
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "-s",
+    "read-only",
+    "-C",
+    dir,
+    "--output-schema",
+    schemaFile,
+    "-o",
+    outFile,
+    "-c",
+    `model_reasoning_effort="${effort}"`,
+    ...(CODEX_MODEL ? ["-m", CODEX_MODEL] : []),
+    "-",
+  ];
+  // プロンプトは引数ではなく stdin で渡す（Windows の shell 経由だと <tag> がリダイレクト扱いになり本文が消える）
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("codex", args, { stdio: ["pipe", "ignore", "pipe"], shell: process.platform === "win32" });
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(prompt);
+    let err = "";
+    child.stderr.on("data", (d) => (err += String(d)));
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("codex timeout"));
+    }, 240_000);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`codex exit ${code}: ${err.slice(-200)}`));
+    });
+  });
+  let raw = "";
+  try {
+    raw = readFileSync(outFile, "utf8");
+  } finally {
+    for (const f of [schemaFile, outFile]) if (existsSync(f)) unlinkSync(f);
+  }
+  const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const parsed = schema.safeParse(JSON.parse(text));
+  if (!parsed.success) throw new Error(`codex output does not match schema: ${parsed.error.issues[0]?.message ?? "?"}`);
+  return parsed.data as z.infer<T>;
+}
+
 async function parse<T extends z.ZodTypeAny>(model: string, instructions: string, input: string, schema: T, name: string, effort: "low" | "medium" | "high", maxTokens: number): Promise<z.infer<T>> {
+  if (BACKEND === "codex") return codexParse(instructions, input, schema, name, effort);
+  if (!client) throw new Error("OPENAI_API_KEY not found");
   const res = await client.responses.parse({
     model,
     instructions,
@@ -359,6 +433,11 @@ async function verify(s: Slot, g0: Gen): Promise<Verified> {
     4000,
   );
   if (sol.hints_leak_answer) return { ok: false, reason: "hints leak answer" };
+  if (!sol.hand_solvable) return { ok: false, reason: `not hand-solvable: ${sol.note.slice(0, 80)}` };
+  // 数的推理・パズルで「1〜10000」のような大きな範囲の数え上げは機械的に弾く
+  if (["math", "puzzle", "algorithm", "read_code"].includes(s.spec.key) && /([1-9]\d{3,}|[1-9]\d{2,}\s*(まで|個|通り|人|回))/.test(g.passage + g.prompt) && /(何個|いくつ|何通り|数えよ|個数)/.test(g.prompt)) {
+    return { ok: false, reason: "large-range counting problem" };
+  }
   if (sol.ambiguous) return { ok: false, reason: `ambiguous: ${sol.note.slice(0, 80)}` };
   if (sol.answer_index !== g.answer_index) return { ok: false, reason: `solver disagrees (${sol.answer_index} vs ${g.answer_index}): ${sol.note.slice(0, 80)}` };
   // 難易度: LOGIC は評価との差が大きいものを弾く（8 以上は許容幅を広げる）。READ / WRITE / MIX は「明らかに難しすぎ」だけ弾く
@@ -520,10 +599,61 @@ async function runDomain(domain: Domain): Promise<void> {
   console.log(`[${domain}] emitted ${n} tasks. unfilled slots: ${rejected.length}${rejected.length ? " -> " + rejected.join(", ") : ""}`);
 }
 
+/**
+ * --recheck: 既存のチェックポイントを現在の検証基準で再判定し、落ちたものを外す（その後の通常実行で作り直す）。
+ * 対象は --types で絞れる（既定: math,puzzle,algorithm,read_code）。生成はしないので Codex/API の消費は検証分だけ。
+ */
+async function recheckDomain(domain: Domain, types: string[]): Promise<void> {
+  const cp = loadCheckpoint(domain);
+  const keys = Object.keys(cp).filter((k) => types.includes(k.split(":")[1]));
+  console.log(`[${domain}] recheck ${keys.length} tasks (${types.join(",")})`);
+  let cursor = 0;
+  const dropped: string[] = [];
+  const worker = async () => {
+    while (cursor < keys.length) {
+      const k = keys[cursor++];
+      const t = cp[k];
+      const [, key, dStr, nStr] = k.split(":");
+      const spec = PLAN[domain].find((x) => x.key === key);
+      if (!spec) continue;
+      const slot: Slot = { domain, spec, difficulty: Number(dStr), n: Number(nStr) };
+      const gen: Gen = {
+        title: t.title,
+        passage: t.passage ?? "",
+        prompt: t.prompt,
+        choices: t.choices ?? [],
+        answer_index: Number(t.answerKey?.[0] ?? 0),
+        rubric_criteria: t.rubric?.criteria ?? [],
+        must_include: t.rubric?.mustInclude ?? [],
+        model_answer: t.rubric?.sampleAnswer ?? "",
+        hints: t.hints,
+        explanation: t.explanation,
+        skill_tags: t.skillTags,
+      };
+      try {
+        const v = await verify(slot, gen);
+        if (!v.ok) {
+          console.log(`  [drop] ${k} (${t.id}): ${v.reason}`);
+          dropped.push(k);
+        }
+      } catch (err) {
+        console.log(`  [error] ${k}: ${(err as Error).message.slice(0, 120)}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  for (const k of dropped) delete cp[k];
+  saveCheckpoint(domain, cp);
+  console.log(`[${domain}] recheck done: dropped ${dropped.length}`);
+}
+
 const args = process.argv.slice(2);
 const domainArg = args.includes("--domain") ? args[args.indexOf("--domain") + 1] : "read,write,code,mix";
 const domains = domainArg.split(",").map((d) => d.trim().toUpperCase()) as Domain[];
-if (args.includes("--emit-only")) {
+if (args.includes("--recheck")) {
+  const types = (args.includes("--types") ? args[args.indexOf("--types") + 1] : "math,puzzle,algorithm,read_code").split(",");
+  for (const d of domains) await recheckDomain(d, types);
+} else if (args.includes("--emit-only")) {
   for (const d of domains) console.log(`[${d}] emitted ${emit(d, loadCheckpoint(d))} tasks`);
 } else {
   for (const d of domains) await runDomain(d);

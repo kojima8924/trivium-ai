@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { learningAI, type ChatTurnInput } from "@/lib/ai";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";
 import { getAllMemories, getMemory } from "@/lib/memory";
+import { resolveTask } from "@/lib/learn/service";
 import { agentReply } from "./flex";
 import { loadPersonas, personaPrompts, type AgentKey } from "@/lib/persona";
 import { getDashboardData } from "@/lib/profile";
@@ -50,8 +51,49 @@ async function loadHistory(userId: string, agent: AgentKey): Promise<ChatTurnInp
  * 人格と 1 往復する。発話→返答の順に ChatTurn へ保存。
  * LLM が失敗したときは LearningAIService が Mock に落とすので、ここでは投げない。
  */
+/**
+ * 4 人格で共有する文脈（人格をまたいでも会話が通じるように）:
+ *   - 他の担当との直近 6 発話（名前つき）
+ *   - 直近 3 件の決着した課題（題名・結果・ヒント回数）と、最新 1 件の解説
+ */
+async function loadSharedContext(userId: string, agent: AgentKey): Promise<string> {
+  const names = await loadPersonas(userId);
+  const [others, events] = await Promise.all([
+    prisma.chatTurn.findMany({
+      where: { userId, agent: { not: agent } },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { agent: true, role: true, text: true },
+    }),
+    prisma.learningEvent.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { taskId: true, domain: true, success: true, hintCount: true, createdAt: true },
+    }),
+  ]);
+  const lines: string[] = [];
+  if (others.length) {
+    lines.push("直近の他の担当との会話（古い順）:");
+    for (const t of others.reverse()) {
+      const who = t.role === "user" ? "learner" : names[t.agent as AgentKey]?.name ?? t.agent;
+      lines.push(`- ${who}: ${t.text.slice(0, 160)}`);
+    }
+  }
+  if (events.length) {
+    lines.push("直近に決着した課題（新しい順）:");
+    for (const [i, e] of events.entries()) {
+      const task = await resolveTask(userId, e.taskId);
+      const label = task ? `${DOMAIN_META[task.domain].label}「${task.title}」（難易度 ${task.difficulty}）` : e.taskId;
+      lines.push(`- ${label}: ${e.success ? "正解" : "未達"}（ヒント ${e.hintCount} 回）`);
+      if (i === 0 && task) lines.push(`  解説: ${task.explanation.slice(0, 300)}`);
+    }
+  }
+  return lines.join("\n").slice(0, 2500);
+}
+
 export async function chatWithAgent(userId: string, agent: AgentKey, userText: string, extra: { currentTask?: string } = {}): Promise<ChatResult> {
-  const [personas, history] = await Promise.all([personaPrompts(userId), loadHistory(userId, agent)]);
+  const [personas, history, sharedContext] = await Promise.all([personaPrompts(userId), loadHistory(userId, agent), loadSharedContext(userId, agent).catch(() => "")]);
   const memoryNotes =
     agent === "LEADER"
       ? await getAllMemories(userId).then((m) =>
@@ -73,6 +115,7 @@ export async function chatWithAgent(userId: string, agent: AgentKey, userText: s
     profileSummary,
     allowSearch: EXTERNAL.webSearchAllowed.chat,
     ...(extra.currentTask ? { currentTask: extra.currentTask } : {}),
+    ...(sharedContext ? { sharedContext } : {}),
   });
   const text = out.text.trim().slice(0, 1500);
   await prisma.chatTurn.create({ data: { userId, agent, role: "assistant", text } });

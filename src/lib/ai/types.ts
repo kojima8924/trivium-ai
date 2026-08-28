@@ -178,6 +178,8 @@ export type ChatInput = {
   allowSearch: boolean;
   /** いま LINE で出題中の課題（本文・設問・選択肢）。あれば「答えを言わずに一段だけ導く」会話にする */
   currentTask?: string;
+  /** 4 人格で共有する文脈: 他の担当との直近のやり取り、直近に決着した課題（結果・解説）。会話が人格をまたいでも通じるように */
+  sharedContext?: string;
 };
 
 export type ChatOutput = {

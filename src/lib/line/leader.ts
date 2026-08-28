@@ -187,7 +187,7 @@ export function classifyIntent(raw: string): Intent {
   if (/(write|ライト|書(く|き)|作文|文章)/i.test(lower)) return { kind: "domain", domain: "WRITE" };
   if (/(logic|ロジック|論理|code|コード|プログラ|python|パイソン|バグ)/i.test(lower)) return { kind: "domain", domain: "CODE" };
   if (/(履歴|きろく|記録|ログ|これまで)/.test(text)) return { kind: "history" };
-  if (/(プロフィール|profile|能力|レーダー|得意|苦手|分析)/i.test(lower)) return { kind: "profile" };
+  if (/(プロフィール|profile|能力|実力|レベル(は|を)|レーダー|得意|苦手|分析|三角)/i.test(lower)) return { kind: "profile" };
   const min = text.match(/(\d+)\s*分/);
   if (min) return { kind: "short_time", minutes: Number(min[1]) };
   if (/(少しだけ|ちょっとだけ|軽く|さくっと|サクッと|短い|短め|すきま|隙間)/.test(text)) return { kind: "short_time", minutes: null };

@@ -340,3 +340,7 @@ test("「ヒント」「わからない」は hint 意図（出題中なら担�
   assert.notEqual(classifyIntent("難しめで").kind, "hint");
   assert.notEqual(classifyIntent("ヒントの出し方を教えて").kind, "hint");
 });
+
+test("「僕の能力は？」「今の実力は」はプロフィール", () => {
+  for (const t of ["僕の能力は？", "今の実力は", "私の三角形を見せて"]) assert.equal(classifyIntent(t).kind, "profile", t);
+});
