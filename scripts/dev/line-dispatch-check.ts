@@ -4,7 +4,7 @@
 //   1. 「論理パズルを出して」 → 会話ではなく作問（ChatTurn が増えず、GeneratedTask が増える）
 //   2. 「READで1問」          → 出題（pendingTask.domain === READ）
 //   3. 「今日の学習」          → 出題（pendingTask が設定される）
-//   4. 「ケイ、これ教えて」    → 会話（ChatTurn に CODE 宛ての発話が入る）
+//   4. 「ロゴス、これ教えて」  → 会話（ChatTurn に CODE 宛ての発話が入る）
 //   5. 古い出題への回答 postback → 拒否（LearningEvent が増えない）
 // 最後にテスト行を削除する。デモ用アカウントには触らない。
 import "dotenv/config";
@@ -77,7 +77,7 @@ async function main() {
 
   // 4. 呼びかけ → 会話
   before = await count();
-  console.log("4. 「ケイ、これ教えて」 →", await send(text("ケイ、これ教えて")));
+  console.log("4. 「ロゴス、これ教えて」 →", await send(text("ロゴス、これ教えて")));
   await sleep(12_000);
   after = await count();
   const lastTurn = await prisma.chatTurn.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });

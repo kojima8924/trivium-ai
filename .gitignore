@@ -47,3 +47,4 @@ next-env.d.ts
 /src/generated/
 .scratch/
 scripts/stock/out/
+scripts/dify/out/

@@ -1,6 +1,6 @@
 // 「今日の3問」完了通知。JST の今日、READ / WRITE / LOGIC(CODE) の3領域すべてに記録が付いた瞬間に、
-// LINE 連携済みなら Leader の総評と今日の変化を push する（1日1回。DailyDigest で冪等）。
-// Web / LINE どちらの回答でも呼ばれる想定（service.finalize の末尾から）。
+// LINE 連携済みなら ADVISOR（ミチ）の総評と今日の変化、今日の 1 冊（教材カタログ）を push する（1日1回。DailyDigest で冪等）。
+// Web の submit ルートと LINE の after() が finalize のあとに await で呼ぶ（finalize 内では起動しない: 順序競合と二重起動を避ける）。
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { DOMAINS, DOMAIN_META, type DomainKey } from "@/lib/domain";

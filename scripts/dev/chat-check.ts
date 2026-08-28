@@ -40,9 +40,9 @@ async function main() {
     await timed("memories", () => getAllMemories(userId));
 
     // 2) 会話: LEADER（ツンデレ）→ CODE（コーチ）→ 検索が要る質問（LEADER）
-    const a = await timed("chat LEADER", () => chatWithAgent(userId, "LEADER", "リード、今日は何をやればいい？"));
+    const a = await timed("chat LEADER", () => chatWithAgent(userId, "LEADER", "ミチ、今日は何をやればいい？"));
     await timed("chatReply LEADER", () => chatReply(userId, env.appUrl, a));
-    await timed("chat CODE", () => chatWithAgent(userId, "CODE", "ケイ、順番を決める問題で毎回時間がかかる。コツある？"));
+    await timed("chat CODE", () => chatWithAgent(userId, "CODE", "ロゴス、順番を決める問題で毎回時間がかかる。コツある？"));
     await timed("chat LEADER (search)", () => chatWithAgent(userId, "LEADER", "今日の日付と、最近の Python の安定版はいくつ？"));
     // 3) 履歴が積まれているか
     const turns = await prisma.chatTurn.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, select: { agent: true, role: true, text: true } });

@@ -13,7 +13,7 @@ export type MaterialSuggestion = {
 };
 
 type Props = {
-  /** Leader の「次のおすすめ」文。無ければ導入文を出す */
+  /** ADVISOR の「次のおすすめ」文。無ければ導入文を出す */
   recommendation: string | null;
   recommendedDomain: DomainKey | null;
   totalEvents: number;

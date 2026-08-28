@@ -127,7 +127,7 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `DEMO_SEED_ENABLED` | | Dashboard の「デモデータ投入」「初期状態に戻す」と `/api/demo/warm`（講評キャッシュ生成）。デモ当日は `true`、**恒久運用では `false`** | 不要 |
 | `ADMIN_EMAILS` | | 管理者メール（カンマ区切り）。`/api/demo/warm` はこのアドレスでログインしたユーザーだけ実行でき、1 回 20 課題・ヒント 1 段・同時 1 本に制限される | 不要 |
 | `AI_PROVIDER` | | `openai`（既定・推奨）/ `dify` / `anthropic` / `mock`。キー未設定なら自動で mock | 不要 |
-| `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・Leader・作問をすべて OpenAI Responses API で行う） | 不要 |
+| `OPENAI_API_KEY` | ○ | OpenAI API キー（`AI_PROVIDER=openai` のとき。講評・寸評・ADVISOR・作問をすべて OpenAI Responses API で行う） | 不要 |
 | `OPENAI_MODEL` | | 役割指定の無い呼び出しの予備（既定 `gpt-5.4-mini`）。**実際に使うモデルは `src/config/trivium.config.ts` の `MODELS`**（採点・寸評・会話 `gpt-5.4-mini`、作問 `gpt-5.5`）で決まる | 不要 |
 | `OPENAI_TIMEOUT_MS` | | 既定 25000 | 不要 |
 | `DIFY_API_BASE` | | `https://api.dify.ai/v1`（`AI_PROVIDER=dify` のとき） | 不要 |
@@ -313,7 +313,7 @@ Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作�
 
 ### 5.6 教材ナレッジ（ADVISOR の教材推薦）
 
-1. アプリ内の教材カタログ `src/lib/materials/catalog.ts`（定番書・公式サイト 60 件超）を `npx tsx scripts/dify/export_materials.mts` で `dify/materials/*.md` に書き出す（1 教材 1 ファイル。手動アップロードなら `--single` で `ALL.md`）
+1. アプリ内の教材カタログ `src/lib/materials/catalog.ts`（定番書・公式サイト 85 件）を `npx tsx scripts/dify/export_materials.mts` で `dify/materials/*.md` に書き出す（1 教材 1 ファイル。手動アップロードなら `--single` で `ALL.md`）
 2. Dify → **ナレッジ → API** でナレッジ用 API キーを発行し、`.env` に `DIFY_DATASET_API_KEY`（と必要なら `DIFY_BASE_URL`）を設定
 3. `npx tsx scripts/dify/upload_materials.mts --dry-run` で内容を確認 → `--dry-run` を外して投入（Dataset `trivium-materials` を自動作成し、id を表示。以後は `DIFY_MATERIALS_DATASET_ID` に入れると同じ Dataset を上書き更新）
 4. Coolify の環境変数にも `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` を登録して Restart。未設定でもアプリ内カタログだけで推薦は動く（Dify は「ナレッジ検索のスコア」を加える追加情報源）
@@ -336,7 +336,7 @@ Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock:
    ```bash
    npm run line:richmenu
    ```
-   - 2行×3列: 上段 `READ | WRITE | LOGIC`（Web の `/learn/*` へ）、下段 `今日の学習 | 履歴 | PROFILE`（postback。今日の学習＝LINE 上で選択式を出題、PROFILE＝Flex カード）
+   - 2行×3列: 上段 `READ | WRITE | LOGIC`（postback。LINE 上でその系統の選択式を 1 問）、下段 `使い方 | Dashboard | PROFILE`（使い方＝案内と `/guide` へのボタン、Dashboard＝メインサイトへ、PROFILE＝Flex カード）
    - 画像は `public/line/richmenu.png`（`npx tsx scripts/line-richmenu-image.ts` で再生成）。本番に反映するときは `APP_URL=<公開URL> NEXT_PUBLIC_APP_URL=<公開URL> npm run line:richmenu`（新しいメニューを作って既定にする。古いものは LINE API で削除）
 6. LINE と Google アカウントは「連携」で紐づく（`LineUser.userId`。ワンタイム URL・単回・15 分）。未連携でも会話と Web への誘導は動くが、**出題・記録・人格の記憶は連携が必要**
 

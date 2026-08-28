@@ -1,8 +1,8 @@
 // 学習ループのサービス層。Web の API ルートと LINE webhook の両方から使う。
 //   resolveTask   : 静的タスク or LLM 生成タスク（GeneratedTask）を同じ Task 型で取り出す
-//   nextTask      : 次の課題を選ぶ（弱い subskill を優先）
+//   nextTask      : 次の課題を選ぶ（出題設定・難易度のゆらぎ・弱い subskill を反映）
 //   submitAnswer  : 採点 → AI の講評/一段ヒント（選択式はキャッシュ）→ 決着時に learning_event を記録
-//   finalize      : profile / Leader の再計算、achievement、スナップショット
+//   finalize      : profile / ADVISOR（LeaderProfile）の再計算、achievement、スナップショット
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "../prisma";
@@ -191,7 +191,7 @@ type Settlement =
 
 /**
  * 回答を処理する。決着（success/failed）時は learning_event を記録し、
- * deferFinalize でなければ profile/Leader を再計算して結果に含める。
+ * deferFinalize でなければ profile/ADVISOR を再計算して結果に含める。
  */
 export async function submitAnswer(userId: string, taskId: string, opts: SubmitOptions): Promise<SubmitResult | { error: "unknown_task" }> {
   const task = await resolveTask(userId, taskId);
@@ -423,7 +423,7 @@ async function finalizeOrDefer(userId: string, domain: DomainKey, defer?: boolea
 }
 
 /**
- * 決着後の再計算。profile/Leader を更新し、achievement とスナップショットを記録する。
+ * 決着後の再計算。profile/ADVISOR（LeaderProfile）を更新し、achievement とスナップショットを記録する。
  * before/after・levelBefore/After・XP はすべて「直前の記録を除いた events」と「含めた events」を同じ時刻で集計して出す
  * （保存値との比較だと、時間経過や前回の失敗した再計算の分が「この 1 問の変化」に混ざる）。
  */

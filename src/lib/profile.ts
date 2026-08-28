@@ -125,7 +125,7 @@ export async function refreshDomainNumbers(userId: string, domain: DomainKey, ev
 }
 
 /**
- * Leader profile を再計算する。
+ * ADVISOR の総合プロフィール（LeaderProfile。内部キー LEADER）を再計算する。
  * 数値（score / subskills / confidence）は events から決定論的に計算し直すので、
  * domain profile の保存順序に依存しない（domain 寸評の生成と並列に走らせられる）。
  * 文章（summary / observations / recommendedNext）だけは保存済みの domain profile を使う。
@@ -186,7 +186,7 @@ export async function recomputeAll(userId: string, touched?: DomainKey | DomainK
   const events = await loadEvents(userId);
   const targets = touched === undefined ? [...DOMAINS] : Array.isArray(touched) ? touched : [touched];
   const rest = DOMAINS.filter((d) => !targets.includes(d));
-  // domain 寸評と Leader は独立に計算できる（Leader の数値は events から直接出す）ので並列化して待ち時間を短くする
+  // domain 寸評と ADVISOR は独立に計算できる（ADVISOR の数値は events から直接出す）ので並列化して待ち時間を短くする
   await Promise.all([
     ...targets.map((d) => recomputeDomainProfile(userId, d, events)),
     ...rest.map((d) => refreshDomainNumbers(userId, d, events)),

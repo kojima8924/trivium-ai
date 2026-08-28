@@ -95,7 +95,7 @@ async function main() {
     }),
   );
 
-  // 5) Leader
+  // 5) ADVISOR（内部キー LEADER）
   await timed("leader", () =>
     learningAI.leader({
       learnerRef: "dev-check",

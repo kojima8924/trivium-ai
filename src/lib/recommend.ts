@@ -1,5 +1,6 @@
-// 推薦書籍・サイトの選択（決定論）。LLM に書名を作らせない。
+// 旧「今日の 1 冊」の選択（決定論）。LLM に書名を作らせない。
 // 候補は src/config/trivium.config.ts の RECOMMENDATIONS。弱い系統のものを「その日は同じ 1 件」になるよう日付で回す。
+// 現在の教材推薦（LINE・Dashboard・日次総評）は src/lib/materials/ の教材カタログと推薦エンジンが担う。ここは互換とテストのために残している。
 import { RECOMMENDATIONS, type AxisKey, type Recommendation } from "@/config/trivium.config";
 import type { DomainKey } from "./domain";
 

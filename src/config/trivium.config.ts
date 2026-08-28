@@ -192,6 +192,7 @@ export type Recommendation = {
 
 const bookSearch = (q: string) => `https://www.google.com/search?tbm=bks&q=${encodeURIComponent(q)}`;
 
+// 旧「今日の 1 冊」の固定リスト。現在の教材推薦は src/lib/materials/catalog.ts（85 件）が主。互換とテストのため残置
 export const RECOMMENDATIONS: Recommendation[] = [
   // READ
   { axis: "read", title: "論理トレーニング101題", author: "野矢茂樹", note: "接続詞と論証の骨格を読む練習", url: bookSearch("論理トレーニング101題 野矢茂樹"), kind: "book" },

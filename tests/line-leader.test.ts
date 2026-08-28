@@ -1,4 +1,4 @@
-// LINE の Leader 会話ロジック（純粋関数）のテスト
+// LINE の案内役（ADVISOR。内部キー LEADER）会話ロジック（純粋関数）のテスト
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPostbackReply, buildReply, classifyIntent, domainOf, helpReply, quizOrWebActions, welcomeReply } from "../src/lib/line/leader";
