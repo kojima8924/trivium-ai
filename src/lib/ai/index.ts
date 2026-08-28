@@ -78,6 +78,11 @@ class LearningAIService implements LearningAIProvider {
     const p = this.primary;
     return p.runPython ? (text: string) => p.runPython!(text) : undefined;
   }
+  /** LINE 意図の AI 判定。primary が対応していなければ undefined（正規表現のみ） */
+  get classifyLineIntent(): LearningAIProvider["classifyLineIntent"] {
+    const p = this.primary;
+    return p.classifyLineIntent ? (input) => p.classifyLineIntent!(input) : undefined;
+  }
 }
 
 function build(): LearningAIService {

@@ -9,6 +9,7 @@
 //   (5) 残り                             → 連携済みなら案内役（LEADER）との会話、未連携はルールベース
 import type { AgentKey } from "@/lib/persona";
 import type { DomainKey } from "@/lib/domain";
+import type { LineIntentGuess } from "@/lib/ai/types";
 import type { Intent } from "./leader";
 
 export type RouteInput = {
@@ -39,6 +40,35 @@ export type Route =
 
 const TASK_INTENTS = new Set(["quiz", "generate", "domain"]);
 const COMMAND_INTENTS = new Set(["quiz", "generate", "pass", "materials"]);
+
+/** AI 判定を Intent に写す。確信が低い・chat なら null（会話へ） */
+export function intentFromGuess(guess: LineIntentGuess | null, text: string): Intent | null {
+  if (!guess || guess.kind === "chat" || guess.confidence < 0.6) return null;
+  switch (guess.kind) {
+    case "profile":
+      return { kind: "profile" };
+    case "history":
+      return { kind: "history" };
+    case "today":
+      return { kind: "today" };
+    case "help":
+      return { kind: "help" };
+    case "link":
+      return { kind: "link" };
+    case "hint":
+      return { kind: "hint" };
+    case "pass":
+      return { kind: "pass" };
+    case "quiz":
+      return { kind: "quiz", domain: guess.domain, ...(guess.difficulty ? { difficulty: guess.difficulty } : {}) };
+    case "generate":
+      return { kind: "generate", request: text.slice(0, 300), domain: guess.domain, ...(guess.difficulty ? { difficulty: guess.difficulty } : {}) };
+    case "materials":
+      return { kind: "materials", domain: guess.domain, text: text.slice(0, 300) };
+    default:
+      return null;
+  }
+}
 
 export function routeMessage(i: RouteInput): Route {
   const { intent, linked } = i;

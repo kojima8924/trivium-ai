@@ -307,9 +307,20 @@ export function confirmUnlinkReply(ctx: LeaderContext): LeaderReply {
 }
 
 export function helpReply(ctx: LeaderContext): LeaderReply {
+  const linked = Boolean(ctx.linked);
+  const base = ctx.appUrl.replace(/\/$/, "");
+  const quick: LeaderAction[] = [
+    ...(linked ? [] : [{ type: "postback" as const, label: "連携する", data: "action=link", displayText: "連携する" }]),
+    { type: "postback", label: "まず1問", data: "action=today", displayText: "今日の学習" },
+    { type: "uri", label: "使い方ページ", uri: `${base}/guide` },
+    ...(linked ? [{ type: "postback" as const, label: "おすすめ教材", data: "action=materials", displayText: "おすすめの教材" }] : []),
+    { type: "postback", label: "プロフィール", data: "action=profile", displayText: "プロフィール" },
+  ];
   return {
     text: [
-      "できること:",
+      linked ? "使い方はこんな感じ。" : "はじめての方へ。まず下の「連携する」ボタンで Web アカウントとつなぐと、記録が残って提案が本人向けになるわ（入力は不要）。",
+      "",
+      "▼ できること",
       "・そのまま話しかけると案内役（ミチ）が答えます。「ヨミ、〜」「ロゴス、〜」のように名前で呼ぶと担当キャラと会話できます",
       "・「今日の学習」「1問」→ LINE 上で選択式を1問（連携が必要）。「パス」で記録に残さず次へ",
       "・「論理パズルを出して」「短い読解を1問」→ 依頼に合わせて作問",
@@ -317,12 +328,12 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
       "・READ / WRITE / LOGIC → LINE で1問 or Web で解く",
       "・「今日のおすすめ」「10分だけ」→ 次の一歩を提案",
       "・「履歴」「プロフィール」→ Dashboard へ",
-      "・「連携」→ Web アカウントと繋いで、記録に基づく提案にする",
+      "・「おすすめの本」「LOGIC の教材」→ 能力に合わせた教材を提案",
       "",
+      "文は自由でOK。「僕の能力は？」「さっきの問題のヒント」のように話しかければ、意味を読んで対応するわ。",
       "じっくり書く課題は Web で。LINE では軽く1問ずつ進めましょう。",
-      `くわしい使い方（難易度の目安・三角グラフの読み方）: ${ctx.appUrl}/guide`,
     ].join("\n"),
-    quickReplies: [{ type: "uri", label: "使い方ページを開く", uri: `${ctx.appUrl}/guide` }, ...domainQuickReplies(ctx.appUrl)],
+    quickReplies: quick,
   };
 }
 

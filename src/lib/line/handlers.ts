@@ -13,6 +13,7 @@ import type { webhook } from "@line/bot-sdk";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/http";
+import { learningAI } from "@/lib/ai";
 import { requestHint, resolveTask } from "@/lib/learn/service";
 import { notifyDailyDigestIfComplete } from "@/lib/learn/digest";
 import { parseDomain, type DomainKey } from "@/lib/domain";
@@ -20,7 +21,7 @@ import { AGENTS, loadPersonas, type AgentKey } from "@/lib/persona";
 import { detectAddressedAgent } from "@/lib/persona.pure";
 import { TODAY_ACTION, appUrlBase, noPendingTaskReply, staleTaskReply } from "./actions";
 import { agentQuickReplies, askPrompt, chatReply, chatWithAgent } from "./chat";
-import { routeMessage } from "./handlers.pure";
+import { intentFromGuess, routeMessage } from "./handlers.pure";
 import { handleMaterials } from "./materials";
 import {
   buildPostbackReply,
@@ -102,13 +103,32 @@ async function requireLinked(lu: LineUser, replyToken: string): Promise<string |
 
 async function handleMessage(lineUserId: string, replyToken: string, text: string, scheduleAfter: AfterScheduler): Promise<void> {
   const lu = await loadLineUser(lineUserId);
-  const intent = classifyIntent(text);
+  let intent: Intent = classifyIntent(text);
   const linked = Boolean(lu.userId);
   const addressed = lu.userId ? detectAddressedAgent(text, await loadPersonas(lu.userId)) : null;
   const askedRaw = askedAgentOf(lu.state);
   const askedAgent: AgentKey | null = askedRaw && (AGENTS as readonly string[]).includes(askedRaw) ? (askedRaw as AgentKey) : null;
   const pendingDomain = lu.state.pendingTask?.domain ?? null;
-  const route = routeMessage({ intent, linked, addressed, askedAgent, isShort: text.trim().length <= LINE.commandMaxChars, pendingDomain });
+  // 意図判定は LLM を主にする（明示語ではなく意味で分岐。ai-chatbot-system の分類→エスカレーションと同じ考え方）。
+  // 正規表現は「パス」「ヒント」「連携」「使い方」などの短い定型コマンドの補助。LLM が失敗・低確信なら正規表現の結果 → 会話へ
+  const EXACT_COMMANDS = new Set(["pass", "hint", "link", "unlink", "help"]);
+  if (linked && !addressed && learningAI.classifyLineIntent && text.trim().length >= 2 && !EXACT_COMMANDS.has(intent.kind)) {
+    const personas = await loadPersonas(lu.userId!);
+    const guess = await withTimeout(
+      learningAI.classifyLineIntent({ text, linked, pendingTask: Boolean(pendingDomain), personaNames: (["READ", "WRITE", "CODE", "LEADER"] as const).map((a) => personas[a].name) }),
+      4000,
+    ).catch(() => null);
+    const mapped = intentFromGuess(guess, text);
+    if (mapped) {
+      console.log(`[line] ai-intent ${guess?.kind} (${guess?.confidence?.toFixed(2)}) -> ${mapped.kind} (regex: ${intent.kind})`);
+      intent = mapped;
+    } else if (guess?.kind === "chat" && guess.confidence >= 0.7 && intent.kind !== "unknown") {
+      // 正規表現が拾った語（「読む」「今日」など）が会話の一部だった場合は会話に戻す
+      console.log(`[line] ai-intent chat overrides regex ${intent.kind}`);
+      intent = { kind: "unknown" };
+    }
+  }
+  const route = routeMessage({ intent, linked, addressed, askedAgent, isShort: text.trim().length <= LINE.commandMaxChars || intent.kind !== "unknown", pendingDomain });
   console.log(`[line] message user=${lineUserId.slice(-6)} linked=${linked} intent=${intent.kind} route=${route.route} len=${text.length}`);
 
   // 「〜と話す」のメモは、会話に使ったら消す。コマンドを優先したときも消す（次のテキストが横取りされないように）
@@ -275,6 +295,12 @@ async function handleGenerate(
 }
 
 async function handleRuleBasedMessage(lineUserId: string, replyToken: string, text: string, intent: Intent, lu: LineUser): Promise<void> {
+  // 連携済みの「プロフィール」「能力」はテキストでも Flex カード（リッチメニューの PROFILE と同じ）
+  if (intent.kind === "profile" && lu.userId) {
+    const u = await prisma.user.findUnique({ where: { id: lu.userId }, select: { name: true } });
+    await replyFlex(replyToken, "プロフィール", await buildProfileCard(lu.userId, u?.name ? `${u.name}さん` : "あなた"));
+    return;
+  }
   const linkUrl = await prepareLink(lineUserId, lu.userId, intent.kind);
   // 連携解除はテキストでは実行しない（確認ボタン action=unlink&confirm=1 で行う）。未連携の「連携解除」は案内文だけ
   const reply = buildReply(text, await contextFor(lu, linkUrl));
@@ -494,4 +520,21 @@ async function persist(lineUserId: string, state: LineState, reply: LeaderReply)
   if (reply.suggestedDomain) next = noteSuggestion(next, reply.suggestedDomain);
   if (reply.note) next = { ...next, note: reply.note };
   if (next !== state) await saveLineState(lineUserId, next);
+}
+
+/** LLM 呼び出しに上限時間を付ける（LINE の reply token は 1 分で失効するため） */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }

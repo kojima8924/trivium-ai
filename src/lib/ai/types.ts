@@ -229,7 +229,31 @@ export interface LearningAIProvider {
    * 実行環境を持たない provider は実装しない（その場合は検証をスキップする）。
    */
   runPython?(text: string): Promise<{ stdout: string } | { error: string }>;
+  /**
+   * 任意: LINE の自由文の意図を判定する（正規表現で決まらなかった文だけに使う。小さなモデルで十分）。
+   * "chat" ならそのまま人格との会話に回す。
+   */
+  classifyLineIntent?(input: LineIntentInput): Promise<LineIntentGuess | null>;
 }
+
+export type LineIntentInput = {
+  text: string;
+  linked: boolean;
+  /** LINE で出題中の課題があるか */
+  pendingTask: boolean;
+  /** 人格の表示名（READ / WRITE / CODE / LEADER の順） */
+  personaNames: string[];
+};
+
+export type LineIntentGuess = {
+  kind: "profile" | "history" | "quiz" | "generate" | "materials" | "hint" | "pass" | "today" | "help" | "link" | "chat";
+  /** quiz / generate / materials で系統が読み取れたとき */
+  domain: "READ" | "WRITE" | "CODE" | null;
+  /** quiz / generate で難易度（1〜10）が読み取れたとき */
+  difficulty: number | null;
+  /** 0〜1。低ければ chat に倒す */
+  confidence: number;
+};
 
 export const AI_SYSTEM_POLICY = [
   "Never complete the learner's task for them unless explicitly entering an answer-review phase.",

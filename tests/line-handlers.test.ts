@@ -1,7 +1,7 @@
 // LINE テキストの振り分け（routeMessage）と state の純粋関数のテスト
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { routeMessage } from "../src/lib/line/handlers.pure";
+import { intentFromGuess, routeMessage } from "../src/lib/line/handlers.pure";
 import { classifyIntent } from "../src/lib/line/leader";
 
 const base = { linked: true, addressed: null, askedAgent: null, isShort: true } as const;
@@ -53,4 +53,14 @@ test("出題中の課題があれば、ヒントはその課題へ、自由文�
   const noPending = routeMessage({ ...base, intent: { kind: "hint" }, pendingDomain: null });
   assert.equal(noPending.route, "chat");
   if (noPending.route === "chat") assert.equal(noPending.agent, "LEADER");
+});
+
+test("AI 判定の写像: 確信が低い／chat は null、それ以外は Intent に", () => {
+  assert.equal(intentFromGuess(null, "x"), null);
+  assert.equal(intentFromGuess({ kind: "chat", domain: null, difficulty: null, confidence: 0.9 }, "x"), null);
+  assert.equal(intentFromGuess({ kind: "profile", domain: null, difficulty: null, confidence: 0.3 }, "x"), null);
+  assert.deepEqual(intentFromGuess({ kind: "profile", domain: null, difficulty: null, confidence: 0.9 }, "僕の能力ってどのくらい？"), { kind: "profile" });
+  assert.deepEqual(intentFromGuess({ kind: "quiz", domain: "CODE", difficulty: 7, confidence: 0.8 }, "x"), { kind: "quiz", domain: "CODE", difficulty: 7 });
+  const m = intentFromGuess({ kind: "materials", domain: "READ", difficulty: null, confidence: 0.8 }, "読解を伸ばす本ない？");
+  assert.equal(m?.kind, "materials");
 });

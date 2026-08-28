@@ -27,6 +27,8 @@ import {
   type LeaderOutput,
   type LearningAIProvider,
   type PersonaPrompt,
+  type LineIntentGuess,
+  type LineIntentInput,
 } from "./types";
 
 const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = { read: "READ", write: "WRITE", code: "CODE" };
@@ -188,6 +190,24 @@ const chatSchema = z.object({
   sources: z.array(z.string()).describe("Web 検索を使ったときの出典 URL（最大 2 件）。使わなければ空"),
 });
 
+const lineIntentSchema = z.object({
+  kind: z.enum(["profile", "history", "quiz", "generate", "materials", "hint", "pass", "today", "help", "link", "chat"]),
+  domain: z.enum(["READ", "WRITE", "CODE", "NONE"]),
+  difficulty: z.number().int().min(0).max(10).describe("読み取れなければ 0"),
+  confidence: z.number().min(0).max(1),
+});
+
+const ROLE_LINE_INTENT = [
+  "役割: 学習サービス Trivium の LINE 公式アカウントに届いた 1 文の意図を分類する（明示語ではなく意味で判断する）。",
+  "- profile: 自分の能力・実力・レベル・三角形・プロフィールを見たい / history: 履歴・記録・これまでを見たい",
+  "- quiz: 用意済みの問題を 1 問解きたい（系統・難易度の指定があれば読む） / generate: 新しく問題を作ってほしい",
+  "- materials: おすすめの本・教材・サイト・勉強法を知りたい / hint: 出題中の問題のヒントが欲しい・わからない",
+  "- pass: 今の問題を飛ばしたい / today: 今日は何をすればいいかの提案が欲しい / help: 使い方を知りたい / link: Web アカウントと連携したい",
+  "- chat: 上のどれでもない雑談・相談・質問（迷ったら chat）。",
+  "- 『さっきの問題』『この問題』についての質問は、出題中なら hint ではなく chat（担当が文脈つきで答える）。",
+  "- domain は READ（読解）/ WRITE（作文）/ CODE（LOGIC: 論理・Python）/ NONE。difficulty は 1〜10、無ければ 0。",
+].join(String.fromCharCode(10));
+
 const memorySchema = z.object({
   notes: z.string().describe("観察メモ。行動の傾向と『次に見たいこと』を、数値を書かずに簡潔に。上限字数を守る"),
 });
@@ -264,6 +284,30 @@ export class OpenAIProvider implements LearningAIProvider {
     if (!parsed) throw new Error(`structured output parse failed (${res.status ?? "unknown"})`);
     const usedSearch = (res.output ?? []).some((item) => item.type === "web_search_call");
     return { parsed: stripBackticks(parsed), usedSearch };
+  }
+
+  /** LINE の自由文の意図判定（明示語ではなく意味で分岐。小さなモデル・最小推論） */
+  async classifyLineIntent(input: LineIntentInput): Promise<LineIntentGuess | null> {
+    try {
+      const user = [
+        fmt("text", input.text.slice(0, 500)),
+        fmt("context", `linked=${input.linked} pending_task=${input.pendingTask} personas=${input.personaNames.join("/")}`),
+      ].join(String.fromCharCode(10));
+      const { parsed } = await this.parse(ROLE_LINE_INTENT, undefined, user, lineIntentSchema, "line_intent", "intent", {
+        model: MODELS.chat,
+        effort: "minimal",
+        maxOutputTokens: 200,
+      });
+      return {
+        kind: parsed.kind,
+        domain: parsed.domain === "NONE" ? null : parsed.domain,
+        difficulty: parsed.difficulty >= 1 && parsed.difficulty <= 10 ? parsed.difficulty : null,
+        confidence: parsed.confidence,
+      };
+    } catch (err) {
+      console.warn("[ai] classifyLineIntent failed:", (err as Error).message);
+      return null;
+    }
   }
 
   /** テキスト中の Python コードをサンドボックスで実行して stdout を返す（作問の検証） */
