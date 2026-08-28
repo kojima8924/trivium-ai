@@ -39,3 +39,18 @@ test("routeMessage: 既知の意図は未連携か短文ならルール、長い
   assert.deepEqual(routeMessage({ ...base, linked: false, intent: { kind: "unknown" } }), { route: "rule" });
   assert.deepEqual(routeMessage({ ...base, intent: { kind: "unknown" } }), { route: "chat", agent: "LEADER", offerQuiz: false, consumeAsk: false });
 });
+
+test("出題中の課題があれば、ヒントはその課題へ、自由文はその担当との会話へ（答えは言わない文脈つき）", () => {
+  const base = { linked: true, addressed: null, askedAgent: null, isShort: true };
+  assert.deepEqual(routeMessage({ ...base, intent: { kind: "hint" }, pendingDomain: "CODE" }), { route: "hint" });
+  const chat = routeMessage({ ...base, isShort: false, intent: { kind: "unknown" }, pendingDomain: "CODE" });
+  assert.equal(chat.route, "chat");
+  if (chat.route === "chat") {
+    assert.equal(chat.agent, "CODE");
+    assert.equal(chat.taskHelp, true);
+  }
+  // 出題中でなければ案内役との会話
+  const noPending = routeMessage({ ...base, intent: { kind: "hint" }, pendingDomain: null });
+  assert.equal(noPending.route, "chat");
+  if (noPending.route === "chat") assert.equal(noPending.agent, "LEADER");
+});

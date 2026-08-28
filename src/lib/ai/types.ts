@@ -176,6 +176,8 @@ export type ChatInput = {
   profileSummary: string;
   /** Web 検索を許可するか（EXTERNAL.webSearchAllowed.chat） */
   allowSearch: boolean;
+  /** いま LINE で出題中の課題（本文・設問・選択肢）。あれば「答えを言わずに一段だけ導く」会話にする */
+  currentTask?: string;
 };
 
 export type ChatOutput = {

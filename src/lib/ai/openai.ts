@@ -357,6 +357,7 @@ export class OpenAIProvider implements LearningAIProvider {
     const user = [
       fmt("memory", input.memoryNotes || "(まだ観察メモは無い)"),
       fmt("profile", input.profileSummary || "(まだ学習記録が無い)"),
+      ...(input.currentTask ? [fmt("current_task", `${input.currentTask}\n\n（この課題について聞かれたら: 答え・正解の選択肢・誤りの箇所は言わない。考え方の一段だけ示すか、問い返す）`)] : []),
       fmt("conversation", conversation || "(最初の発話)"),
       fmt("learner_says", input.userText),
     ].join("\n\n");

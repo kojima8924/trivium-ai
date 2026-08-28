@@ -85,6 +85,29 @@ function quizReply(task: Task, personaName: string, preface?: string): LeaderRep
   });
 }
 
+/** 出題中の課題へのヒント（担当キャラが think で一段だけ） */
+export function hintReply(task: Task, personaName: string, r: { hint: string | null; hintCount: number; hintsRemaining: number }): LeaderReply {
+  const body = r.hint
+    ? [`💡 ヒント ${r.hintCount}/3`, r.hint, "", r.hintsRemaining > 0 ? `あと ${r.hintsRemaining} 回ヒントが出せます。下のボタンで答えてください。` : "ヒントはこれで最後。下のボタンで答えてください。"].join("\n")
+    : ["ヒントは使い切りました。", "答えを選ぶか、「解説を見て終える」か、「パス」（記録に残しません）を選んでください。"].join("\n");
+  return agentReply(task.domain, personaName, body, {
+    appUrl: appUrl(),
+    mood: "think",
+    quickReplies: [
+      { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
+      { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
+      { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
+      ...choiceActions(task),
+    ],
+  });
+}
+
+/** 会話に渡す「いま出題中の課題」の要約（答えは含めない） */
+export function taskContextFor(task: Task): string {
+  const choices = (task.choices ?? []).map((c, i) => `${LETTERS[i]}. ${c}`).join("\n");
+  return [`【${DOMAIN_META[task.domain].label}】${task.title}（難易度 ${task.difficulty}）`, task.passage ?? "", task.prompt, choices].filter(Boolean).join("\n").slice(0, 2500);
+}
+
 /** choice 以外（short / free）は Web で解いてもらう */
 function webTaskReply(task: Task, personaName: string): LeaderReply {
   const m = DOMAIN_META[task.domain];

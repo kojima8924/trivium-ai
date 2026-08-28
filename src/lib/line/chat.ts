@@ -50,7 +50,7 @@ async function loadHistory(userId: string, agent: AgentKey): Promise<ChatTurnInp
  * 人格と 1 往復する。発話→返答の順に ChatTurn へ保存。
  * LLM が失敗したときは LearningAIService が Mock に落とすので、ここでは投げない。
  */
-export async function chatWithAgent(userId: string, agent: AgentKey, userText: string): Promise<ChatResult> {
+export async function chatWithAgent(userId: string, agent: AgentKey, userText: string, extra: { currentTask?: string } = {}): Promise<ChatResult> {
   const [personas, history] = await Promise.all([personaPrompts(userId), loadHistory(userId, agent)]);
   const memoryNotes =
     agent === "LEADER"
@@ -72,6 +72,7 @@ export async function chatWithAgent(userId: string, agent: AgentKey, userText: s
     memoryNotes,
     profileSummary,
     allowSearch: EXTERNAL.webSearchAllowed.chat,
+    ...(extra.currentTask ? { currentTask: extra.currentTask } : {}),
   });
   const text = out.text.trim().slice(0, 1500);
   await prisma.chatTurn.create({ data: { userId, agent, role: "assistant", text } });

@@ -56,6 +56,8 @@ export type Intent =
   | { kind: "unlink" }
   /** 出題中の課題をパス（テキストの「パス」「スキップ」） */
   | { kind: "pass" }
+  /** 出題中の課題へのヒント要求（「ヒント」「わからない」）。出題中でなければ会話へ */
+  | { kind: "hint" }
   /** 教材（本・サイト・動画）のおすすめ。ADVISOR が能力プロフィールに合わせて選ぶ */
   | { kind: "materials"; domain: DomainKey | null; text: string; freeOnly?: boolean; kind_?: MaterialKind | null }
   | { kind: "today" }
@@ -141,6 +143,7 @@ export function classifyIntent(raw: string): Intent {
   }
   // 出題中の課題をパス（ボタンを閉じてしまったときのテキスト版）
   if (/^(パス|ぱす|pass|スキップ|skip|飛ばして|とばして|パスして|パスで|スキップして)[!！。]?$/i.test(text)) return { kind: "pass" };
+  if (/^(ヒント|ひんと|hint|ヒント(を|が)?(ちょうだい|ください|くれ|出して|ほしい|欲しい)|ヒントお願い(します)?|わからない|分からない|わかりません|分かりません|むずかしい|難しい|降参|ギブアップ)[!！。？?]?$/i.test(text)) return { kind: "hint" };
   // 教材のおすすめ（会話寄りの意図。疑問文でも拾う）。「今日のおすすめ」は従来どおり today
   const materials = parseMaterialsIntent(text);
   if (materials) return materials;

@@ -13,6 +13,7 @@ import type { webhook } from "@line/bot-sdk";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/http";
+import { requestHint, resolveTask } from "@/lib/learn/service";
 import { notifyDailyDigestIfComplete } from "@/lib/learn/digest";
 import { parseDomain, type DomainKey } from "@/lib/domain";
 import { AGENTS, loadPersonas, type AgentKey } from "@/lib/persona";
@@ -46,6 +47,8 @@ import {
   settleAndBuildPush,
   startQuiz,
   type QuizPlan,
+  hintReply,
+  taskContextFor,
 } from "./quiz";
 import {
   askedAgentOf,
@@ -104,7 +107,8 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
   const addressed = lu.userId ? detectAddressedAgent(text, await loadPersonas(lu.userId)) : null;
   const askedRaw = askedAgentOf(lu.state);
   const askedAgent: AgentKey | null = askedRaw && (AGENTS as readonly string[]).includes(askedRaw) ? (askedRaw as AgentKey) : null;
-  const route = routeMessage({ intent, linked, addressed, askedAgent, isShort: text.trim().length <= LINE.commandMaxChars });
+  const pendingDomain = lu.state.pendingTask?.domain ?? null;
+  const route = routeMessage({ intent, linked, addressed, askedAgent, isShort: text.trim().length <= LINE.commandMaxChars, pendingDomain });
   console.log(`[line] message user=${lineUserId.slice(-6)} linked=${linked} intent=${intent.kind} route=${route.route} len=${text.length}`);
 
   // 「〜と話す」のメモは、会話に使ったら消す。コマンドを優先したときも消す（次のテキストが横取りされないように）
@@ -115,7 +119,13 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 
   switch (route.route) {
     case "chat":
-      await handleChat(lineUserId, replyToken, text, lu.userId!, route.agent, scheduleAfter, { offerQuiz: route.offerQuiz });
+      await handleChat(lineUserId, replyToken, text, lu.userId!, route.agent, scheduleAfter, {
+        offerQuiz: route.offerQuiz,
+        pendingTaskId: route.taskHelp ? lu.state.pendingTask?.taskId : undefined,
+      });
+      return;
+    case "hint":
+      await handleHint(lineUserId, replyToken, lu);
       return;
     case "unlink_confirm":
       await replyTo(replyToken, confirmUnlinkReply(await contextFor(lu)));
@@ -147,6 +157,22 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 }
 
 /** 4 人格との会話。先に受け付けを返し、after() で生成して push する。 */
+/** 出題中の課題のヒントを 1 段出す（担当キャラ）。記録はヒント回数だけ */
+async function handleHint(lineUserId: string, replyToken: string, lu: LineUser): Promise<void> {
+  const pending = lu.state.pendingTask;
+  if (!lu.userId || !pending) {
+    await replyTo(replyToken, noPendingTaskReply());
+    return;
+  }
+  const [task, r, personas] = await Promise.all([resolveTask(lu.userId, pending.taskId), requestHint(lu.userId, pending.taskId), loadPersonas(lu.userId)]);
+  if (!task || !r) {
+    await replyTo(replyToken, noPendingTaskReply());
+    return;
+  }
+  console.log(`[line] hint task=${task.id} count=${r.hintCount}`);
+  await replyTo(replyToken, hintReply(task, personas[task.domain].name, r));
+}
+
 async function handleChat(
   lineUserId: string,
   replyToken: string,
@@ -154,7 +180,7 @@ async function handleChat(
   userId: string,
   agent: AgentKey,
   scheduleAfter: AfterScheduler,
-  opts: { offerQuiz: boolean },
+  opts: { offerQuiz: boolean; pendingTaskId?: string },
 ): Promise<void> {
   const personas = await loadPersonas(userId);
   if (rateLimit(`line-chat:${userId}`, CHAT_LIMIT.count, CHAT_LIMIT.windowMs)) {
@@ -168,7 +194,9 @@ async function handleChat(
   await replyTo(replyToken, { text: `${personas[agent].name}: 考えています…` }).catch(warn("reply failed"));
   scheduleAfter(async () => {
     try {
-      const result = await chatWithAgent(userId, agent, text);
+      // 出題中の課題について聞かれたら、その課題を文脈として渡す（答えは言わない指示つき）
+      const pendingTask = opts.pendingTaskId ? await resolveTask(userId, opts.pendingTaskId) : null;
+      const result = await chatWithAgent(userId, agent, text, pendingTask ? { currentTask: taskContextFor(pendingTask) } : {});
       const reply = await chatReply(userId, env.appUrl, result, { offerQuiz: opts.offerQuiz });
       await pushTo(lineUserId, reply).catch(warn("push failed"));
     } catch (err) {

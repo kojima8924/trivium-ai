@@ -8,6 +8,7 @@
 //   (4) その他の既知の意図               → 未連携、または短いコマンドならルールベース
 //   (5) 残り                             → 連携済みなら案内役（LEADER）との会話、未連携はルールベース
 import type { AgentKey } from "@/lib/persona";
+import type { DomainKey } from "@/lib/domain";
 import type { Intent } from "./leader";
 
 export type RouteInput = {
@@ -20,10 +21,14 @@ export type RouteInput = {
   askedAgent: AgentKey | null;
   /** 短いコマンド（LINE.commandMaxChars 以下）か */
   isShort: boolean;
+  /** LINE で出題中の課題があればその系統（「ヒント」や質問をその担当に回す） */
+  pendingDomain?: DomainKey | null;
 };
 
 export type Route =
-  | { route: "chat"; agent: AgentKey; offerQuiz: boolean; consumeAsk: boolean }
+  | { route: "chat"; agent: AgentKey; offerQuiz: boolean; consumeAsk: boolean; taskHelp?: boolean }
+  /** 出題中の課題のヒントを 1 段出す（記録はヒント回数だけ） */
+  | { route: "hint" }
   | { route: "rule" }
   | { route: "unlink_confirm" }
   | { route: "quiz" }
@@ -49,6 +54,15 @@ export function routeMessage(i: RouteInput): Route {
       return { route: "chat", agent: i.askedAgent, offerQuiz: TASK_INTENTS.has(intent.kind), consumeAsk: true };
     }
   }
+  // (2.5) 出題中の課題がある: 「ヒント」はその課題のヒント、自由文はその課題の担当（答えは言わない）へ
+  if (linked && i.pendingDomain) {
+    if (intent.kind === "hint") return { route: "hint" };
+    if (intent.kind === "unknown" || intent.kind === "tired") {
+      return { route: "chat", agent: i.pendingDomain, offerQuiz: false, consumeAsk: false, taskHelp: true };
+    }
+  }
+  // 出題中でない「ヒント」「わからない」は案内役との会話へ
+  if (intent.kind === "hint") return linked ? { route: "chat", agent: "LEADER", offerQuiz: true, consumeAsk: false } : { route: "rule" };
   // (3) 出題系
   if (intent.kind === "quiz") return { route: "quiz" };
   if (intent.kind === "generate") return { route: "generate" };

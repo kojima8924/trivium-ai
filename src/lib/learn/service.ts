@@ -134,6 +134,26 @@ export async function nextTask(
   return { task: pickNextTask(domain, targetDifficulty, history, undefined, tieBreak, allow), targetDifficulty };
 }
 
+/**
+ * 出題中の課題に対する「ヒントだけ」の要求（LINE の「ヒント」「わからない」）。
+ * 回答は記録せず、TaskAttempt の hintCount だけ進める（あとで正解したときの XP と証拠の重みに反映される）。
+ * 使い切っていれば hint は null。
+ */
+export async function requestHint(userId: string, taskId: string): Promise<{ hint: string | null; hintCount: number; hintsRemaining: number } | null> {
+  const task = await resolveTask(userId, taskId);
+  if (!task) return null;
+  const attempt = await prisma.taskAttempt.findUnique({ where: { userId_taskId: { userId, taskId } } });
+  const used = attempt ? Math.min(attempt.hintCount, MAX_HINTS) : 0;
+  if (used >= MAX_HINTS || !task.hints[used]) return { hint: null, hintCount: used, hintsRemaining: 0 };
+  const next = used + 1;
+  await prisma.taskAttempt.upsert({
+    where: { userId_taskId: { userId, taskId } },
+    update: { hintCount: next },
+    create: { userId, taskId, hintCount: next },
+  });
+  return { hint: toUserWording(task.hints[used]), hintCount: next, hintsRemaining: MAX_HINTS - next };
+}
+
 /** 文字列 → 32bit の安定ハッシュ（FNV-1a）。出題順のばらけ用で、暗号用途ではない */
 function stableHash(s: string): number {
   let h = 0x811c9dc5;

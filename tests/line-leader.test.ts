@@ -334,3 +334,9 @@ test("意図分類: 教材のおすすめ（materials）。疑問文でも拾い
   assert.equal(classifyIntent("おすすめ").kind, "today");
   assert.notEqual(classifyIntent("読解の問題を出して").kind, "materials");
 });
+
+test("「ヒント」「わからない」は hint 意図（出題中なら担当のヒント、出題中でなければ会話）", () => {
+  for (const t of ["ヒント", "ヒントちょうだい", "わからない", "分かりません", "難しい"]) assert.equal(classifyIntent(t).kind, "hint", t);
+  assert.notEqual(classifyIntent("難しめで").kind, "hint");
+  assert.notEqual(classifyIntent("ヒントの出し方を教えて").kind, "hint");
+});
