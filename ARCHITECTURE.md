@@ -50,7 +50,7 @@ next learning recommendation   … Web の「次の一歩」、LINE の出題・
 | **conversation memory** | `ChatTurn` | LINE の会話（人格ごとに直近 10 往復を prompt に渡す）。会話時は他の担当の直近 6 発話と直近 3 件の決着課題（結果・解説）を共有文脈として添える | 人格ごとに保存、文脈は共有 |
 | **time series** | `ProfileSnapshot` | 再計算のたびに 3 系統の score を 1 行 | Dashboard の「これまでの推移」で折れ線に（`src/lib/history.ts`。日ごとに最後の 1 点へ間引く） |
 | **in-progress state** | `TaskAttempt` / `LineUser.state` | 進行中の挑戦（ヒント回数の正本）、LINE の出題中タスク・パス履歴・難易度指定（同系統 3 時間）・推薦済み教材・Dify の会話 id | 決着で消える |
-| **settings** | `LeaderProfile.preferences` | 出題する問題タイプ・複合の可否（`src/lib/task-prefs.ts`）、LINE 通知の時刻と総評 ON/OFF（`src/lib/notify-prefs.ts`） | ユーザーが `/settings` で変える。config の既定より優先 |
+| **settings** | `LeaderProfile.preferences` | 出題する問題タイプ・複合の可否・Python の確認済みフラグ（`src/lib/task-prefs.ts`）、LINE 通知の時刻と総評 ON/OFF（`src/lib/notify-prefs.ts`） | ユーザーが `/settings` で変える。config の既定より優先 |
 
 推定はいつでも生ログから作り直せる（`recomputeAll()`）。証拠が少ないときは `confidence: low` として「分析中」と表示する。
 
@@ -195,7 +195,7 @@ GET では消費しない（プレビュー取得やクローラで無効化さ�
 | `src/lib/line/*` | webhook の振り分け（`intent.ts` → `handlers.ts` → `handlers/{quiz,chat,rule}.ts`）、出題（`quiz*.ts`）、会話、連携、Flex（`flex*.ts`）、定型文（`replies.ts`）、URL、push |
 | `src/lib/http.ts` | クロスサイト POST の拒否とレート制限 |
 | `src/auth.ts` | Auth.js v5（Google OAuth + env でゲートしたデモログイン） |
-| `src/app/api/**` | health / learn（next・submit・hint・generate）/ profile / settings（task-types・notifications）/ demo（seed・reset・warm）/ cron（reminder）/ agent（context）/ line webhook / auth |
+| `src/app/api/**` | health / learn（next・submit・hint・generate）/ profile / settings（task-types・notifications・python-intro）/ demo（seed・reset・warm）/ cron（reminder）/ agent（context）/ line webhook / auth |
 | `src/app/{dashboard,learn,settings,link,login,guide}` | 画面（`/guide` はログイン不要の使い方ガイド） |
 | `src/components/{task-player,dashboard,share}/*` | 学習ページ（フック `use-task-player.ts` ＋表示コンポーネント）、Dashboard の各カード（推移グラフ・実績タイムラインを含む）、共有画像の描画 |
 | `scripts/*` | seed / warm-cache / preflight / Rich Menu（定義と背景画像）/ 使い方画像 / ブランド素材。`scripts/stock/`（ストック生成・検証。既定は Codex CLI）、`scripts/characters/`（表情差分）、`scripts/dify/`（教材ナレッジの書き出し・投入）。開発用は `scripts/dev/`（README あり） |

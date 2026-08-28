@@ -58,11 +58,18 @@ export type TaskPrefs = {
   excludedTaskTypes: Record<DomainKey, string[]>;
   /** 複合問題を出さない */
   excludeComposite: boolean;
+  /**
+   * LOGIC の初回に「Python の問題を含めるか」を尋ねて答えてもらったか。
+   * false のうちは学習ページで 1 度だけ確認カードを出す（設定画面を探させないための入口）。
+   * 除外そのものは excludedTaskTypes.CODE に入るので、あとから設定画面で変えられる。
+   */
+  pythonPrompted: boolean;
 };
 
 export const DEFAULT_TASK_PREFS: TaskPrefs = {
   excludedTaskTypes: { READ: [], WRITE: [], CODE: [] },
   excludeComposite: false,
+  pythonPrompted: false,
 };
 
 /** 未知の JSON から TaskPrefs を組み立てる（不正な値は無視して既定に） */
@@ -78,6 +85,7 @@ export function parseTaskPrefs(raw: unknown): TaskPrefs {
   return {
     excludedTaskTypes: { READ: pick("READ"), WRITE: pick("WRITE"), CODE: pick("CODE") },
     excludeComposite: o.excludeComposite === true,
+    pythonPrompted: o.pythonPrompted === true,
   };
 }
 
@@ -130,6 +138,20 @@ export function pythonGateAllows(
   if (task.difficulty > PYTHON_GATE_MAX_DIFFICULTY) return true;
   if (ctx.solvedPythonBefore) return true;
   return ctx.requestedTaskType !== undefined && PYTHON_TASK_TYPES.includes(ctx.requestedTaskType);
+}
+
+/**
+ * 「Python の問題を含めますか？」への回答を出題設定に反映する（純粋）。
+ * include=false なら LOGIC から Python 読解・バグ発見を外し、true なら外していたものを戻す。
+ * どちらを選んでも pythonPrompted は true になり、確認カードは二度と出ない。
+ */
+export function applyPythonChoice(prefs: TaskPrefs, include: boolean): TaskPrefs {
+  const others = prefs.excludedTaskTypes.CODE.filter((k) => !PYTHON_TASK_TYPES.includes(k));
+  return {
+    ...prefs,
+    excludedTaskTypes: { ...prefs.excludedTaskTypes, CODE: include ? others : [...others, ...PYTHON_TASK_TYPES] },
+    pythonPrompted: true,
+  };
 }
 
 /** 系統の中で「出してよい」タイプ（kind を指定すると、その形式で出せるタイプに絞る） */

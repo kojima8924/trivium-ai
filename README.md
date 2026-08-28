@@ -44,6 +44,7 @@ Google ログイン後、Dashboard の「デモデータを投入」で 10 日�
 - **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイム URL が届き、Google ログイン後に紐づく。以降 LINE の人格は実際の学習記録で答える（「連携解除」でいつでも解除）
 - **○ ✕ △ の明示** — 正解は ○、誤答→ヒントで再挑戦は △、ヒント切れ・ギブアップは ✕。Web の吹き出し・結果カードと LINE の返信で大きく表示
 - **実績 61 個** — 初回・連続日数・累計・系統別レベル・XP・ランク・ノーヒント・高難度・複合・時間帯など。解除時は Web の中央トースト（担当キャラの cheer 画像＋紙吹雪）と LINE の独立メッセージで目立たせる。Dashboard はカテゴリ・ティア別に未解除も薄く表示
+- **Python を含めるかを最初に聞く** — LOGIC を初めて開いたとき、「Python（プログラミング）の問題を含めますか？」を 1 度だけ確認する（含める／含めない）。プログラミング未経験の人が文法でつまずいて「論理が苦手」と記録されるのを防ぐための入口で、設定画面を探さなくてよい。選択はあとから `/settings` で変更でき、確認は二度と出ない。課題を id 指定で開いたときと、すでに LOGIC を解いた人には出さない
 - **Python は易しい帯で出さない** — LOGIC は「論理」を測る系統で、Python は道具の一つ。文法を知らないだけで失敗すると論理力ではなく Python 経験を測ってしまうので、**難易度 1〜3 では Python 読解・バグ発見を出さない**（論理パズル・数的推理・手順設計から始まる）。Python 系で 1 度でも正解するか、本人が「Python やさしめ」と指定すれば易しい帯も解禁（`pythonGateAllows`）
 - **出題の適応** — 難易度は低め（2）から始め、正解ごとに上がる。回答が少ないうちは推薦値の周りを広めに探索し、増えるほど適正難易度に収束（決定論的なゆらぎ。「次」を連打しても変わらない）
 - **LINE の会話は自由** — 短いコマンド（READ / 今日の学習 / 履歴 など）以外の文は人格との自由会話（雑談・相談・概念の説明・時事は Web 検索）。1 問ごとの push は「Lv 変化と XP」だけで、人格と案内役の寸評は 5 問ごと（`src/config/trivium.config.ts` の `LINE`）。4 人格は「他の担当との直近のやり取り」と「直近に決着した課題（結果・解説）」を共有文脈として持つので、人格をまたいでも会話がつながる
@@ -189,6 +190,7 @@ npx tsx scripts/line-howto-image.mts           # 友だち追加時に配る使�
 | `GET /api/profile` | Dashboard と同じプロフィール JSON（到達レベル・XP を含む） |
 | `POST /api/demo/seed` / `POST /api/demo/reset` / `POST /api/demo/warm` | デモ履歴の投入 / 初期状態に戻す（ボタンは確認ステップ付き） / 選択式講評のキャッシュ生成（warm は `ADMIN_EMAILS` の管理者のみ・上限付き） |
 | `GET` / `POST /api/settings/task-types` | 出題する問題タイプ・複合問題の設定（系統ごと。選択式が 0 になる設定は拒否） |
+| `POST /api/settings/python-intro` | LOGIC 初回の「Python を含めますか？」への回答（`{include}`。false なら Python 読解・バグ発見を除外） |
 | `GET` / `POST /api/settings/notifications` | LINE 通知の設定（リマインダー時刻・総評の ON/OFF） |
 | `POST /api/cron/reminder` | 未達成の人にリマインダーを push（Bearer `CRON_TOKEN`。GitHub Actions の cron が 30 分ごとに叩く。未設定なら 503） |
 | `GET /api/agent/context` | Dify の Chatflow が読む学習者コンテキスト（人格・到達レベル・弱点・XP・直近の課題と会話・出題中の課題。Bearer `TRIVIUM_AGENT_TOKEN`。答え・ヒント・解説は含めない） |

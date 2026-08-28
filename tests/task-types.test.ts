@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   COMPOSITE_TYPE,
   DEFAULT_TASK_PREFS,
+  applyPythonChoice,
   TASK_TYPES,
   allTaskTypeKeys,
   allowedTaskTypes,
@@ -40,6 +41,7 @@ test("parseTaskPrefs: 不正な値は捨てて既定に、未知キーは無視"
   assert.deepEqual(parseTaskPrefs({ excludedTaskTypes: { CODE: ["python", "nope", 3], READ: "x" }, excludeComposite: "yes" }), {
     excludedTaskTypes: { READ: [], WRITE: [], CODE: ["python"] },
     excludeComposite: false,
+    pythonPrompted: false,
   });
   assert.equal(parseTaskPrefs({ excludeComposite: true }).excludeComposite, true);
 });
@@ -113,4 +115,37 @@ test("Python ゲート: 本人が Python を指定したときは希望を優先
   assert.equal(pythonGateAllows({ difficulty: 1, taskType: "debug" }, { solvedPythonBefore: false, requestedTaskType: "debug" }), true);
   // 別のタイプを指定しているときは解禁しない
   assert.equal(pythonGateAllows({ difficulty: 1, taskType: "python" }, { solvedPythonBefore: false, requestedTaskType: "puzzle" }), false);
+});
+
+// ---- 「Python の問題を含めますか？」（LOGIC 初回の確認カード）----
+
+test("Python の確認: 「含めない」で Python 読解・バグ発見が除外され、確認済みになる", () => {
+  const after = applyPythonChoice(DEFAULT_TASK_PREFS, false);
+  for (const t of PYTHON_TASK_TYPES) assert.ok(after.excludedTaskTypes.CODE.includes(t), `${t} が除外される`);
+  assert.equal(after.pythonPrompted, true);
+  // 出題不能にはならない（LOGIC には論理パズル・数的推理・手順設計が残る）
+  assert.equal(taskPrefsLeaveSomething(after).ok, true);
+  assert.ok(allowedTaskTypes("CODE", after, "choice").length > 0);
+});
+
+test("Python の確認: 「含める」なら除外されず、確認済みになる", () => {
+  const after = applyPythonChoice(DEFAULT_TASK_PREFS, true);
+  for (const t of PYTHON_TASK_TYPES) assert.ok(!after.excludedTaskTypes.CODE.includes(t));
+  assert.equal(after.pythonPrompted, true);
+});
+
+test("Python の確認: あとから「含める」に変えると除外が解け、他系統の設定は保たれる", () => {
+  const base = { ...DEFAULT_TASK_PREFS, excludedTaskTypes: { READ: ["data"], WRITE: [], CODE: ["math"] }, excludeComposite: true };
+  const off = applyPythonChoice(base, false);
+  const on = applyPythonChoice(off, true);
+  assert.deepEqual(on.excludedTaskTypes.CODE, ["math"], "Python 以外の除外は残る");
+  assert.deepEqual(on.excludedTaskTypes.READ, ["data"], "他系統の設定は触らない");
+  assert.equal(on.excludeComposite, true);
+});
+
+test("Python の確認: pythonPrompted は既定 false、JSON から復元できる", () => {
+  assert.equal(DEFAULT_TASK_PREFS.pythonPrompted, false);
+  assert.equal(parseTaskPrefs({}).pythonPrompted, false);
+  assert.equal(parseTaskPrefs({ pythonPrompted: true }).pythonPrompted, true);
+  assert.equal(parseTaskPrefs({ pythonPrompted: "yes" }).pythonPrompted, false, "真偽値以外は false");
 });

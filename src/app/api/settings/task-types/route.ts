@@ -29,7 +29,8 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
-  const prefs = parseTaskPrefs(body);
+  // 設定画面を触った時点で選択は済んでいるので、学習ページの確認カードはもう出さない
+  const prefs = { ...parseTaskPrefs(body), pythonPrompted: true };
   const check = taskPrefsLeaveSomething(prefs);
   if (!check.ok) {
     const label = DOMAIN_META[check.domain].label;

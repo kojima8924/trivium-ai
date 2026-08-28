@@ -6,7 +6,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
 import { DEFAULT_TASK_PREFS, parseTaskPrefs, type TaskPrefs } from "./task-types";
 
-export const TASK_PREF_KEYS = ["excludedTaskTypes", "excludeComposite", "notify"] as const;
+export const TASK_PREF_KEYS = ["excludedTaskTypes", "excludeComposite", "pythonPrompted", "notify"] as const;
 
 /** 保存済みの出題設定（未設定なら既定＝全部出す） */
 export async function loadTaskPrefs(userId: string): Promise<TaskPrefs> {
@@ -20,7 +20,12 @@ export async function saveTaskPrefs(userId: string, prefs: TaskPrefs): Promise<T
   const clean = parseTaskPrefs(prefs);
   const row = await prisma.leaderProfile.findUnique({ where: { userId }, select: { preferences: true } });
   const current = (row?.preferences && typeof row.preferences === "object" && !Array.isArray(row.preferences) ? row.preferences : {}) as Record<string, unknown>;
-  const preferences = { ...current, excludedTaskTypes: clean.excludedTaskTypes, excludeComposite: clean.excludeComposite } as Prisma.InputJsonValue;
+  const preferences = {
+    ...current,
+    excludedTaskTypes: clean.excludedTaskTypes,
+    excludeComposite: clean.excludeComposite,
+    pythonPrompted: clean.pythonPrompted,
+  } as Prisma.InputJsonValue;
   await prisma.leaderProfile.upsert({
     where: { userId },
     update: { preferences },
