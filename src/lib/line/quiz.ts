@@ -16,6 +16,7 @@ import { formatScore } from "@/lib/scoring";
 import { ACHIEVEMENTS, TIER_LABEL } from "@/lib/achievement-defs";
 import { LINE } from "@/config/trivium.config";
 import { agentReply, buildProfileFlex } from "./flex";
+import { missionLine } from "./mission.pure";
 import type { messagingApi } from "@line/bot-sdk";
 import { pickBalancedDomain, type LeaderAction, type LeaderReply } from "./leader";
 import { activePreferredDifficulty, loadLineUser, saveLineState, withPassedTask, withPendingTask, withPreferredDifficulty, type LineState } from "./state";
@@ -61,6 +62,22 @@ function choiceActions(task: Task): LeaderAction[] {
   }));
 }
 
+/**
+ * 出題中の課題に添えるボタン（Quick Reply は 13 個まで）。
+ * 「1 問ずつ・ヒントは一段ずつ」という説明どおりに操作できるよう、ヒントを先頭に置く。
+ *   💡 ヒント / パス / （解説を見て終える）/ Webで解く / A〜D
+ */
+function taskActions(task: Task, opts: { giveUp?: boolean } = {}): LeaderAction[] {
+  const id = encodeURIComponent(task.id);
+  return [
+    { type: "postback", label: "💡 ヒント", data: `action=hint&task=${id}`, displayText: "ヒント" },
+    { type: "postback", label: "パス", data: `action=pass&task=${id}`, displayText: "パス" },
+    ...(opts.giveUp ? [{ type: "postback" as const, label: "解説を見て終える", data: `action=giveup&task=${id}`, displayText: "解説を見て終える" }] : []),
+    { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
+    ...choiceActions(task),
+  ];
+}
+
 /** 課題 → LINE の出題メッセージ（選択肢は Quick Reply。本文にも A〜D を列挙して全文が読めるようにする） */
 function quizReply(task: Task, personaName: string, preface?: string): LeaderReply {
   const m = DOMAIN_META[task.domain];
@@ -76,29 +93,21 @@ function quizReply(task: Task, personaName: string, preface?: string): LeaderRep
     .join("\n");
   return agentReply(task.domain, personaName, body, {
     appUrl: appUrl(),
-    footer: `下のボタンで答えてください（パスは記録に残りません）。分からないことは、そのまま話しかければ ${personaName} が答えます`,
-    quickReplies: [
-      { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
-      { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
-      ...choiceActions(task),
-    ],
+    footer: `下のボタンで答えてください。詰まったら「💡 ヒント」で一段ずつ（パスは記録に残りません）。質問はそのまま話しかければ ${personaName} が答えます`,
+    quickReplies: taskActions(task),
   });
 }
 
 /** 出題中の課題へのヒント（担当キャラが think で一段だけ） */
 export function hintReply(task: Task, personaName: string, r: { hint: string | null; hintCount: number; hintsRemaining: number }): LeaderReply {
   const body = r.hint
-    ? [`💡 ヒント ${r.hintCount}/3`, r.hint, "", r.hintsRemaining > 0 ? `あと ${r.hintsRemaining} 回ヒントが出せます。下のボタンで答えてください。` : "ヒントはこれで最後。下のボタンで答えてください。"].join("\n")
+    ? [`💡 ヒント ${r.hintCount}/3`, r.hint, "", r.hintsRemaining > 0 ? `まだ足りなければ、もう一度「💡 ヒント」を押して。あと ${r.hintsRemaining} 回。` : "ヒントはこれで最後。下のボタンで答えてください。"].join("\n")
     : ["ヒントは使い切りました。", "答えを選ぶか、「解説を見て終える」か、「パス」（記録に残しません）を選んでください。"].join("\n");
   return agentReply(task.domain, personaName, body, {
     appUrl: appUrl(),
     mood: "think",
-    quickReplies: [
-      { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
-      { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
-      { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
-      ...choiceActions(task),
-    ],
+    // ヒントを押した後も続けて押せるようにする（3 段まで）
+    quickReplies: taskActions(task, { giveUp: true }),
   });
 }
 
@@ -225,16 +234,16 @@ export async function answerQuiz(
 
   if (result.status === "retry") {
     return {
-      reply: agentReply(task.domain, name, ["🔺 △ もう一度", stripName(result.feedback, name), result.hint ? `\nヒント ${result.hintCount}/3: ${result.hint}` : "", "\nもう一度選んでください。"].filter(Boolean).join("\n"), {
-        appUrl: appUrl(),
-        mood: "think",
-        quickReplies: [
-          { type: "postback", label: "パス", data: `action=pass&task=${encodeURIComponent(task.id)}`, displayText: "パス" },
-          { type: "postback", label: "解説を見て終える", data: `action=giveup&task=${encodeURIComponent(task.id)}`, displayText: "解説を見て終える" },
-          { type: "uri", label: "Webで解く", uri: learnUrl(task.domain, task.id) },
-          ...choiceActions(task),
-        ],
-      }),
+      reply: agentReply(
+        task.domain,
+        name,
+        ["🔺 △ もう一度", stripName(result.feedback, name), result.hint ? `\nヒント ${result.hintCount}/3: ${result.hint}` : "", "\nもう一度選んでください。詰まったら「💡 ヒント」を。"].filter(Boolean).join("\n"),
+        {
+          appUrl: appUrl(),
+          mood: "think",
+          quickReplies: taskActions(task, { giveUp: true }),
+        },
+      ),
       settled: null,
     };
   }
@@ -295,7 +304,9 @@ export async function settleAndBuildPush(userId: string, domain: DomainKey): Pro
       ? `${m.label} Lv.${r.profile.levelBefore} → Lv.${r.profile.levelAfter} レベルアップ（${scoreLine(r.profile.before, r.profile.after)}）`
       : `${m.label} Lv.${r.profile.levelAfter}（${scoreLine(r.profile.before, r.profile.after)}）`;
   const withComment = events.length > 0 && events.length % LINE.commentEvery === 0;
-  const lines = [levelLine, xpLine].filter(Boolean);
+  // 「1 日 3 問（3 系統を 1 問ずつ）」が今日どこまで進んだか（歓迎メッセージの説明と揃える）
+  const missionText = missionLine(computeXp(events, new Date()).today);
+  const lines = [levelLine, xpLine, missionText].filter(Boolean);
   const out: LeaderReply[] = [{ text: lines.join("\n") }];
   // 実績解除は目立つように、案内役（cheer）の独立した 1 通を先頭に置く
   if (r.newAchievements.length) {

@@ -1,0 +1,49 @@
+# デイリーミッションのリマインダー。
+#
+# 30 分ごとに本番の POST /api/cron/reminder を叩くだけ（サーバ内にスケジューラを持たない）。
+# 「誰に送るか」はエンドポイント側が判断する:
+#   - LINE 連携済み・リマインダー ON
+#   - 設定時刻（JST・30 分刻み）が今の枠と一致
+#   - 今日まだ送っていない かつ 今日のミッションが未達成
+# UTC で起動するので JST への変換もエンドポイント側で行う（ここでは何も渡さない）。
+#
+# 必要な設定:
+#   - GitHub → Settings → Secrets and variables → Actions → New repository secret
+#       CRON_TOKEN … Coolify の環境変数 CRON_TOKEN と同じ値
+#   - 同 Variables に APP_URL（例 https://trivium.153.126.213.251.sslip.io）。未設定なら下の既定値を使う
+name: Reminder
+
+on:
+  schedule:
+    # 毎時 0 分・30 分（UTC）。GitHub の cron は数分遅れることがあるので、時刻は目安。
+    - cron: "0,30 * * * *"
+  workflow_dispatch: # 手動実行（動作確認用）
+
+concurrency:
+  group: reminder
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: POST /api/cron/reminder
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://trivium.153.126.213.251.sslip.io' }}
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
+        run: |
+          if [ -z "$CRON_TOKEN" ]; then
+            echo "CRON_TOKEN secret が未設定です。リマインダーは送りません。"
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+            -X POST "$APP_URL/api/cron/reminder" \
+            -H "Authorization: Bearer $CRON_TOKEN" \
+            --max-time 60)
+          echo "status=$code"
+          cat /tmp/out.json
+          echo
+          # 503（未設定）は失敗にしない。それ以外の 4xx/5xx は落とす
+          if [ "$code" = "503" ]; then exit 0; fi
+          [ "$code" = "200" ]

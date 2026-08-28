@@ -20,6 +20,8 @@ export async function GET() {
     ai: aiStatus(),
     // LINE の会話を Dify 統合 Chatflow に流しているか（秘密は出さない）
     dify: { chat: env.ai.lineChatViaDify && env.ai.difyChatApiKey ? "on" : "off", keyConfigured: Boolean(env.ai.difyChatApiKey) },
+    // デイリーミッションのリマインダー（POST /api/cron/reminder）が受け付けられる状態か（値は出さない）
+    cron: { configured: Boolean(env.cronToken) },
     latencyMs: Date.now() - startedAt,
     time: new Date().toISOString(),
   };

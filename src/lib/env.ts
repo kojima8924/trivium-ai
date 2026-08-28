@@ -26,6 +26,11 @@ export const env = {
    * Dify の Chatflow が学習者の人格・能力値・出題中の課題を読むために使う。未設定ならこの API は 503。
    */
   agentApiToken: process.env.TRIVIUM_AGENT_TOKEN ?? "",
+  /**
+   * 定期実行（POST /api/cron/reminder）の Bearer トークン。GitHub Actions の cron から叩く。
+   * 未設定ならこのエンドポイントは 503（リマインダーが飛ばないだけで、アプリ本体には影響しない）。
+   */
+  cronToken: process.env.CRON_TOKEN ?? "",
 
   ai: {
     /** openai | dify | anthropic | mock（未設定なら openai。キーが無ければ自動で mock） */

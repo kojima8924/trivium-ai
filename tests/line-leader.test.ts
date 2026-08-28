@@ -344,3 +344,21 @@ test("「ヒント」「わからない」は hint 意図（出題中なら担�
 test("「僕の能力は？」「今の実力は」はプロフィール", () => {
   for (const t of ["僕の能力は？", "今の実力は", "私の三角形を見せて"]) assert.equal(classifyIntent(t).kind, "profile", t);
 });
+
+test("ヒント要求の意図: ボタンと同じ扱いのテキストを拾う", () => {
+  for (const t of ["ヒント", "ヒントください", "わからない", "分かりません", "ギブアップ"]) {
+    assert.equal(classifyIntent(t).kind, "hint", t);
+  }
+  // 出題以外の文脈の語は拾わない
+  assert.notEqual(classifyIntent("難しめの問題を出して").kind, "hint");
+});
+
+test("歓迎・ヘルプの文言が実装（1 日 3 問・ヒントは一段ずつ）と揃っている", () => {
+  const w = welcomeReply(ctx()).text;
+  assert.match(w, /1 日 3 問/);
+  assert.match(w, /デイリーミッション/);
+  assert.match(w, /ヒント/);
+  const h = helpReply(ctx({ linked: true })).text;
+  assert.match(h, /💡 ヒント/);
+  assert.match(h, /1 日 3 問/);
+});

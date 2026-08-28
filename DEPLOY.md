@@ -138,6 +138,7 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `LINE_CHAT_VIA_DIFY` | | `true` で LINE の会話を統合 Chatflow に流す（既定 `false`）。キーが無い・Dify が失敗したときは自動で OpenAI 直呼び出しにフォールバック | 不要 |
 | `DIFY_TIMEOUT_MS` | | 既定 20000（Web 検索を挟む作問は 10 秒以上かかるので 30000 推奨） | 不要 |
 | `TRIVIUM_AGENT_TOKEN` | | Dify の Chatflow（4 人格 + 教材おすすめ）が `GET /api/agent/context` で人格・能力値・出題中の課題を読むためのサーバ間トークン。`openssl rand -base64 32` で生成し、Dify 側の環境変数にも同じ値を入れる。未設定ならこの API は 503（アプリ本体は影響なし） | 不要 |
+| `CRON_TOKEN` | | デイリーミッションのリマインダー（`POST /api/cron/reminder`）の Bearer トークン。`openssl rand -base64 32` で生成し、**同じ値を GitHub の Secrets `CRON_TOKEN` にも入れる**（下の 11 章）。未設定ならこの API は 503（リマインダーが飛ばないだけ） | 不要 |
 | `LINE_CHANNEL_SECRET` | | LINE Messaging API のチャネルシークレット（署名検証に必須） | 不要 |
 | `LINE_CHANNEL_ACCESS_TOKEN` | | 長期チャネルアクセストークン | 不要 |
 | `NODE_ENV` | | Coolify が `production` を自動で入れる。手動設定不要 | — |
@@ -453,3 +454,44 @@ CI が確認していること:
 - 起動時に `DATABASE_URL` が無いと **entrypoint が exit 1 して起動しない**（黙って起動しないのではなくログに理由が出る）
 - migration は起動のたびに `migrate deploy` される。追加のみの migration なので再デプロイで壊れない
 - `AI_PROVIDER=mock`（または Dify 未設定）でも `/api/health` は `ok` を返す。AI の状態は `ai.lastUsed` で見る
+
+---
+
+## 11. デイリーミッションのリマインダー（GitHub Actions の cron）
+
+「1 日 3 問（READ / WRITE / LOGIC を 1 問ずつ）」がまだ終わっていない人に、設定した時刻に ADVISOR（ミチ）が LINE で一声かけます。
+サーバ内にスケジューラを持たず、**GitHub Actions が 30 分ごとに本番の API を叩くだけ**の構成です。
+
+```
+GitHub Actions（cron "0,30 * * * *"）──POST /api/cron/reminder──▶ 本番アプリ ──push──▶ LINE
+                    Authorization: Bearer CRON_TOKEN        誰に送るかはアプリ側が判断
+```
+
+### 設定手順
+
+1. トークンを作る（`openssl rand -base64 32`）
+2. **Coolify** → アプリの Environment Variables に `CRON_TOKEN` を追加 → Restart
+3. **GitHub** → repo の Settings → Secrets and variables → Actions
+   - **Secrets** タブ → New repository secret → `CRON_TOKEN`（Coolify と同じ値）
+   - **Variables** タブ → `APP_URL`（例 `https://trivium.153.126.213.251.sslip.io`）。未設定なら workflow 内の既定値を使う
+4. Actions タブ → **Reminder** → *Run workflow* で手動実行し、`{"slot":"…","sent":0,…}` が返ることを確認
+
+### 送信条件（すべて満たしたときだけ 1 通）
+
+| 条件 | 判定 |
+|---|---|
+| LINE 連携済み | `LineUser.userId` がある |
+| リマインダー ON | `/settings` の「LINE の通知」（既定 ON） |
+| 時刻が一致 | 設定時刻（JST・30 分刻み、既定 20:00）が今の枠と一致 |
+| 今日まだ送っていない | `preferences.notify.lastReminderDay` が今日でない |
+| ミッション未達成 | 今日の記録が 3 系統そろっていない |
+
+`sent` / `skipped` / `failed` を JSON で返します。1 回の実行で最大 200 人、個別の失敗は握って続行します。
+`CRON_TOKEN` 未設定なら 503 を返し、workflow も失敗扱いにしません（機能を止めたいときは Secrets を消すだけでよい）。
+
+### 通知設定（`/settings` の「LINE の通知」）
+
+- **デイリーミッションのリマインダー**（ON/OFF）と**時刻**（JST・30 分刻み）
+- **今日の総評を受け取る**（3 系統そろった日の ADVISOR 総評・XP・今日の 1 冊）
+
+保存先は `LeaderProfile.preferences.notify`（migration 不要）。「初期状態に戻す」でも消えません。

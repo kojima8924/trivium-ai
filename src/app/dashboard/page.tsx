@@ -16,6 +16,9 @@ import { XpCard } from "@/components/dashboard/XpCard";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { ShareProfile } from "@/components/ShareProfile";
 import { dashboardMaterials } from "@/lib/materials/daily";
+import { ScoreTrend } from "@/components/dashboard/ScoreTrend";
+import { AchievementTimeline } from "@/components/dashboard/AchievementTimeline";
+import { loadHistory } from "@/lib/history";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +32,8 @@ export default async function DashboardPage() {
   const data = await getDashboardData(userId);
   // おすすめ教材（決定論。失敗しても Dashboard は出す）
   const materials = await dashboardMaterials(userId).catch(() => []);
+  // スコアの推移と実績の解除履歴（失敗しても Dashboard は出す）
+  const history = await loadHistory(userId).catch(() => ({ trend: [], achievements: [], markers: [] }));
   // 相対時刻はサーバ側で確定させる（クライアントで再計算しない＝hydration がずれない）
   const now = await renderNow();
   const scores = Object.fromEntries(data.domains.map((d) => [d.domain, d.score])) as Record<DomainKey, number>;
@@ -85,6 +90,21 @@ export default async function DashboardPage() {
             appUrl={env.appUrl}
           />
         )}
+      </section>
+
+      {/* 2.2 スコアの推移と実績のタイムライン（三角形は「いま」、こちらは「変化」） */}
+      <section className="card p-4 sm:p-5" aria-labelledby="trend-heading">
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <h2 id="trend-heading" className="text-sm font-semibold">
+            スコアの推移
+          </h2>
+          <span className="text-[11px] text-muted">直近 30 日 · 記録があった日だけ</span>
+        </div>
+        <ScoreTrend trend={history.trend} markers={history.markers} />
+        <div className="mt-3 border-t border-line pt-3">
+          <h3 className="mb-2 text-xs font-semibold">実績の解除履歴</h3>
+          <AchievementTimeline items={history.achievements} />
+        </div>
       </section>
 
       {/* 2.5 XP（行動の積み上げ。能力図とは別の指標） */}

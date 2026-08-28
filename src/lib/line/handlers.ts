@@ -177,11 +177,19 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
 }
 
 /** 4 人格との会話。先に受け付けを返し、after() で生成して push する。 */
-/** 出題中の課題のヒントを 1 段出す（担当キャラ）。記録はヒント回数だけ */
-async function handleHint(lineUserId: string, replyToken: string, lu: LineUser): Promise<void> {
+/**
+ * 出題中の課題のヒントを 1 段出す（担当キャラ）。記録はヒント回数だけ。
+ * テキストの「ヒント」と、出題メッセージの「💡 ヒント」ボタン（taskId 付き）の両方から呼ばれる。
+ */
+async function handleHint(lineUserId: string, replyToken: string, lu: LineUser, taskId?: string): Promise<void> {
   const pending = lu.state.pendingTask;
   if (!lu.userId || !pending) {
     await replyTo(replyToken, noPendingTaskReply());
+    return;
+  }
+  // 古い出題のボタンを押した場合は受け付けない（回答・パスと同じ扱い）
+  if (taskId && pending.taskId !== taskId) {
+    await replyTo(replyToken, staleTaskReply());
     return;
   }
   const [task, r, personas] = await Promise.all([resolveTask(lu.userId, pending.taskId), requestHint(lu.userId, pending.taskId), loadPersonas(lu.userId)]);
@@ -332,6 +340,11 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
   }
   if (action === "pass") {
     await handlePass(lineUserId, replyToken, lu, params.get("task") ?? "", scheduleAfter);
+    return;
+  }
+  if (action === "hint") {
+    // 出題メッセージの「💡 ヒント」ボタン。テキストの「ヒント」と同じ扱い（一段だけ出す）
+    await handleHint(lineUserId, replyToken, lu, params.get("task") ?? "");
     return;
   }
   if (action === "help") {

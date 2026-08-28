@@ -20,6 +20,7 @@ const COL = Math.floor(W / 3); // 833
 const ROW = Math.floor(H / 2); // 843
 const INSET = 30; // タップセルの内側に置くカードの余白
 const CARD_W = COL - INSET * 2;
+const CAPTION_H = 96; // 下端の案内文（入力欄への誘導）
 const CARD_H = ROW - INSET * 2;
 const RADIUS = 32;
 
@@ -34,7 +35,8 @@ const MONO = "Consolas, DejaVu Sans Mono, monospace";
 type Cell = { col: number; row: number };
 
 function cardBox({ col, row }: Cell) {
-  return { x: col * COL + INSET, y: row * ROW + INSET, w: CARD_W, h: CARD_H };
+  // 下段は案内文のぶんだけカードを詰める（タップ領域は 3×2 のままなので見た目だけ）
+  return { x: col * COL + INSET, y: row * ROW + INSET, w: CARD_W, h: row === 1 ? CARD_H - CAPTION_H : CARD_H };
 }
 
 /** READ: 開いた本 */
@@ -136,6 +138,7 @@ function buildSvg(): string {
   ${actionCard({ col: 0, row: 1 }, "使い方", "このサービスの使い方", helpIcon, "#F5F4EF")}
   ${actionCard({ col: 1, row: 1 }, "Dashboard", "メインサイトへ", homeIcon, "#F5F4EF")}
   ${actionCard({ col: 2, row: 1 }, "PROFILE", "能力プロフィール", radarIcon, "#F5F4EF")}
+  <text x="118" y="${H - 20}" text-anchor="start" font-family="${JP}" font-size="60" font-weight="700" fill="${INK}">↓ ここから AI に話しかけられます（質問・相談もOK）</text>
 </svg>`;
 }
 

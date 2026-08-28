@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { intentFromGuess, routeMessage } from "../src/lib/line/handlers.pure";
+import { missionLine, remainingDomains } from "../src/lib/line/mission.pure";
 import { classifyIntent } from "../src/lib/line/leader";
 
 const base = { linked: true, addressed: null, askedAgent: null, isShort: true } as const;
@@ -63,4 +64,17 @@ test("AI 判定の写像: 確信が低い／chat は null、それ以外は Inte
   assert.deepEqual(intentFromGuess({ kind: "quiz", domain: "CODE", difficulty: 7, confidence: 0.8 }, "x"), { kind: "quiz", domain: "CODE", difficulty: 7 });
   const m = intentFromGuess({ kind: "materials", domain: "READ", difficulty: null, confidence: 0.8 }, "読解を伸ばす本ない？");
   assert.equal(m?.kind, "materials");
+});
+
+test("デイリーミッションの表示: 未達は残りの系統、3 系統そろえば達成", () => {
+  assert.match(missionLine({ READ: false, WRITE: false, CODE: false }), /あと 3 問/);
+  const one = missionLine({ READ: true, WRITE: false, CODE: false });
+  assert.match(one, /READ ✓/);
+  assert.match(one, /WRITE −/);
+  assert.match(one, /あと 2 問: WRITE・LOGIC/);
+  const done = missionLine({ READ: true, WRITE: true, CODE: true });
+  assert.match(done, /🎉 今日のミッション達成/);
+  assert.doesNotMatch(done, /あと/);
+  assert.deepEqual(remainingDomains({ READ: true, WRITE: false, CODE: true }), ["WRITE"]);
+  assert.deepEqual(remainingDomains({ READ: true, WRITE: true, CODE: true }), []);
 });

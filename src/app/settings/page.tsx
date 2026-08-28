@@ -6,6 +6,9 @@ import { DOMAIN_VAR } from "@/components/dashboard/shared";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { TaskTypeSettings } from "@/components/TaskTypeSettings";
 import { loadTaskPrefs } from "@/lib/task-prefs";
+import { NotificationSettings } from "@/components/NotificationSettings";
+import { loadNotifyPrefs } from "@/lib/notify-prefs";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +34,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const userId = session?.user?.id;
   if (!userId) redirect("/login?next=/settings");
   const { saved } = await searchParams;
-  const [personas, taskPrefs] = await Promise.all([loadPersonas(userId), loadTaskPrefs(userId)]);
+  const [personas, taskPrefs, notifyPrefs, lineLinks] = await Promise.all([
+    loadPersonas(userId),
+    loadTaskPrefs(userId),
+    loadNotifyPrefs(userId),
+    prisma.lineUser.count({ where: { userId } }),
+  ]);
 
   async function save(formData: FormData) {
     "use server";
@@ -133,6 +141,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </form>
 
       <TaskTypeSettings initial={taskPrefs} colors={{ READ: AGENT_COLOR.READ, WRITE: AGENT_COLOR.WRITE, CODE: AGENT_COLOR.CODE }} />
+
+      <NotificationSettings initial={notifyPrefs} linked={lineLinks > 0} />
     </div>
   );
 }
