@@ -1,4 +1,4 @@
-# 入門 Python 3 第 2 版
+# 入門 Python 3 第2版
 - id: book-nyumon-python3
 - 形式: 書籍（book）
 - 著者・運営: Bill Lubanovic（オライリー・ジャパン）

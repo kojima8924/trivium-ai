@@ -1,4 +1,4 @@
-# Python チュートリアル 第 4 版
+# Python チュートリアル 第4版
 - id: book-python-tutorial-oreilly
 - 形式: 書籍（book）
 - 著者・運営: Guido van Rossum（オライリー・ジャパン）

@@ -1,4 +1,4 @@
-# みんなの Python 第 4 版
+# みんなの Python 第4版
 - id: book-minna-no-python
 - 形式: 書籍（book）
 - 著者・運営: 柴田淳（SB クリエイティブ）

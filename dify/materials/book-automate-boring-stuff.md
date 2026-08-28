@@ -1,4 +1,4 @@
-# 退屈なことは Python にやらせよう 第 2 版
+# 退屈なことは Python にやらせよう 第2版
 - id: book-automate-boring-stuff
 - 形式: 書籍（book）
 - 著者・運営: Al Sweigart（オライリー・ジャパン）
