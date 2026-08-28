@@ -60,7 +60,7 @@ async function main() {
   console.log("1. 「論理パズルを出して」 →", await send(text("論理パズルを出して")));
   await sleep(45_000); // 作問に回った場合の after()（gpt-5.6-sol・effort medium は実測 23s 前後）を待つ
   let after = await count();
-  let st0 = await state();
+  const st0 = await state();
   check(
     "課題の依頼に到達（出題 or 作問）",
     after.chat === before.chat && (after.gen === before.gen + 1 || st0.pendingTask?.domain === "CODE"),
