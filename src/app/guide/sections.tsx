@@ -293,6 +293,7 @@ export function LineSection() {
           <div className="mb-1 text-[11px] font-semibold text-muted">メッセージで</div>
           <ul className="list-disc space-y-1 pl-5">
             <li>「難易度8」「LOGICで難易度8」→ 用意済みの問題から即出題（無ければ作問）。以後の「次」も同じ難易度</li>
+            <li>「Python やさしめ」→ 問題タイプの指定。指定が無いうちは、易しい問題は Python 以外（論理パズル・数的推理など）から出ます</li>
             <li>「難易度8で作って」「論理パズルを出して」→ AI がその場で作問</li>
             <li>「パス」→ 記録に残さず次の問題へ。「ヒント」「わからない」→ 担当キャラが一段だけヒント（出題中の質問もその担当が答えます）</li>
             <li>「writeで軽めに」「難しめで」→ 推薦より 2 段やさしく／難しく</li>

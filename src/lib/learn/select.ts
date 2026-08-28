@@ -4,12 +4,12 @@
 import "server-only";
 import { prisma } from "../prisma";
 import type { DomainKey } from "../domain";
-import { pickNextTask, tasksFor, type Task } from "../tasks";
+import { getTask, pickNextTask, tasksFor, type Task } from "../tasks";
 import { nextDifficultyFor, subskillsOf } from "../profile";
 import { adaptiveTarget, clampDifficulty } from "../scoring";
 import { fnv1a } from "../hash";
 import { loadTaskPrefs } from "../task-prefs";
-import { taskAllowedByPrefs } from "../task-types";
+import { PYTHON_TASK_TYPES, pythonGateAllows, taskAllowedByPrefs } from "../task-types";
 import { resolveTask } from "./resolve";
 
 export type NextTaskOptions = {
@@ -51,8 +51,16 @@ export async function nextTask(userId: string, domain: DomainKey, opts: NextTask
     : adaptiveTarget(recommended, history.length, `${userId}:${domain}:${history.length}`);
   const seen = new Set(history.map((h) => h.taskId));
   for (const id of opts.excludeTaskIds ?? []) seen.add(id);
-  // 出題設定（/settings で外した問題タイプ・複合問題）を反映。絞った結果が空なら設定を無視する（出題不能を避ける）
-  const allow = (t: Task) => taskAllowedByPrefs(t, prefs);
+  // Python 系を易しい帯で出すのは、その人が Python 系で 1 度でも正解してからにする（未経験者の LOGIC が文法で沈むのを防ぐ）
+  const solvedPythonBefore = history.some((h) => {
+    if (!h.success) return false;
+    const t = getTask(h.taskId);
+    return t?.taskType !== undefined && PYTHON_TASK_TYPES.includes(t.taskType);
+  });
+  const gate = { solvedPythonBefore, requestedTaskType: opts.taskType };
+  // 出題設定（/settings で外した問題タイプ・複合問題）と Python ゲートを反映。
+  // 絞った結果が空なら設定を無視する（出題不能を避ける）
+  const allow = (t: Task) => taskAllowedByPrefs(t, prefs) && pythonGateAllows(t, gate);
   let pool = tasksFor(domain);
   if (opts.kind) pool = pool.filter((t) => t.kind === opts.kind);
   // 本人が問題タイプを指定していれば（「Python やさしめ」など）そのタイプに絞る。空なら無視する

@@ -9,6 +9,9 @@ import {
   allowedTaskTypes,
   isCompositeAxes,
   parseTaskPrefs,
+  pythonGateAllows,
+  PYTHON_GATE_MAX_DIFFICULTY,
+  PYTHON_TASK_TYPES,
   taskAllowedByPrefs,
   taskPrefsLeaveSomething,
   taskTypeLabel,
@@ -77,4 +80,37 @@ test("taskPrefsLeaveSomething: 選択式タイプを全部外すと LINE で出�
   assert.deepEqual(r, { ok: false, domain: "WRITE", kind: "choice" });
   const ok = taskPrefsLeaveSomething({ ...DEFAULT_TASK_PREFS, excludedTaskTypes: { READ: [], WRITE: ["revision", "argument", "summary", "rewrite"], CODE: [] } });
   assert.deepEqual(ok, { ok: true });
+});
+
+// ---- Python ゲート: 易しい帯（難易度 1〜3）は Python 未経験者に出さない ----
+// LOGIC は「論理」を測る系統なので、文法を知らないだけで失敗＝否定証拠になるのを避ける。
+
+test("Python ゲート: 未経験者には易しい Python 系を出さない", () => {
+  const ctx = { solvedPythonBefore: false };
+  for (const type of PYTHON_TASK_TYPES) {
+    for (let d = 1; d <= PYTHON_GATE_MAX_DIFFICULTY; d++) {
+      assert.equal(pythonGateAllows({ difficulty: d, taskType: type }, ctx), false, `${type} 難易度${d} は出さない`);
+    }
+    assert.equal(pythonGateAllows({ difficulty: PYTHON_GATE_MAX_DIFFICULTY + 1, taskType: type }, ctx), true, `${type} は難易度4以上なら出す`);
+  }
+});
+
+test("Python ゲート: 非 Python のタイプと難易度の高い課題はそのまま通す", () => {
+  const ctx = { solvedPythonBefore: false };
+  for (const type of ["puzzle", "math", "algorithm", "summary", undefined]) {
+    assert.equal(pythonGateAllows({ difficulty: 1, taskType: type }, ctx), true, `${type} は難易度1でも通す`);
+  }
+  assert.equal(pythonGateAllows({ difficulty: 10, taskType: "python" }, ctx), true);
+});
+
+test("Python ゲート: 一度 Python 系で正解していれば易しい帯も解禁", () => {
+  assert.equal(pythonGateAllows({ difficulty: 1, taskType: "python" }, { solvedPythonBefore: true }), true);
+  assert.equal(pythonGateAllows({ difficulty: 2, taskType: "debug" }, { solvedPythonBefore: true }), true);
+});
+
+test("Python ゲート: 本人が Python を指定したときは希望を優先する（「Pythonやさしめ」）", () => {
+  assert.equal(pythonGateAllows({ difficulty: 1, taskType: "python" }, { solvedPythonBefore: false, requestedTaskType: "python" }), true);
+  assert.equal(pythonGateAllows({ difficulty: 1, taskType: "debug" }, { solvedPythonBefore: false, requestedTaskType: "debug" }), true);
+  // 別のタイプを指定しているときは解禁しない
+  assert.equal(pythonGateAllows({ difficulty: 1, taskType: "python" }, { solvedPythonBefore: false, requestedTaskType: "puzzle" }), false);
 });

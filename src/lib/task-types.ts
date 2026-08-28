@@ -107,6 +107,31 @@ export function taskAllowedByPrefs(task: { domain: DomainKey; taskType?: string;
   return !prefs.excludedTaskTypes[task.domain].includes(task.taskType);
 }
 
+/**
+ * Python の文法知識を前提とするタイプ。
+ * LOGIC は「論理」を測る系統で、Python はその道具の一つでしかない。
+ * ここを易しい帯で出すと、論理力ではなく Python 経験を測ってしまう（`x // 2` が読めないだけで失敗になる）。
+ */
+export const PYTHON_TASK_TYPES: readonly string[] = ["python", "debug"];
+
+/** この難易度以下では、Python 未経験の人に Python 系を出さない（1〜3 = 「誰でも解ける」帯） */
+export const PYTHON_GATE_MAX_DIFFICULTY = 3;
+
+/**
+ * 易しい帯で Python 系を出してよいか。
+ * 「Python 系で 1 度でも正解している」か「本人が明示的に Python を指定した」なら通す。
+ * それ以外は難易度 4 以上でだけ Python 系を出す（非 Python の論理パズル・数的推理・手順設計から始める）。
+ */
+export function pythonGateAllows(
+  task: { difficulty: number; taskType?: string },
+  ctx: { solvedPythonBefore: boolean; requestedTaskType?: string },
+): boolean {
+  if (!task.taskType || !PYTHON_TASK_TYPES.includes(task.taskType)) return true;
+  if (task.difficulty > PYTHON_GATE_MAX_DIFFICULTY) return true;
+  if (ctx.solvedPythonBefore) return true;
+  return ctx.requestedTaskType !== undefined && PYTHON_TASK_TYPES.includes(ctx.requestedTaskType);
+}
+
 /** 系統の中で「出してよい」タイプ（kind を指定すると、その形式で出せるタイプに絞る） */
 export function allowedTaskTypes(domain: DomainKey, prefs: TaskPrefs, kind?: "choice" | "short" | "free"): string[] {
   return allTaskTypeKeys(domain).filter((k) => {
