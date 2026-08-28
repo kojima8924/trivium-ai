@@ -21,6 +21,11 @@ export const env = {
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+  /**
+   * サーバ間 API（GET /api/agent/context）の Bearer トークン。
+   * Dify の Chatflow が学習者の人格・能力値・出題中の課題を読むために使う。未設定ならこの API は 503。
+   */
+  agentApiToken: process.env.TRIVIUM_AGENT_TOKEN ?? "",
 
   ai: {
     /** openai | dify | anthropic | mock（未設定なら openai。キーが無ければ自動で mock） */

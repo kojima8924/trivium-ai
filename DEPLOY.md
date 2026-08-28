@@ -135,6 +135,7 @@ curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_BASE_URL/api/v1/
 | `DIFY_LEADER_API_KEY` | | `trivium-leader` workflow の API key（総合寸評） | 不要 |
 | `DIFY_GENERATE_API_KEY` | | `trivium-generate` workflow の API key（作問。無ければ作問だけ定型問題にフォールバック） | 不要 |
 | `DIFY_TIMEOUT_MS` | | 既定 20000（Web 検索を挟む作問は 10 秒以上かかるので 30000 推奨） | 不要 |
+| `TRIVIUM_AGENT_TOKEN` | | Dify の Chatflow（4 人格 + 教材おすすめ）が `GET /api/agent/context` で人格・能力値・出題中の課題を読むためのサーバ間トークン。`openssl rand -base64 32` で生成し、Dify 側の環境変数にも同じ値を入れる。未設定ならこの API は 503（アプリ本体は影響なし） | 不要 |
 | `LINE_CHANNEL_SECRET` | | LINE Messaging API のチャネルシークレット（署名検証に必須） | 不要 |
 | `LINE_CHANNEL_ACCESS_TOKEN` | | 長期チャネルアクセストークン | 不要 |
 | `NODE_ENV` | | Coolify が `production` を自動で入れる。手動設定不要 | — |
