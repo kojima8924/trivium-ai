@@ -21,7 +21,9 @@ READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教え�
 
 高校生〜成人を対象にした、面談デモ向けに短期間で作ったプロトタイプです。特定の既存サービスの UI・文言・キャラクターは使っていません。
 
-本番: https://trivium.153.126.213.251.sslip.io
+本番（動くデモ）: https://trivium.153.126.213.251.sslip.io
+
+Google ログイン後、Dashboard の「デモデータを投入」で 10 日分の学習履歴が入り、三角形・推移グラフ・実績が一通り見られます。学習記録はアカウントごとに独立していて、他の人のデータは見えません。
 
 ## 何ができるか
 
@@ -198,7 +200,6 @@ npx tsx scripts/line-howto-image.mts           # 友だち追加時に配る使�
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 構造とデータフロー（採点モデル・XP・人格と記憶・LINE）
 - [DEPLOY.md](DEPLOY.md) — GitHub Actions → GHCR → Coolify（さくら VPS）へのデプロイ、Google / Dify / LINE の設定
-- [DEMO.md](DEMO.md) — 3 分のデモ台本
 - [dify/README.md](dify/README.md) — Dify Workflow DSL（任意）
 - [scripts/dev/README.md](scripts/dev/README.md) — 開発・検証スクリプト
 
@@ -219,3 +220,7 @@ LINE Webhook は署名検証。LLM へは PII（メール・氏名）を渡さ�
 ## やらないこと（現時点の範囲外）
 
 課金・SNS 上の交流機能（三角グラフの共有ボタンは実装済み）・ランキング・複雑な権限管理・巨大 RAG・microservices・IRT などの高度な能力推定。
+
+## ライセンス
+
+[MIT License](LICENSE)。教材カタログが参照する書籍・サイトの権利はそれぞれの権利者に帰属します（本リポジトリはタイトル・著者・公式 URL などの書誌情報だけを持ちます）。

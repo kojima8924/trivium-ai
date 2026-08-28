@@ -18,7 +18,7 @@ Internet ──HTTPS──▶ Coolify(Traefik) ──▶ trivium (Next.js, Docke
                                         PostgreSQL 16（5432 は非公開）
 ```
 
-現在の本番: `https://trivium.153.126.213.251.sslip.io`（さくら VPS の IP を sslip.io で名前解決。DNS 設定不要）。
+本番の公開 URL は `<公開URL>`（さくら VPS の IP を sslip.io で名前解決。DNS 設定不要）。
 
 ---
 
@@ -184,7 +184,7 @@ Dify は **server-side からのみ**呼びます（`src/lib/ai/dify.ts`）。AP
 3. `trivium-generate` を開き、**環境変数 `OPENAI_API_KEY`（secret）** を実際のキーに差し替える（Web 検索の HTTP ノードが `Authorization: Bearer` に使う。DSL には `sk-REPLACE_ME` が入っている）
 4. `trivium-leader` の「現在日時」ノードは Dify 組み込みの `time` ツール（認証不要）。インポート時に警告が出たらノードを開いて保存し直す
 5. **`trivium-chat`（Chatflow）の設定** — この 3 つをやらないと会話が既定値で動く／教材が出ない:
-   - 環境変数 `TRIVIUM_API_BASE` を公開 URL（例 `https://trivium.153.126.213.251.sslip.io`）に、`TRIVIUM_AGENT_TOKEN`（secret）を Coolify の `AGENT_API_TOKEN` と**同じ値**に差し替える
+   - 環境変数 `TRIVIUM_API_BASE` を公開 URL（例 `https://trivium.example.com`）に、`TRIVIUM_AGENT_TOKEN`（secret）を Coolify の `AGENT_API_TOKEN` と**同じ値**に差し替える
    - ノード「**教材ナレッジ検索**」を開き、ナレッジ **`trivium-materials`**（5.6 で投入）を選ぶ。`dataset_ids` は環境ごとに違うので DSL には入れていない
    - ノード「相談先の判定」（question-classifier）のモデルを確認する
 6. 右上 **Publish** → **API Access** → **API Key** を 4 本それぞれ発行し、Coolify の環境変数に `DIFY_DOMAIN_API_KEY` / `DIFY_LEADER_API_KEY` / `DIFY_GENERATE_API_KEY` / `DIFY_CHAT_API_KEY` として登録。`DIFY_API_BASE` は Dify Cloud なら `https://api.dify.ai/v1`
@@ -479,7 +479,7 @@ GitHub Actions（cron "0,30 * * * *"）──POST /api/cron/reminder──▶ �
 2. **Coolify** → アプリの Environment Variables に `CRON_TOKEN` を追加 → Restart
 3. **GitHub** → repo の Settings → Secrets and variables → Actions
    - **Secrets** タブ → New repository secret → `CRON_TOKEN`（Coolify と同じ値）
-   - **Variables** タブ → `APP_URL`（例 `https://trivium.153.126.213.251.sslip.io`）。未設定なら workflow 内の既定値を使う
+   - **Variables** タブ → `APP_URL`（例 `https://trivium.example.com`）。未設定なら workflow 内の既定値を使う
 4. Actions タブ → **Reminder** → *Run workflow* で手動実行し、`{"slot":"…","sent":0,…}` が返ることを確認
 
 ### 送信条件（すべて満たしたときだけ 1 通）

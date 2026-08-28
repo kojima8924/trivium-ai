@@ -706,7 +706,7 @@ CHAT_ENV_VARS = [
     {
         "id": "c0668b08-83e2-573f-8a4a-990535fdf160",
         "name": "TRIVIUM_API_BASE",
-        "value": "https://trivium.153.126.213.251.sslip.io",
+        "value": "https://trivium.example.com",  # インポート後に Dify の環境変数で自分の公開 URL に差し替える
         "value_type": "string",
         "selector": ["env", "TRIVIUM_API_BASE"],
         "description": "Trivium アプリの公開 URL。/api/agent/context を呼ぶ。インポート後に実際の URL へ差し替える",

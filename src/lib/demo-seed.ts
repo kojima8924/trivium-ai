@@ -1,5 +1,5 @@
 // デモ用seed: 架空の 10 日分の learning_events を投入し、profile・スナップショット・実績を作る。
-// 数値は scoring.ts / xp.ts の決定論的集計から出る（seed 直後の実測値は DEMO.md 参照）
+// 数値は scoring.ts / xp.ts の決定論的集計から出る（seed 直後の値は毎回同じ＝決定論）
 import "server-only";
 import { prisma } from "./prisma";
 import { recomputeAll } from "./profile";

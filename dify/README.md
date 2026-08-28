@@ -88,7 +88,7 @@ Chatflow（`trivium-chat.yml`）については別関数 `check_chat()` が検�
 2. **`trivium-generate` の環境変数** — アプリの環境変数 `OPENAI_API_KEY`（secret）を実際のキーに差し替える。Web 検索の HTTP ノードがこれを `Authorization: Bearer` に使う（LLM ノードのキーとは別管理）
 3. **`trivium-leader` の time ツール** — 組み込みツール（`time` / `current_time`）なので認証は不要。インポート時に警告が出たらノードを一度開いて保存する
 4. **`trivium-chat` の設定（3 つ）**
-   - 環境変数 `TRIVIUM_API_BASE`（例 `https://trivium.153.126.213.251.sslip.io`）と `TRIVIUM_AGENT_TOKEN`（secret。アプリの `AGENT_API_TOKEN` と同じ値）を差し替える
+   - 環境変数 `TRIVIUM_API_BASE`（例 `https://trivium.example.com`）と `TRIVIUM_AGENT_TOKEN`（secret。アプリの `AGENT_API_TOKEN` と同じ値）を差し替える
    - **ナレッジ検索ノード「教材ナレッジ検索」を開き、ナレッジ `trivium-materials` を選ぶ**（`dataset_ids` は環境ごとに違うので DSL には入れていない。未選択だと教材ブランチが候補ゼロになる）
    - 「相談先の判定」（question-classifier）のモデルを確認する
    - 環境変数 `OPENAI_API_KEY`（secret）を入れる。**教材ブランチの Web 検索**（`http_search`）が `Authorization: Bearer` に使う。空のままでも会話・教材おすすめは動くが、`NEED_SEARCH: true` になったときの検索が失敗し、「検索できなかった」旨を添えた回答になる

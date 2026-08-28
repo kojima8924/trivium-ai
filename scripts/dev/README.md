@@ -23,7 +23,7 @@ npx tsx --conditions=react-server scripts/dev/<name>.ts
 注意:
 
 - ローカル DB（`prisma dev` = PGlite）は並列アクセスに弱い。スクリプトは直列に走らせる（Issue #8）
-- デモ用アカウント（`demo+demo-learner@trivium.local`）の状態を変えるスクリプトは無い。学習ループを本物の API で試したい場合は `curl` で `/api/learn/submit` を叩き、最後に `POST /api/demo/seed {"reset":true}` で戻す（`DEMO.md` の事前準備を参照）
+- デモ用アカウント（`demo+demo-learner@trivium.local`）の状態を変えるスクリプトは無い。学習ループを本物の API で試したい場合は `curl` で `/api/learn/submit` を叩き、最後に `POST /api/demo/seed {"reset":true}` で戻す
 
 本番向けの運用スクリプトは 1 つ上の `scripts/` にある。
 

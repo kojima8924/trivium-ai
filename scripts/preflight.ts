@@ -133,7 +133,7 @@ async function main() {
     for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
     process.exit(1);
   }
-  console.log("デモの前提は満たしています。DEMO.md の事前準備チェックへ進んでください。");
+  console.log("デプロイ先の前提は満たしています。");
 }
 
 main().catch((e) => {

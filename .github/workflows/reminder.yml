@@ -10,7 +10,7 @@
 # 必要な設定:
 #   - GitHub → Settings → Secrets and variables → Actions → New repository secret
 #       CRON_TOKEN … Coolify の環境変数 CRON_TOKEN と同じ値
-#   - 同 Variables に APP_URL（例 https://trivium.153.126.213.251.sslip.io）。未設定なら下の既定値を使う
+#   - 同 Variables に APP_URL（例 https://trivium.example.com）。未設定なら下の既定値を使う
 name: Reminder
 
 on:
@@ -30,11 +30,15 @@ jobs:
     steps:
       - name: POST /api/cron/reminder
         env:
-          APP_URL: ${{ vars.APP_URL || 'https://trivium.153.126.213.251.sslip.io' }}
+          APP_URL: ${{ vars.APP_URL }}
           CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
         run: |
           if [ -z "$CRON_TOKEN" ]; then
             echo "CRON_TOKEN secret が未設定です。リマインダーは送りません。"
+            exit 0
+          fi
+          if [ -z "$APP_URL" ]; then
+            echo "APP_URL variable が未設定です（Settings → Secrets and variables → Actions → Variables）。"
             exit 0
           fi
           code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
