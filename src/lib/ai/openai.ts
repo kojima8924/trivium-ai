@@ -1,18 +1,41 @@
 // OpenAIProvider: OpenAI Responses API をサーバ側から直接呼ぶ provider（既定の primary）。
-// - 出力は structured outputs（zod）で固定
-// - system policy 7 か条と人格（persona）を prompt に載せる
+// - 出力は structured outputs（zod → ./schemas.ts）で固定
+// - system policy 7 か条と人格（persona）を prompt（./prompts.ts）に載せる
 // - API key は環境変数のみ。PII は渡さない（learnerRef は内部ID）
 import "server-only";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { env } from "../env";
-import { EXTERNAL, MODELS, LINE } from "@/config/trivium.config";
+import { EXTERNAL, MODELS } from "@/config/trivium.config";
 import { DOMAINS, DOMAIN_META, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
-import { LEARNER_ANSWER_RULE, deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus, stripBackticks, wrapLearnerAnswer } from "./shared";
+import { deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus, wrapLearnerAnswer } from "./shared";
+import { fmt, nowText, stripBackticks, stripMarkdownForChat } from "./text";
 import {
-  AI_SYSTEM_POLICY,
+  COMMON,
+  ROLE_CHAT,
+  ROLE_EVAL,
+  ROLE_GENERATE,
+  ROLE_INTERPRET,
+  ROLE_LEADER,
+  ROLE_LINE_INTENT,
+  ROLE_MEMORY,
+  ROLE_RUN_PYTHON,
+  personaText,
+} from "./prompts";
+import {
+  chatSchema,
+  evalSchema,
+  generateSchema,
+  interpretSchema,
+  leaderSchema,
+  lineIntentSchema,
+  memorySchema,
+  runPythonSchema,
+  type GenerateSchemaOutput,
+} from "./schemas";
+import {
   type ChatInput,
   type ChatOutput,
   type MemoryUpdateInput,
@@ -33,119 +56,79 @@ import {
 
 const MODE_TO_DOMAIN: Record<DomainEvalInput["mode"], DomainKey> = { read: "READ", write: "WRITE", code: "CODE" };
 
-// ---- 出力スキーマ（strict JSON schema に変換されるので optional は使わず nullable で表す） ----
+// ---- input（user 側）の組み立て。役割ごとに「何を渡すか」をここだけ見れば分かるようにする ----
 
-const evalSchema = z.object({
-  status: z.enum(["success", "retry", "needs_more"]),
-  feedback: z.string().describe("学習者への短い返答（100字以内・日本語）。答えは書かない"),
-  hint: z.string().describe("次の一段のヒント。success のときは空文字"),
-  observations: z.array(z.string()).describe("学習行動についての観察（性格ではなく行動）。最大3件・各40字以内"),
-  skill_tags: z.array(z.string()).describe("この回答から観察できた subskill タグ（allowed_skill_tags から）"),
-  recommended_next_difficulty: z.number().int().min(1).max(10),
-});
+function evalInput(input: DomainEvalInput, domain: DomainKey): string {
+  return [
+    fmt("mode", input.mode),
+    fmt("task", input.task),
+    wrapLearnerAnswer(input.learnerAnswer),
+    fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
+    fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
+    fmt("hint_level", input.hintLevel),
+    fmt("current_domain_profile", input.currentDomainProfile),
+    fmt("recent_behavior", input.recentBehavior.join("\n") || "(なし)"),
+    fmt("allowed_skill_tags", SUBSKILLS[domain]),
+  ].join("\n\n");
+}
 
-const interpretSchema = z.object({
-  summary: z.string().describe("この領域の寸評。140字以内・日本語。証拠が少なければ暫定である旨を明記"),
-  observations: z.array(z.string()).describe("行動ベースの観察。最大3件・各40字以内"),
-  recommended_next: z.string().describe("次に取り組む課題の方向（60字以内）"),
-});
+function interpretInput(input: DomainInterpretInput, domain: DomainKey): string {
+  return [
+    fmt("mode", input.mode),
+    fmt("domain_label", DOMAIN_META[domain].label),
+    fmt("subskills_in_this_domain", SUBSKILLS[domain]),
+    fmt("stats", input.stats),
+    fmt("recent_events", input.recentEvents),
+  ].join("\n\n");
+}
 
-const leaderSchema = z.object({
-  summary: z.string().describe("学習者全体の総合寸評。140字以内・日本語。数値は与えられたものだけを使う"),
-  interests: z.array(z.string()).describe("関心・傾向（証拠に基づくもののみ）。最大3件"),
-  observations: z.array(z.string()).describe("行動ベースの観察。最大3件・各40字以内"),
-  recommendation: z.string().describe("次のおすすめ。『DOMAIN: 具体的な課題の方向』の形で60字以内"),
-  recommended_domain: z.enum(["READ", "WRITE", "CODE"]),
-});
+function leaderInput(input: LeaderInput): string {
+  return [
+    fmt("domains", input.domains),
+    fmt("total_events", input.totalEvents),
+    fmt("last_event", input.lastEvent ?? "(なし)"),
+    fmt("context", input.context ?? "(なし)"),
+  ].join("\n\n");
+}
 
-const generateSchema = z.object({
-  title: z.string().describe("課題タイトル（『種類: 題材』の形。20字以内）"),
-  passage: z.string().describe("読ませる本文・状況・コード。無ければ空文字。CODE なら Python か手順/条件の記述"),
-  prompt: z.string().describe("設問（1〜2文）"),
-  choices: z.array(z.string()).describe("kind=choice のときは選択肢を4つ。それ以外は空配列"),
-  answer_index: z.number().int().min(-1).max(3).describe("kind=choice のとき正解の index（0〜3）。それ以外は -1"),
-  short_answers: z.array(z.string()).describe("kind=short のときの正解候補（表記ゆれを含めて複数）。それ以外は空"),
-  rubric_must_include: z.array(z.string()).describe("kind=free のとき、自然な解答に含まれやすい語（広めに8〜12語）。それ以外は空"),
-  rubric_criteria: z.array(z.string()).describe("kind=free の評価観点（2〜3件）。それ以外は空"),
-  rubric_min_length: z.number().int().describe("kind=free の最小字数。それ以外は 0"),
-  rubric_max_length: z.number().int().describe("kind=free の最大字数。それ以外は 0"),
-  model_answer: z.string().describe("kind=free のとき、お題に対する模範解答（prompt で求める字数の範囲内で実際に書く）。それ以外は空文字"),
-  hints: z.array(z.string()).describe("段階ヒントを3つ。1つ目は問い返し、3つ目でも答えの値や完成文は書かない"),
-  explanation: z.string().describe("成功後に見せる解説（答えを含んでよい。120字以内）"),
-  skill_tags: z.array(z.string()).describe("allowed_skill_tags から1〜2個"),
-});
+function chatInput(input: ChatInput): string {
+  const conversation = input.history.map((t) => `${t.role === "user" ? "learner" : input.persona.name}: ${t.text}`).join("\n");
+  return [
+    fmt("memory", input.memoryNotes || "(まだ観察メモは無い)"),
+    fmt("profile", input.profileSummary || "(まだ学習記録が無い)"),
+    ...(input.sharedContext ? [fmt("shared_context", `${input.sharedContext}\n\n（他の担当との会話や直近の課題は把握している前提で自然に続ける。「さっきの問題」と言われたらこれを指す。答え・誤りの箇所を言わない方針は同じ）`)] : []),
+    ...(input.currentTask ? [fmt("current_task", `${input.currentTask}\n\n（この課題について聞かれたら: 答え・正解の選択肢・誤りの箇所は言わない。考え方の一段だけ示すか、問い返す）`)] : []),
+    fmt("conversation", conversation || "(最初の発話)"),
+    fmt("learner_says", input.userText),
+  ].join("\n\n");
+}
 
-// ---- prompt ----
+function memoryInput(input: MemoryUpdateInput): string {
+  return [
+    fmt("agent", input.agent),
+    fmt("max_chars", input.maxChars),
+    fmt("previous_notes", input.previousNotes || "(なし)"),
+    input.event ? fmt("settled_event", input.event) : "",
+    input.domainNotes?.length ? fmt("domain_notes", input.domainNotes) : "",
+    input.leaderSummary ? fmt("leader_summary", input.leaderSummary) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
-const POLICY_TEXT = AI_SYSTEM_POLICY.map((p, i) => `${i + 1}. ${p}`).join("\n");
-
-const COMMON = [
-  "あなたは Trivium の学習コーチです。READ / WRITE / LOGIC の短い課題に取り組む高校生〜成人を支援します。",
-  "コア思想: AI does not do the work for you. It helps you take the next step.",
-  "",
-  "System policy:",
-  POLICY_TEXT,
-  "",
-  "共通ルール:",
-  "- 出力は必ず日本語。簡潔に。",
-  "- 学習者の課題を代わりに完成させない。ヒントは一度に一段だけ。",
-  "- 与えられた数値（スコア・件数）以外の数値を作らない。",
-  "- 行動について述べ、性格や能力を断定しない。証拠が少ないときは不確かさを明示する。",
-  "- LOGIC 領域は内部キー CODE。Python の読解と、手順・条件・推論の問題の両方を含む。学習者向けの文章では必ず『LOGIC』と表記し、『CODE』とは書かない。",
-].join("\n");
-
-const ROLE_EVAL = [
-  "役割: 学習者の回答を評価し、feedback と（必要なら）一段だけのヒントを返す。",
-  "- deterministic_result が correct のときは status を success、hint は空文字。feedback は2文: 何ができていたか＋次に意識する一点。",
-  "- incorrect のときは status を retry。feedback は2文で『どこを見直すか』だけを示す。誤りの箇所・原因・正解の値を特定して教えない（『式の最後の - 1 が効いている』のような指摘は禁止。ヒント3段目より先の情報になる）。",
-  "- hint は hints 配列の hint_level 番目（0始まり）を、学習者の回答に合わせて言い換えたもの。その段のヒントに無い新しい事実を足さない。範囲外なら最後のヒントを言い換える。答えそのものは書かない。",
-  "- unknown（自由記述）のときは criteria に照らして判断。十分なら success、足りなければ needs_more にして、足りない観点を問い返す。heuristic_result が below_rubric なら success にしない。",
-  "- feedback に正解の値や完成文、誤りの具体的な位置を含めない。",
-  LEARNER_ANSWER_RULE,
-].join("\n");
-
-const ROLE_INTERPRET = [
-  "役割: 決定論的に集計された stats（数値＝evidence）を解釈し、この領域の寸評・観察・次の方向を返す。",
-  "- 数値を作らない・変えない。stats にある subskill と値だけを根拠にする。",
-  "- confidence が low のときは『記録が少なく暫定』を summary に含める。未計測の subskill があれば触れる。",
-].join("\n");
-
-const ROLE_LEADER = [
-  "役割: ADVISOR（案内役。global learner model）。3つの領域の要約を横断して、学習者全体の傾向と『次の一歩』を決める。",
-  "- 原則: skills are local, learner is global。領域ごとの数値は与えられたものだけを使う。",
-  "- 直近7日の偏り（eventsLast7Days）と、未計測・信頼度 low の領域を考慮する。",
-  "- summary は3文構成: (1) 各領域のスコアを数値付きで一言ずつ (2) 横断的に見える傾向 (3) 信頼度 low の領域があれば暫定であること。100〜140字。",
-  "- recommendation は『DOMAIN: 具体的な課題の方向』の形で1文。recommended_domain はそれと一致させる。",
-  "- last_event があれば、その1問に一言触れる。",
-].join("\n");
-
-const ROLE_GENERATE = [
-  "役割: 学習者の依頼にもとづき、指定の domain / kind / difficulty で課題を1問作る。",
-  "- 問題は自己完結で、passage と prompt だけで解けること。実在の個人・時事の断定・医療/法律の助言を避ける。",
-  "- choice は選択肢4つ、正解は1つだけ、他は明確に誤り。short は表記ゆれの正解候補を複数。free は rubric を広めに。",
-  "- hints は3段。1段目は問い返し、3段目でも答えの値・完成文を書かない。",
-  "- CODE（LOGIC）は Python の短いコード（出力予測・バグ発見）か、手順・条件・推論のパズルのどちらか。request の先頭にある【形式: …】の指定に必ず従う（『論理パズル』ならコードを出さない）。",
-  "- passage にマークダウンのコードフェンス（```）や装飾を使わない。プレーンテキストのみ。",
-  "- title に domain 名の接頭辞（『LOGIC:』『READ:』など）を付けない。",
-  "- free（記述）は先に model_answer（模範解答）を書き、prompt の字数指定はその長さに合わせる（模範解答より長い字数を要求しない）。目安: difficulty 1〜3 は 60〜100 字、4〜6 は 100〜160 字、7〜10 は 150〜240 字。",
-  "- 改行は実際の改行にする。文字列として『\\n』と書かない（選択肢に複数行の出力を入れるときも同様）。",
-  "- Python の出力予測問題は、コードを一行ずつ実際に実行した結果だけを正解にする（途中で変数の値を書き出して確かめる）。正解の選択肢は print の出力そのまま（Python の表記: 文字列はシングルクォート、タプルは丸括弧）。誤答の選択肢も『ありそうな誤り』にする。",
-  "- 直近の題材（recent_titles）と重ならない題材にする。",
-].join("\n");
-
-const ROLE_RUN_PYTHON = [
-  "役割: 与えられたテキストに含まれる Python コードを、code_interpreter で**そのまま**実行し、標準出力を一字一句そのまま stdout に入れる。",
-  "- コードを書き換えない・補完しない。実行できない（構文エラー等）なら stdout は空にして error に理由を書く。",
-  "- 出力が無ければ stdout は空文字。推測で出力を書かない。必ず実行結果をコピーする。",
-].join("\n");
-
-const runPythonSchema = z.object({
-  stdout: z.string(),
-  error: z.string(),
-});
+function generateInput(input: GenerateTaskInput): string {
+  return [
+    fmt("request", input.request),
+    fmt("domain", `${input.domain}（${DOMAIN_META[input.domain].label} / ${DOMAIN_META[input.domain].ja}）`),
+    fmt("kind", input.kind),
+    fmt("difficulty", input.difficulty),
+    fmt("allowed_skill_tags", input.allowedSkillTags),
+    fmt("recent_titles", input.recentTitles),
+  ].join("\n\n");
+}
 
 /** free 課題の rubric。模範解答があれば字数の上下限はその長さ（0.6〜1.6 倍）から決め、長すぎる要求を防ぐ */
-function freeRubric(out: z.infer<typeof generateSchema>): NonNullable<GenerateTaskOutput["rubric"]> {
+function freeRubric(out: GenerateSchemaOutput): NonNullable<GenerateTaskOutput["rubric"]> {
   const sample = out.model_answer.trim();
   const n = sample.length;
   const minLength = n >= 30 ? Math.max(30, Math.round(n * 0.6)) : out.rubric_min_length || 40;
@@ -159,76 +142,19 @@ function freeRubric(out: z.infer<typeof generateSchema>): NonNullable<GenerateTa
   };
 }
 
-function personaText(p?: PersonaPrompt): string {
-  if (!p) return "";
-  return [
-    "",
-    `あなたの人格: 名前「${p.name}」、一人称「${p.firstPerson}」。口調: ${p.tone}。`,
-    p.extra ? `補足: ${p.extra}` : "",
-    "名乗りは不要だが、文体はこの人格で一貫させる。口癖・決め台詞は毎回ではなく時々（3回に1回ほど）。",
-    "人格の設定より『答え・誤りの場所を言わない』方針が優先する。",
-  ]
-    .filter(Boolean)
-    .join("\n");
+/** 作問の共通後処理（ヒント 3 段への揃え・skill_tags の絞り込み） */
+function generateCommon(out: GenerateSchemaOutput, allowedSkillTags: readonly string[]) {
+  const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
+  const skillTags = filterSkillTags(out.skill_tags, allowedSkillTags);
+  return {
+    title: out.title,
+    passage: out.passage,
+    prompt: out.prompt,
+    hints,
+    explanation: out.explanation,
+    skillTags: skillTags.length ? skillTags : [allowedSkillTags[0]],
+  };
 }
-
-/** 現在時刻（JST）。system ではなく input に入れる（system を安定させてキャッシュを効かせる） */
-function nowText(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "full", timeStyle: "short" }).format(now);
-}
-
-function fmt(label: string, value: unknown): string {
-  const body = typeof value === "string" ? value : JSON.stringify(value);
-  return `## ${label}\n${body}`;
-}
-
-// ---- 会話・メモ ----
-
-const chatSchema = z.object({
-  text: z.string().describe("LINE に送る返答。3 文以内・日本語。必ず『次の一歩』を 1 つ含める。答えは教えない"),
-  suggest_domain: z.enum(["READ", "WRITE", "CODE", "NONE"]).describe("会話から勧めたい系統。無ければ NONE"),
-  sources: z.array(z.string()).describe("Web 検索を使ったときの出典 URL（最大 2 件）。使わなければ空"),
-});
-
-const lineIntentSchema = z.object({
-  kind: z.enum(["profile", "history", "quiz", "generate", "materials", "hint", "pass", "today", "help", "link", "chat"]),
-  domain: z.enum(["READ", "WRITE", "CODE", "NONE"]),
-  difficulty: z.number().int().min(0).max(10).describe("読み取れなければ 0"),
-  confidence: z.number().min(0).max(1),
-});
-
-const ROLE_LINE_INTENT = [
-  "役割: 学習サービス Trivium の LINE 公式アカウントに届いた 1 文の意図を分類する（明示語ではなく意味で判断する）。",
-  "- profile: 自分の能力・実力・レベル・三角形・プロフィールを見たい / history: 履歴・記録・これまでを見たい",
-  "- quiz: 用意済みの問題を 1 問解きたい（系統・難易度の指定があれば読む） / generate: 新しく問題を作ってほしい",
-  "- materials: おすすめの本・教材・サイト・勉強法を知りたい / hint: 出題中の問題のヒントが欲しい・わからない",
-  "- pass: 今の問題を飛ばしたい / today: 今日は何をすればいいかの提案が欲しい / help: 使い方を知りたい / link: Web アカウントと連携したい",
-  "- chat: 上のどれでもない雑談・相談・質問（迷ったら chat）。",
-  "- 『さっきの問題』『この問題』についての質問は、出題中なら hint ではなく chat（担当が文脈つきで答える）。",
-  "- domain は READ（読解）/ WRITE（作文）/ CODE（LOGIC: 論理・Python）/ NONE。difficulty は 1〜10、無ければ 0。",
-].join(String.fromCharCode(10));
-
-const memorySchema = z.object({
-  notes: z.string().describe("観察メモ。行動の傾向と『次に見たいこと』を、数値を書かずに簡潔に。上限字数を守る"),
-});
-
-const ROLE_CHAT = [
-  "役割: LINE で学習者と自由に会話する人格。雑談・相談・学習内容の説明・時事や一般知識の質問にも普通に応じる。",
-  `- 返答は ${LINE.chatMaxSentences} 文以内。『次の一歩』（例: 『LOGIC を 1 問』『Dashboard で三角形を見る』）は会話の流れで自然なときだけ添える。毎回は付けない。`,
-  "- 出題中の課題の答え・完成文は書かない。一般的な概念や考え方の説明は自由にしてよい（例: 二分探索の一般的な仕組み、要約のコツ）。",
-  "- memory（観察メモ）と profile（能力サマリ）は、本人がそれに関係する話をしたときだけ使う。無関係な雑談に成績の話を持ち込まない。証拠が無いことは断定しない。",
-  "- 日付・時刻・時事・最新情報を聞かれたら、now を使い、必要なら Web 検索で確かめる（検索した場合は sources に URL）。",
-  "- conversation は直近の往復。文脈を引き継ぎ、同じ言い回しを繰り返さない。",
-  "- 人格（口調・一人称）を一貫させる。ツンデレ等の性格付けは会話で最も出してよい場面。",
-].join("\n");
-
-const ROLE_MEMORY = [
-  "役割: 決着した 1 問を踏まえて、この人格が持つ学習者の観察メモを書き直す。",
-  "- メモは本人に見せない内部用。行動の傾向（どこで詰まる・どう立て直す・何が得意か）と『次に見たいこと』を書く。",
-  "- 数値（スコア・件数・正答率）は書かない。性格の断定もしない。証拠が少なければその旨を残す。",
-  "- 既存メモ（previous_notes）を引き継ぎつつ、古くなった観察は消す。上限字数（max_chars）を厳守。",
-  "- agent が LEADER（表示名 ADVISOR）の場合は 3 系統のメモを横断して、学習者全体の傾向と、系統間のつながりを書く。",
-].join("\n");
 
 export class OpenAIProvider implements LearningAIProvider {
   readonly name = "openai";
@@ -329,18 +255,7 @@ export class OpenAIProvider implements LearningAIProvider {
 
   async evaluate(input: DomainEvalInput): Promise<DomainEvalOutput> {
     const domain = MODE_TO_DOMAIN[input.mode];
-    const user = [
-      fmt("mode", input.mode),
-      fmt("task", input.task),
-      wrapLearnerAnswer(input.learnerAnswer),
-      fmt("deterministic_result", deterministicResultText(input.deterministicResult)),
-      fmt("heuristic_result", heuristicResultText(input.heuristicResult)),
-      fmt("hint_level", input.hintLevel),
-      fmt("current_domain_profile", input.currentDomainProfile),
-      fmt("recent_behavior", input.recentBehavior.join("\n") || "(なし)"),
-      fmt("allowed_skill_tags", SUBSKILLS[domain]),
-    ].join("\n\n");
-    const { parsed: out } = await this.parse(ROLE_EVAL, input.persona, user, evalSchema, "evaluation", input.learnerRef, {
+    const { parsed: out } = await this.parse(ROLE_EVAL, input.persona, evalInput(input, domain), evalSchema, "evaluation", input.learnerRef, {
       model: MODELS.evaluate,
       effort: MODELS.reasoningEffort.evaluate,
     });
@@ -360,14 +275,7 @@ export class OpenAIProvider implements LearningAIProvider {
   async interpretDomain(input: DomainInterpretInput): Promise<DomainInterpretOutput> {
     if (input.stats.evidenceCount === 0) return this.fallback.interpretDomain(input);
     const domain = MODE_TO_DOMAIN[input.mode];
-    const user = [
-      fmt("mode", input.mode),
-      fmt("domain_label", DOMAIN_META[domain].label),
-      fmt("subskills_in_this_domain", SUBSKILLS[domain]),
-      fmt("stats", input.stats),
-      fmt("recent_events", input.recentEvents),
-    ].join("\n\n");
-    const { parsed: out } = await this.parse(ROLE_INTERPRET, input.persona, user, interpretSchema, "interpretation", input.learnerRef, {
+    const { parsed: out } = await this.parse(ROLE_INTERPRET, input.persona, interpretInput(input, domain), interpretSchema, "interpretation", input.learnerRef, {
       model: MODELS.interpret,
       effort: MODELS.reasoningEffort.interpret,
     });
@@ -376,13 +284,7 @@ export class OpenAIProvider implements LearningAIProvider {
 
   async leader(input: LeaderInput): Promise<LeaderOutput> {
     if (input.totalEvents === 0) return this.fallback.leader(input);
-    const user = [
-      fmt("domains", input.domains),
-      fmt("total_events", input.totalEvents),
-      fmt("last_event", input.lastEvent ?? "(なし)"),
-      fmt("context", input.context ?? "(なし)"),
-    ].join("\n\n");
-    const { parsed: out } = await this.parse(ROLE_LEADER, input.persona, user, leaderSchema, "leader", input.learnerRef, {
+    const { parsed: out } = await this.parse(ROLE_LEADER, input.persona, leaderInput(input), leaderSchema, "leader", input.learnerRef, {
       model: MODELS.leader,
       effort: MODELS.reasoningEffort.leader,
     });
@@ -398,16 +300,7 @@ export class OpenAIProvider implements LearningAIProvider {
 
   /** LINE の会話（人格ごと）。system=人格、input=時刻・メモ・能力サマリ・会話履歴・発話 */
   async chat(input: ChatInput): Promise<ChatOutput> {
-    const conversation = input.history.map((t) => `${t.role === "user" ? "learner" : input.persona.name}: ${t.text}`).join("\n");
-    const user = [
-      fmt("memory", input.memoryNotes || "(まだ観察メモは無い)"),
-      fmt("profile", input.profileSummary || "(まだ学習記録が無い)"),
-      ...(input.sharedContext ? [fmt("shared_context", `${input.sharedContext}\n\n（他の担当との会話や直近の課題は把握している前提で自然に続ける。「さっきの問題」と言われたらこれを指す。答え・誤りの箇所を言わない方針は同じ）`)] : []),
-      ...(input.currentTask ? [fmt("current_task", `${input.currentTask}\n\n（この課題について聞かれたら: 答え・正解の選択肢・誤りの箇所は言わない。考え方の一段だけ示すか、問い返す）`)] : []),
-      fmt("conversation", conversation || "(最初の発話)"),
-      fmt("learner_says", input.userText),
-    ].join("\n\n");
-    const { parsed, usedSearch } = await this.parse(ROLE_CHAT, input.persona, user, chatSchema, "chat_reply", input.learnerRef, {
+    const { parsed, usedSearch } = await this.parse(ROLE_CHAT, input.persona, chatInput(input), chatSchema, "chat_reply", input.learnerRef, {
       model: MODELS.chat,
       effort: MODELS.reasoningEffort.chat,
       search: input.allowSearch && EXTERNAL.webSearchAllowed.chat,
@@ -415,12 +308,7 @@ export class OpenAIProvider implements LearningAIProvider {
     });
     const sources = parsed.sources.filter((s) => /^https?:\/\//.test(s)).slice(0, 2);
     // LINE はマークダウンを描画しないので、太字・インラインリンク・検索由来の引用マーカーを平文に落とす
-    const plain = parsed.text
-      .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/g, "")
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1")
-      .replace(/[ \t]+\n/g, "\n")
-      .trim();
+    const plain = stripMarkdownForChat(parsed.text);
     const text = sources.length ? `${plain}\n出典: ${sources.join(" ")}` : plain;
     const suggest = parsed.suggest_domain === "NONE" ? null : parsed.suggest_domain;
     return { text, suggestDomain: (DOMAINS as readonly string[]).includes(suggest ?? "") ? (suggest as DomainKey) : null, usedSearch };
@@ -428,17 +316,7 @@ export class OpenAIProvider implements LearningAIProvider {
 
   /** 観察メモの更新（数値を書かない・上限字数）。失敗時は呼び出し側が catch する */
   async updateMemory(input: MemoryUpdateInput): Promise<MemoryUpdateOutput> {
-    const user = [
-      fmt("agent", input.agent),
-      fmt("max_chars", input.maxChars),
-      fmt("previous_notes", input.previousNotes || "(なし)"),
-      input.event ? fmt("settled_event", input.event) : "",
-      input.domainNotes?.length ? fmt("domain_notes", input.domainNotes) : "",
-      input.leaderSummary ? fmt("leader_summary", input.leaderSummary) : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    const { parsed } = await this.parse(ROLE_MEMORY, input.persona, user, memorySchema, "memory_notes", input.learnerRef, {
+    const { parsed } = await this.parse(ROLE_MEMORY, input.persona, memoryInput(input), memorySchema, "memory_notes", input.learnerRef, {
       model: MODELS.interpret,
       effort: MODELS.reasoningEffort.interpret,
       maxOutputTokens: 700,
@@ -447,17 +325,9 @@ export class OpenAIProvider implements LearningAIProvider {
   }
 
   async generateTask(input: GenerateTaskInput): Promise<GenerateTaskOutput> {
-    const user = [
-      fmt("request", input.request),
-      fmt("domain", `${input.domain}（${DOMAIN_META[input.domain].label} / ${DOMAIN_META[input.domain].ja}）`),
-      fmt("kind", input.kind),
-      fmt("difficulty", input.difficulty),
-      fmt("allowed_skill_tags", input.allowedSkillTags),
-      fmt("recent_titles", input.recentTitles),
-    ].join("\n\n");
     // 作問は品質重視のモデル。時事ネタの依頼だけ Web 検索を許可（EXTERNAL.webSearchAllowed.generate）
     const wantsSearch = EXTERNAL.webSearchAllowed.generate && /(時事|ニュース|最近の|最新|今日の話題|話題の)/.test(input.request);
-    const { parsed: out } = await this.parse(ROLE_GENERATE, input.persona, user, generateSchema, "generated_task", input.learnerRef, {
+    const { parsed: out } = await this.parse(ROLE_GENERATE, input.persona, generateInput(input), generateSchema, "generated_task", input.learnerRef, {
       model: MODELS.generate,
       effort: MODELS.reasoningEffort.generate,
       search: wantsSearch,
@@ -465,48 +335,17 @@ export class OpenAIProvider implements LearningAIProvider {
       maxOutputTokens: 8000,
     });
 
-    const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];
-    const skillTags = filterSkillTags(out.skill_tags, input.allowedSkillTags);
+    const common = generateCommon(out, input.allowedSkillTags);
     if (input.kind === "choice") {
       if (out.choices.length !== 4 || out.answer_index < 0 || out.answer_index > 3) {
         throw new Error("generated choice task is malformed");
       }
-      return {
-        title: out.title,
-        passage: out.passage,
-        prompt: out.prompt,
-        choices: out.choices,
-        answerKey: [String(out.answer_index)],
-        rubric: null,
-        hints,
-        explanation: out.explanation,
-        skillTags: skillTags.length ? skillTags : [input.allowedSkillTags[0]],
-      };
+      return { ...common, choices: out.choices, answerKey: [String(out.answer_index)], rubric: null };
     }
     if (input.kind === "short") {
       if (out.short_answers.length === 0) throw new Error("generated short task has no answer");
-      return {
-        title: out.title,
-        passage: out.passage,
-        prompt: out.prompt,
-        choices: [],
-        answerKey: out.short_answers,
-        rubric: null,
-        hints,
-        explanation: out.explanation,
-        skillTags: skillTags.length ? skillTags : [input.allowedSkillTags[0]],
-      };
+      return { ...common, choices: [], answerKey: out.short_answers, rubric: null };
     }
-    return {
-      title: out.title,
-      passage: out.passage,
-      prompt: out.prompt,
-      choices: [],
-      answerKey: [],
-      rubric: freeRubric(out),
-      hints,
-      explanation: out.explanation,
-      skillTags: skillTags.length ? skillTags : [input.allowedSkillTags[0]],
-    };
+    return { ...common, choices: [], answerKey: [], rubric: freeRubric(out) };
   }
 }

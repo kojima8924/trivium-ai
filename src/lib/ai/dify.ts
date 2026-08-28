@@ -18,8 +18,8 @@ import {
   filterSkillTags,
   heuristicResultText,
   safeEvaluationStatus,
-  stripJsonCodeFence,
 } from "./shared";
+import { plainForLine, stripJsonCodeFence } from "./text";
 import type {
   ChatInput,
   ChatOutput,
@@ -89,6 +89,29 @@ type DifyRunResponse = {
 
 class DifyError extends Error {}
 
+// ---- HTTP の共通部（ベース URL・Bearer・JSON 本文・タイムアウト） ----
+
+/** Dify API への POST。応答の判定（status / body）は用途ごとに呼び出し側で行う。 */
+function difyPost(path: string, apiKey: string, body: unknown, signal: AbortSignal): Promise<Response> {
+  return fetch(`${env.ai.difyApiBase.replace(/\/$/, "")}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+/** DIFY_TIMEOUT_MS でアボートし、タイマーを必ず後始末する。 */
+async function withDifyTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), env.ai.difyTimeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 人格は JSON 文字列で渡す（無ければ空文字。DSL 側は空なら既定の口調） */
 function personaInput(p?: PersonaPrompt): string {
   if (!p) return "";
@@ -121,32 +144,19 @@ export type DifyChatResult = { text: string; conversationId: string };
 
 type DifyChatResponse = { answer?: string; conversation_id?: string; message_id?: string; message?: string; code?: string };
 
-/** LINE の返答は Flex のプレーンテキストなので、マークダウンの装飾とリンク記法を落とす */
-function plainForLine(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/^\s*[-*]\s+/gm, "・")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/g, "")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1 $2")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-async function postChatMessage(args: DifyChatArgs, conversationId: string | undefined, signal: AbortSignal): Promise<Response> {
-  return fetch(`${env.ai.difyApiBase.replace(/\/$/, "")}/chat-messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.ai.difyChatApiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+function postChatMessage(args: DifyChatArgs, conversationId: string | undefined, signal: AbortSignal): Promise<Response> {
+  return difyPost(
+    "/chat-messages",
+    env.ai.difyChatApiKey,
+    {
       inputs: { learner_ref: args.learnerRef, addressed_agent: args.addressedAgent, app_url: args.appUrl },
       query: args.text.slice(0, 2000),
       response_mode: "blocking",
       user: args.learnerRef,
       ...(conversationId ? { conversation_id: conversationId } : {}),
-    }),
+    },
     signal,
-  });
+  );
 }
 
 /**
@@ -155,31 +165,29 @@ async function postChatMessage(args: DifyChatArgs, conversationId: string | unde
  */
 export async function difyChat(args: DifyChatArgs): Promise<DifyChatResult | null> {
   if (!env.ai.difyChatApiKey) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.ai.difyTimeoutMs);
   try {
-    let res = await postChatMessage(args, args.conversationId, controller.signal);
-    // 会話が消えている（404 / conversation not exists）ときは、id を捨てて新規会話で 1 回だけやり直す
-    if (!res.ok && args.conversationId && (res.status === 404 || res.status === 400)) {
-      console.warn(`[dify] chat conversation reset (HTTP ${res.status})`);
-      res = await postChatMessage(args, undefined, controller.signal);
-    }
-    if (!res.ok) {
-      console.warn(`[dify] chat HTTP ${res.status}`);
-      return null;
-    }
-    const json = (await res.json()) as DifyChatResponse;
-    const text = plainForLine(json.answer ?? "");
-    if (!text) {
-      console.warn("[dify] chat returned an empty answer");
-      return null;
-    }
-    return { text: text.slice(0, 1500), conversationId: json.conversation_id ?? "" };
+    return await withDifyTimeout(async (signal) => {
+      let res = await postChatMessage(args, args.conversationId, signal);
+      // 会話が消えている（404 / conversation not exists）ときは、id を捨てて新規会話で 1 回だけやり直す
+      if (!res.ok && args.conversationId && (res.status === 404 || res.status === 400)) {
+        console.warn(`[dify] chat conversation reset (HTTP ${res.status})`);
+        res = await postChatMessage(args, undefined, signal);
+      }
+      if (!res.ok) {
+        console.warn(`[dify] chat HTTP ${res.status}`);
+        return null;
+      }
+      const json = (await res.json()) as DifyChatResponse;
+      const text = plainForLine(json.answer ?? "");
+      if (!text) {
+        console.warn("[dify] chat returned an empty answer");
+        return null;
+      }
+      return { text: text.slice(0, 1500), conversationId: json.conversation_id ?? "" };
+    });
   } catch (err) {
     console.warn("[dify] chat failed:", (err as Error).message);
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -189,24 +197,15 @@ export class DifyProvider implements LearningAIProvider {
 
   private async run(apiKey: string, inputs: Record<string, unknown>, user: string): Promise<Record<string, unknown>> {
     if (!apiKey) throw new DifyError("Dify API key is not configured");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), env.ai.difyTimeoutMs);
-    try {
-      const res = await fetch(`${env.ai.difyApiBase.replace(/\/$/, "")}/workflows/run`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs, response_mode: "blocking", user }),
-        signal: controller.signal,
-      });
+    return withDifyTimeout(async (signal) => {
+      const res = await difyPost("/workflows/run", apiKey, { inputs, response_mode: "blocking", user }, signal);
       if (!res.ok) throw new DifyError(`Dify HTTP ${res.status}`);
       const json = (await res.json()) as DifyRunResponse;
       if (json.data?.status && json.data.status !== "succeeded") {
         throw new DifyError(`Dify workflow ${json.data.status}: ${json.data.error ?? ""}`);
       }
       return json.data?.outputs ?? {};
-    } finally {
-      clearTimeout(timer);
-    }
+    });
   }
 
   /** outputs は { result: "<json文字列>" } か、直接フィールドが並ぶ形のどちらも許容 */

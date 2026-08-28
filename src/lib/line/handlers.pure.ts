@@ -11,7 +11,7 @@ import type { AgentKey } from "@/lib/persona";
 import type { DomainKey } from "@/lib/domain";
 import type { LineIntentGuess } from "@/lib/ai/types";
 import { inferTaskTypeFromRequest } from "@/lib/learn/generate.pure";
-import type { Intent } from "./leader";
+import type { Intent } from "./types";
 
 export type RouteInput = {
   intent: Intent;

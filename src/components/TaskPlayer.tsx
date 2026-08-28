@@ -1,29 +1,13 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DOMAIN_META, MAX_HINTS, type DomainKey } from "@/lib/domain";
-import type { TaskPublic } from "@/lib/tasks/types";
-import type { SubmitResult } from "@/lib/learn/types";
-import { ACHIEVEMENTS, achievementTitle } from "@/lib/achievement-defs";
-import { AchievementToast } from "@/components/AchievementToast";
-import { CharacterAvatar } from "@/components/CharacterAvatar";
-import { CodeBlock } from "@/components/CodeBlock";
-import { moodForMark } from "@/lib/characters";
-import { formatScore } from "@/lib/scoring";
-
-// /api/learn/submit のレスポンス型はサーバと共通（src/lib/learn/types.ts が唯一の定義）
-type SubmitResponse = SubmitResult;
-
-type Phase = "loading" | "answering" | "submitting" | "done" | "error";
-
-/** LOGIC は Python と論理パズルが混在するので、コードらしい本文だけ等幅ブロックで出す */
-function looksLikeCode(passage: string): boolean {
-  const firstLine = passage.split("\n")[0] ?? "";
-  if (/^(def |print\(|for |import |[a-z_]+ = )/m.test(passage)) return true;
-  if (/^[#・\s]/.test(firstLine)) return false;
-  return /\b(def|print|for|while|if|import|return|range|len)\b|[=\[\]{}()]/.test(passage);
-}
+// 学習ページの本体。状態は useTaskPlayer に、表示は task-player/ の子コンポーネントに任せ、
+// ここは「読み込み中／エラー／課題・ログ・入力・結果」の組み立てだけを行う。
+import type { DomainKey } from "@/lib/domain";
+import { AnswerInput } from "@/components/task-player/AnswerInput";
+import { FeedbackLog } from "@/components/task-player/FeedbackLog";
+import { ResultCard } from "@/components/task-player/ResultCard";
+import { TaskBody } from "@/components/task-player/TaskBody";
+import { useTaskPlayer } from "@/components/task-player/use-task-player";
 
 export function TaskPlayer({
   domain,
@@ -38,92 +22,7 @@ export function TaskPlayer({
   /** LEADER の名前（結果画面に表示） */
   leaderName?: string;
 }) {
-  const [task, setTask] = useState<TaskPublic | null>(null);
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [answer, setAnswer] = useState("");
-  const [hintCount, setHintCount] = useState(0);
-  // mark: ○ 正解 / △ 誤答→ヒントで再挑戦 / ✕ ヒント切れ・ギブアップ
-  const [log, setLog] = useState<{ kind: "feedback" | "hint" | "me"; text: string; mark?: "○" | "△" | "✕" }[]>([]);
-  const [result, setResult] = useState<Extract<SubmitResponse, { status: "success" | "failed" }> | null>(null);
-  // 実績解除の演出（結果ごとに 1 回。閉じたら消す）
-  const [toastKeys, setToastKeys] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const startedAt = useRef<number>(0);
-  const [reload, setReload] = useState<{ key: number; taskId?: string }>({ key: 0, taskId: preferredTaskId });
-  const meta = DOMAIN_META[domain];
-
-  // 課題の取得。setState は fetch 完了コールバック内でのみ行う
-  useEffect(() => {
-    let cancelled = false;
-    const q = new URLSearchParams({ domain: domain.toLowerCase() });
-    if (reload.taskId) q.set("task", reload.taskId);
-    fetch(`/api/learn/next?${q}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as { task: TaskPublic };
-      })
-      .then((j) => {
-        if (cancelled) return;
-        startedAt.current = Date.now();
-        setTask(j.task);
-        setPhase("answering");
-      })
-      .catch((e: Error) => {
-        if (cancelled) return;
-        setError(e.message);
-        setPhase("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [domain, reload]);
-
-  const load = useCallback((taskId?: string) => {
-    setPhase("loading");
-    setError(null);
-    setTask(null);
-    setAnswer("");
-    setHintCount(0);
-    setLog([]);
-    setResult(null);
-    setReload((r) => ({ key: r.key + 1, taskId }));
-  }, []);
-
-  async function submit(giveUp = false) {
-    if (!task) return;
-    if (!giveUp && answer.trim() === "") return;
-    setPhase("submitting");
-    setError(null);
-    if (!giveUp) setLog((l) => [...l, { kind: "me", text: task.kind === "choice" ? task.choices?.[Number(answer)] ?? answer : answer }]);
-    try {
-      const res = await fetch("/api/learn/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: task.id,
-          answer,
-          hintCount,
-          latencyMs: Date.now() - startedAt.current,
-          giveUp,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const j = (await res.json()) as SubmitResponse;
-      if (j.status === "retry") {
-        setLog((l) => [...l, { kind: "feedback", text: j.feedback, mark: "△" }, ...(j.hint ? [{ kind: "hint" as const, text: j.hint }] : [])]);
-        setHintCount(j.hintCount);
-        setPhase("answering");
-      } else {
-        setLog((l) => [...l, { kind: "feedback", text: j.feedback, mark: j.status === "success" ? "○" : "✕" }]);
-        setResult(j);
-        if (j.newAchievements?.length) setToastKeys(j.newAchievements);
-        setPhase("done");
-      }
-    } catch (e) {
-      setError((e as Error).message);
-      setPhase("answering");
-    }
-  }
+  const { task, phase, answer, setAnswer, hintCount, log, result, toastKeys, setToastKeys, error, load, submit } = useTaskPlayer({ domain, preferredTaskId });
 
   if (phase === "loading") return <div className="card p-6 text-sm text-muted">課題を選んでいます…</div>;
   if (phase === "error" || !task)
@@ -141,192 +40,14 @@ export function TaskPlayer({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="card p-4 sm:p-5">
-        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
-          <span className="min-w-0 truncate">
-            {task.id.startsWith("gen-") && (
-              <span className="mr-1 rounded border px-1 py-0.5 text-[10px] font-semibold" style={{ borderColor: meta.color, color: meta.color }}>
-                AI 作問
-              </span>
-            )}
-            {task.title}
-          </span>
-          <span>
-            難易度 {task.difficulty}/10 · ヒント {hintCount}/{MAX_HINTS}
-          </span>
-        </div>
-        {task.passage && (looksLikeCode(task.passage) ? <CodeBlock code={task.passage} /> : <p className="passage text-sm">{task.passage}</p>)}
-        <p className="mt-3 text-sm font-medium leading-relaxed">{task.prompt}</p>
-      </section>
+      <TaskBody task={task} domain={domain} hintCount={hintCount} />
 
-      {log.length > 0 && (
-        <section className="flex flex-col gap-2">
-          {log.map((m, i) => (
-            <div key={i} className={m.kind === "me" ? "flex justify-end" : "flex items-end gap-2"}>
-              {/* AI 側の吹き出しには担当キャラのアバターを添える（連続するときは最初だけ） */}
-              {m.kind !== "me" && (
-                <div className="w-9 shrink-0">{(i === 0 || log[i - 1].kind === "me") && <CharacterAvatar agent={domain} size={36} mood={moodForMark(m.mark ?? (m.kind === "hint" ? "△" : undefined))} />}</div>
-              )}
-              <div
-                className={
-                  m.kind === "me"
-                    ? "ml-8 rounded-xl border border-line bg-bg-elev px-3 py-2 text-sm"
-                    : m.kind === "hint"
-                      ? "mr-8 flex-1 rounded-xl border px-3 py-2 text-sm"
-                      : "mr-8 flex-1 rounded-xl bg-bg-elev px-3 py-2 text-sm text-muted"
-                }
-                style={m.kind === "hint" ? { borderColor: meta.color } : undefined}
-              >
-                {m.kind === "hint" && (
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.color }}>
-                    hint {log.filter((x, j) => x.kind === "hint" && j <= i).length}
-                  </div>
-                )}
-                {m.kind === "feedback" && personaName && (
-                  <div className="mb-0.5 text-[10px] font-semibold" style={{ color: meta.color }}>
-                    {personaName}
-                  </div>
-                )}
-                {m.mark && (
-                  <div
-                    className={`mb-1 text-3xl font-black leading-none ${m.mark === "○" ? "text-ok" : m.mark === "✕" ? "text-ng" : "text-write"}`}
-                    aria-label={m.mark === "○" ? "正解" : m.mark === "✕" ? "不正解" : "もう一度"}
-                  >
-                    {m.mark}
-                    <span className="ml-2 align-middle text-xs font-semibold">{m.mark === "○" ? "正解" : m.mark === "✕" ? "不正解" : "もう一度"}</span>
-                  </div>
-                )}
-                <div className="whitespace-pre-wrap">{m.text}</div>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      <FeedbackLog log={log} domain={domain} personaName={personaName} />
 
-      {!done && (
-        <section className="card flex flex-col gap-3 p-4">
-          {task.kind === "choice" && task.choices ? (
-            <div className="flex flex-col gap-2">
-              {task.choices.map((c, i) => (
-                <label key={i} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${answer === String(i) ? "border-fg" : "border-line"}`}>
-                  <input type="radio" name="choice" value={i} checked={answer === String(i)} onChange={() => setAnswer(String(i))} className="mt-1" disabled={busy} />
-                  {/* 複数行の出力（print が 2 行など）は改行のまま見せる。コードらしい選択肢は等幅 */}
-                  <span className={`whitespace-pre-wrap break-words ${looksLikeCode(c) ? "font-mono text-xs sm:text-sm" : ""}`}>{c}</span>
-                </label>
-              ))}
-            </div>
-          ) : task.kind === "short" ? (
-            <input
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void submit();
-              }}
-              placeholder="答えを入力"
-              className="rounded-lg border border-line bg-bg px-3 py-2 font-mono text-sm"
-              disabled={busy}
-              autoComplete="off"
-            />
-          ) : (
-            <textarea
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="ここに書く"
-              rows={6}
-              className="rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed"
-              disabled={busy}
-            />
-          )}
-          {task.kind === "free" && <div className="text-right text-[11px] text-muted">{[...answer].length} 字</div>}
-          {error && <p className="text-xs text-ng">送信に失敗しました（{error}）。もう一度お試しください。</p>}
-          <div className="flex items-center justify-between gap-2">
-            <button type="button" className="min-h-11 px-2 text-xs text-muted hover:text-fg" onClick={() => submit(true)} disabled={busy}>
-              解説を見て終える
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => submit()} disabled={busy || answer.trim() === ""}>
-              {busy ? "AIが確認中…（数秒）" : hintCount > 0 ? "もう一度答える" : "答える"}
-            </button>
-          </div>
-        </section>
-      )}
+      {!done && <AnswerInput task={task} answer={answer} setAnswer={setAnswer} busy={busy} hintCount={hintCount} error={error} submit={(giveUp) => void submit(giveUp)} />}
 
       {done && result && (
-        <section className="card flex flex-col gap-3 p-4 sm:p-5">
-          <div className={`flex items-center gap-3 ${result.status === "success" ? "text-ok" : "text-ng"}`}>
-            <span className="text-5xl font-black leading-none" aria-hidden="true">
-              {result.status === "success" ? "○" : "✕"}
-            </span>
-            <span className="text-sm font-semibold">{result.status === "success" ? `正解（ヒント ${result.hintCount} 回）` : "今回は未達"}</span>
-          </div>
-          <div className="rounded-lg bg-bg p-3 text-sm leading-relaxed">
-            <div className="mb-1 text-[11px] font-semibold text-muted">解説</div>
-            {result.explanation}
-          </div>
-          {result.sampleAnswer && (
-            <div className="rounded-lg bg-bg p-3 text-sm leading-relaxed">
-              <div className="mb-1 text-[11px] font-semibold text-muted">参考答案（{result.sampleAnswer.length} 字）</div>
-              <p className="passage">{result.sampleAnswer}</p>
-            </div>
-          )}
-          <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm">
-            <span className="wordmark text-xs" style={{ color: meta.color }}>
-              {meta.label}
-            </span>
-            <span className="tabular-nums">
-              {formatScore(result.profile.before)} → <span className="font-bold">{formatScore(result.profile.after)}</span>
-              {Math.abs(result.profile.after - result.profile.before) >= 0.05 && (
-                <span className={`ml-1 text-[11px] ${result.profile.after > result.profile.before ? "text-ok" : "text-ng"}`}>
-                  ({result.profile.after > result.profile.before ? "+" : ""}
-                  {(Math.round((result.profile.after - result.profile.before) * 10) / 10).toFixed(1)})
-                </span>
-              )}
-              <span className="ml-2 text-[11px] text-muted">
-                Lv.{result.profile.levelBefore} → <span className={result.profile.levelAfter > result.profile.levelBefore ? "font-bold text-ok" : ""}>Lv.{result.profile.levelAfter}</span>
-                {result.profile.levelAfter > result.profile.levelBefore ? " レベルアップ" : ""}
-                {" · "}信頼度: {result.profile.confidence}
-              </span>
-              {result.xp && result.xp.gained > 0 && (
-                <span className="ml-2 text-[11px] font-semibold text-ok">+{result.xp.gained} XP</span>
-              )}
-            </span>
-          </div>
-          <p className="text-xs leading-relaxed text-muted">{result.profile.summary}</p>
-          {result.leader && (
-            <div className="flex items-start gap-3 rounded-lg border border-line p-3 text-xs">
-              <CharacterAvatar agent="LEADER" size={40} mood={result.profile.levelAfter > result.profile.levelBefore ? "cheer" : result.status === "success" ? "happy" : "normal"} />
-              <div className="min-w-0 flex-1">
-                <div className="wordmark mb-1 text-[10px]">Advisor{leaderName ? ` · ${leaderName}` : ""}</div>
-                <p className="leading-relaxed">{result.leader.summary}</p>
-                <p className="mt-1 font-medium">次のおすすめ: {result.leader.recommendation}</p>
-              </div>
-            </div>
-          )}
-          {result.newAchievements.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="font-semibold">🏅 実績解除:</span>
-              {result.newAchievements.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  className="rounded-full border border-line bg-bg px-2 py-0.5 hover:border-fg"
-                  onClick={() => setToastKeys([k])}
-                  title={ACHIEVEMENTS[k]?.description ?? ""}
-                >
-                  {ACHIEVEMENTS[k]?.emoji ?? "🏅"} {achievementTitle(k)}
-                </button>
-              ))}
-            </div>
-          )}
-          {toastKeys.length > 0 && <AchievementToast keys={toastKeys} agent={domain} onDone={() => setToastKeys([])} />}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Link href="/dashboard" className="btn btn-primary">
-              Dashboard で変化を見る
-            </Link>
-            <button type="button" className="btn" onClick={() => load()}>
-              次の課題へ
-            </button>
-          </div>
-        </section>
+        <ResultCard result={result} domain={domain} leaderName={leaderName} toastKeys={toastKeys} setToastKeys={setToastKeys} onNext={() => load()} />
       )}
     </div>
   );

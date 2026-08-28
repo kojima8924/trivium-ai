@@ -3,7 +3,7 @@
 import { XP } from "@/config/trivium.config";
 import { ACHIEVEMENTS } from "./achievement-defs";
 import { DOMAINS, type DomainKey } from "./domain";
-import { axesOf, computeLevels, type ScorableEvent } from "./scoring";
+import { AXIS_OF, axesOf, computeLevels, type ScorableEvent } from "./scoring";
 import { computeXp, dayKey, rankFor } from "./xp";
 
 export type AchievementEvent = ScorableEvent & {
@@ -11,8 +11,6 @@ export type AchievementEvent = ScorableEvent & {
   /** LLM が作った課題か */
   generated?: boolean;
 };
-
-const AXIS: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 
 /** JST の時刻（0..23）と曜日（0=日） */
 function localParts(d: Date): { hour: number; weekday: number } {
@@ -50,7 +48,7 @@ export function unlockedAchievements(events: AchievementEvent[], now: Date = new
   const successes = sorted.filter((e) => e.success);
   const involved = (e: ScorableEvent): DomainKey[] => {
     const a = axesOf(e);
-    return DOMAINS.filter((d) => a[AXIS[d]] > 0);
+    return DOMAINS.filter((d) => a[AXIS_OF[d]] > 0);
   };
 
   // ---- はじめの一歩 ----
@@ -87,11 +85,11 @@ export function unlockedAchievements(events: AchievementEvent[], now: Date = new
   // ---- 到達レベル ----
   const levels = computeLevels(sorted, now);
   for (const d of DOMAINS) {
-    const lv = levels[AXIS[d]].level;
+    const lv = levels[AXIS_OF[d]].level;
     for (const t of [3, 5, 8, 10]) if (lv >= t) has.add(`${d.toLowerCase()}_lv${t}`);
   }
-  if (DOMAINS.every((d) => levels[AXIS[d]].level >= 5)) has.add("balanced_5");
-  if (DOMAINS.every((d) => levels[AXIS[d]].level >= 8)) has.add("balanced_8");
+  if (DOMAINS.every((d) => levels[AXIS_OF[d]].level >= 5)) has.add("balanced_5");
+  if (DOMAINS.every((d) => levels[AXIS_OF[d]].level >= 8)) has.add("balanced_8");
 
   // ---- XP・ランク ----
   for (const t of [100, 500, 1000, 3000]) if (xp.total >= t) has.add(`xp_${t}`);

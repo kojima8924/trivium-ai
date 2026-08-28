@@ -2,6 +2,7 @@
 // 能力の三角形（証拠）とは別の「行動の積み上げ」指標。すべて learning_events から決定論で導く。
 // 係数は src/config/trivium.config.ts の XP で調整する。
 import { XP } from "@/config/trivium.config";
+import { jstDayKey } from "./date";
 import { DOMAINS, type DomainKey } from "./domain";
 import { axesOf, type ScorableEvent } from "./scoring";
 
@@ -22,10 +23,8 @@ export type XpSummary = {
   breakdown: { tasks: number; missions: number; streak: number };
 };
 
-/** JST の日付キー */
-export function dayKey(d: Date): string {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: XP.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-}
+/** JST の日付キー（実体は date.ts。互換のためここからも公開する） */
+export const dayKey = jstDayKey;
 
 /** 1 イベントの XP と系統別の内訳 */
 export function xpForEvent(e: XpEvent): { total: number; byDomain: Record<DomainKey, number> } {

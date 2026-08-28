@@ -8,14 +8,9 @@ import { formatScore } from "@/lib/scoring";
 import { characterHex, characterImageUrl, type CharacterMood } from "@/lib/characters";
 import type { AgentKey } from "@/lib/persona";
 import type { XpSummary } from "@/lib/xp";
-import type { LeaderAction, LeaderReply } from "./leader";
-
-// LINE の Flex は CSS 変数が使えないので、ライトテーマの domain 色を固定で使う
-const COLOR: Record<DomainKey, string> = { READ: "#1d4ed8", WRITE: "#b45309", CODE: "#047857" };
-const INK = "#1c1c1a";
-const MUTED = "#6b6b66";
-const LINE_COLOR = "#e6e4dc";
-const TRACK = "#f0eee7";
+import type { LeaderAction, LeaderReply } from "./types";
+// 色とテキスト / 横棒 / 区切り線の生成は flex.parts.ts（低レベル部品）に置いてある
+import { COLOR, INK, MUTED, bar, separator, text, type Box, type Component } from "./flex.parts";
 
 export type FlexProfileInput = {
   name: string;
@@ -23,41 +18,6 @@ export type FlexProfileInput = {
   domains: { domain: DomainKey; score: number; level: number; evidenceCount: number }[];
   dashboardUrl: string;
 };
-
-type Box = messagingApi.FlexBox;
-type Component = messagingApi.FlexComponent;
-
-function text(t: string, extra: Partial<messagingApi.FlexText> = {}): messagingApi.FlexText {
-  return { type: "text", text: t || " ", wrap: true, size: "sm", color: INK, ...extra };
-}
-
-/** 横棒。ratio は 0..1。LINE の Flex は width を % で指定できる */
-function bar(ratio: number, color: string): Box {
-  const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
-  return {
-    type: "box",
-    layout: "vertical",
-    backgroundColor: TRACK,
-    cornerRadius: "sm",
-    height: "8px",
-    contents: [
-      {
-        type: "box",
-        layout: "vertical",
-        backgroundColor: color,
-        cornerRadius: "sm",
-        height: "8px",
-        // 0% だと LINE 側で描画エラーになることがあるので最小 1%
-        width: `${Math.max(1, pct)}%`,
-        contents: [],
-      },
-    ],
-  };
-}
-
-function separator(): messagingApi.FlexSeparator {
-  return { type: "separator", color: LINE_COLOR };
-}
 
 /** 到達レベルと score のバー（3 系統） */
 function domainRows(domains: FlexProfileInput["domains"]): Component[] {

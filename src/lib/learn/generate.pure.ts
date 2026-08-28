@@ -2,6 +2,7 @@
 import type { DomainKey } from "../domain";
 import type { Task } from "../tasks/types";
 import { allowedTaskTypes, FREE_TASK_TYPES, type TaskPrefs } from "../task-types";
+import { fnv1a } from "../hash";
 
 /** 文字列としての「\\n」を実際の改行にし、title の domain 接頭辞を外す（LLM 出力の癖を吸収） */
 export function normalizeGenerated<T extends { title: string; passage: string; prompt: string; choices: string[]; explanation: string }>(out: T): T {
@@ -11,14 +12,7 @@ export function normalizeGenerated<T extends { title: string; passage: string; p
 }
 
 /** 決定論的な 32bit ハッシュ（FNV-1a）。推定できなかった問題タイプを「ユーザー×直近の作問数」でばらけさせる用 */
-export function stableHash(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
+export const stableHash = fnv1a;
 
 /** Python コードらしいか（出力予測問題の検証対象かどうか） */
 export function looksLikePython(text: string): boolean {

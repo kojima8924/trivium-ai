@@ -6,10 +6,14 @@ import { prisma } from "./prisma";
 import { learningAI } from "./ai";
 import { DOMAINS, toUserWording, type Confidence, type DomainKey } from "./domain";
 import { computeDomainScore, recommendDifficulty, type DomainScore, type ScorableEvent } from "./scoring";
+import { liveDomainStats, stringsOf } from "./profile.pure";
 import { getTask } from "./tasks";
 import { computeXp, type XpSummary } from "./xp";
 import { personaPrompts } from "./persona";
 import { carryTaskPrefs } from "./task-prefs";
+
+// 純粋な集計・JSON 読み出しは profile.pure.ts。ここから使い、外へもそのまま公開する
+export { liveDomainStats, stringsOf, subskillsOf } from "./profile.pure";
 
 const MODE: Record<DomainKey, "read" | "write" | "code"> = { READ: "read", WRITE: "write", CODE: "code" };
 
@@ -46,17 +50,6 @@ export async function loadEvents(userId: string): Promise<LoadedEvent[]> {
     skillTags: r.skillTags,
     createdAt: r.createdAt,
   }));
-}
-
-export function subskillsOf(json: Prisma.JsonValue): Record<string, number> {
-  if (!json || typeof json !== "object" || Array.isArray(json)) return {};
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(json)) if (typeof v === "number") out[k] = v;
-  return out;
-}
-
-export function stringsOf(json: Prisma.JsonValue): string[] {
-  return Array.isArray(json) ? json.filter((x): x is string => typeof x === "string") : [];
 }
 
 /** 1 domain の profile を再計算して保存する（決定論スコア + AI寸評） */
@@ -240,15 +233,6 @@ export type DashboardData = {
   /** XP・デイリーミッション・streak・ランク（決定論。xp.ts） */
   xp: XpSummary;
 };
-
-/**
- * 表示用の数値（score / level / progress / evidenceCount / confidence / subskills）を events から同じ時刻で計算する。
- * DomainProfile の保存値は最後の決着時点のもので、時間経過（新しさ重み）や複合課題の帰属で live 値とずれるため、
- * Dashboard・LINE のプロフィールカード・API はこちらを使う（保存値は AI 寸評の入力とスナップショット用）。
- */
-export function liveDomainStats(events: ScorableEvent[], now: Date = new Date()): Record<DomainKey, DomainScore> {
-  return Object.fromEntries(DOMAINS.map((d) => [d, computeDomainScore(d, events, now)])) as Record<DomainKey, DomainScore>;
-}
 
 export async function getDashboardData(userId: string): Promise<DashboardData> {
   // ローカル PG（PGlite）は並列に弱いので、読み出しは 2 段に分けて並列度を抑える

@@ -1,3 +1,7 @@
+// 課題カタログの組み立てと、そこに紐づく決定論的な処理をまとめる窓口。
+//   カタログ : 手書き課題 + 生成ストックの結合、taskType の補完（ALL_TASKS / getTask / tasksFor）
+//   出題     : pickNextTask（目標難易度に近い未回答を選ぶ）
+//   採点     : checkDeterministic / checkHeuristic（AI を呼ばずに判定できる分）
 import type { DomainKey } from "../domain";
 import { CODE_TASKS } from "./code";
 import { COMPOSITE_TASKS } from "./composite";
@@ -11,6 +15,8 @@ import { COMPOSITE_TYPE, isCompositeAxes } from "../task-types";
 import type { Task } from "./types";
 
 export * from "./types";
+
+// ---- 課題カタログ（taskType の補完・手書きとストックの結合） ----
 
 /** Python らしい passage か（LOGIC の手書き課題の taskType 補完用） */
 function looksLikePythonPassage(passage: string | undefined): boolean {
@@ -79,6 +85,8 @@ export function tasksFor(domain: DomainKey): Task[] {
   return ALL_TASKS.filter((t) => t.domain === domain);
 }
 
+// ---- 出題の選択 ----
+
 /**
  * 次のタスクを選ぶ（決定論）。
  * 目標難易度に近く、未回答のものを優先。全て回答済みなら成功していないもの → 最も古いもの。
@@ -117,6 +125,8 @@ export function pickNextTask(
     (a, b) => done.get(a.id)!.createdAt.getTime() - done.get(b.id)!.createdAt.getTime(),
   )[0];
 }
+
+// ---- 採点（決定論・ヒューリスティック） ----
 
 /**
  * 短答の正規化。日本語IMEで入力された全角英数・全角記号・全角スペースを半角に揃える。

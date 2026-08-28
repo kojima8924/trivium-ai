@@ -1,7 +1,8 @@
 // LINE 返信で繰り返し使う定型（Quick Reply のボタン・定型文・URL）。
 // handlers.ts / quiz.ts から参照して、文言や postback data を 1 か所で管理する。
 import { env } from "@/lib/env";
-import type { LeaderAction, LeaderReply } from "./leader";
+import { dashboardUrl } from "./urls";
+import type { LeaderAction, LeaderReply } from "./types";
 
 /** Web アプリの公開 URL（末尾スラッシュなし） */
 export function appUrlBase(): string {
@@ -12,7 +13,7 @@ export function appUrlBase(): string {
 export const TODAY_ACTION: LeaderAction = { type: "postback", label: "今日の学習", data: "action=today", displayText: "今日の学習" };
 
 export function dashboardAction(label = "Dashboard"): LeaderAction {
-  return { type: "uri", label, uri: `${appUrlBase()}/dashboard` };
+  return { type: "uri", label, uri: dashboardUrl(appUrlBase()) };
 }
 
 /** 古い出題のボタン（pendingTask と一致しない）を押したときの返信 */

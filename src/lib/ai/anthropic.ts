@@ -9,6 +9,8 @@ import { env } from "../env";
 import { DOMAINS, SUBSKILLS, type DomainKey } from "../domain";
 import { MockProvider } from "./mock";
 import { LEARNER_ANSWER_RULE, deterministicResultText, fallbackHint, filterSkillTags, heuristicResultText, safeEvaluationStatus, wrapLearnerAnswer } from "./shared";
+// fmt は OpenAI provider と同一（JSON.stringify(v, null, 0) は既定と同じ出力）なので共通化した
+import { fmt } from "./text";
 import {
   AI_SYSTEM_POLICY,
   type DomainEvalInput,
@@ -100,11 +102,6 @@ const SYSTEM_LEADER = [
   "- recommendation は『DOMAIN: 具体的な課題の方向（難易度や subskill を含む）』の形で1文。recommended_domain はそれと一致させる。",
   "- last_event があれば、その1問に一言触れる（直近の行動が反映されていると学習者に伝わるため）。",
 ].join("\n");
-
-function fmt(label: string, value: unknown): string {
-  const body = typeof value === "string" ? value : JSON.stringify(value, null, 0);
-  return `## ${label}\n${body}`;
-}
 
 export class AnthropicProvider implements LearningAIProvider {
   readonly name = "anthropic";

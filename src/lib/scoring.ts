@@ -1,4 +1,5 @@
 // 能力スコアの決定論的集計（数値 = evidence）。LLM はここに関与しない。
+// 重み・難易度ベクトルなどの土台は scoring.core.ts、ここは「到達レベルの判定」「スコア」「推薦難易度」。
 //
 // モデル（src/config/trivium.config.ts の SCORING で調整）:
 //   - 難易度は系統ごとに 1〜10。各課題は難易度ベクトル { read, write, code }（0 = 無関係）を持つ
@@ -9,87 +10,38 @@
 //     進捗は「次のレベル帯の証拠量（minEvidence に対する割合）× 正答率（threshold に対する割合）」で連続的に増える
 //   - subskill（観点別 0〜100）は従来どおり基礎点×難易度×新しさの重み付き平均（証拠バー用）
 import { SCORING } from "@/config/trivium.config";
-import { type Confidence, type DomainKey, DOMAINS, SUBSKILLS } from "./domain";
+import { type DomainKey, DOMAINS, SUBSKILLS } from "./domain";
+import { unitOf } from "./hash";
+import {
+  AXIS_OF,
+  MAX_LEVEL,
+  axesOf,
+  baseScore,
+  clampDifficulty,
+  confidenceFor,
+  difficultyWeight,
+  recencyWeight,
+  round1,
+  weightedMean,
+  type Axes,
+  type DomainScore,
+  type ScorableEvent,
+} from "./scoring.core";
 
-export type Axes = { read: number; write: number; code: number };
-
-export type ScorableEvent = {
-  domain: DomainKey;
-  /** 主系統の難易度（1..10）。axes が無い旧データではこれを主系統に割り当てる */
-  difficulty: number;
-  /** 難易度ベクトル（0 = 無関係）。複合課題は複数系統が正 */
-  axes?: Partial<Axes> | null;
-  success: boolean;
-  hintCount: number;
-  skillTags: string[];
-  createdAt: Date;
-};
-
-export type DomainScore = {
-  domain: DomainKey;
-  /** 0..100（到達レベル×10 + 進捗。小数 1 桁） */
-  score: number;
-  /** 到達レベル 0..10 */
-  level: number;
-  /** 次のレベルへの進捗 0..1 */
-  progress: number;
-  subskills: Record<string, number>;
-  evidenceCount: number;
-  confidence: Confidence;
-  successRate: number;
-  avgHints: number;
-  avgDifficulty: number;
-};
-
-export const MAX_LEVEL = 10;
-
-/** 表示用: 小数 1 桁（72.4）。Dashboard / LINE / 結果カードで統一して使う */
-export function formatScore(score: number): string {
-  return (Math.round(score * 10) / 10).toFixed(1);
-}
-
-/** 小数 1 桁に丸める */
-export function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-const AXIS_OF: Record<DomainKey, keyof Axes> = { READ: "read", WRITE: "write", CODE: "code" };
-export const DOMAIN_OF_AXIS: Record<keyof Axes, DomainKey> = { read: "READ", write: "WRITE", code: "CODE" };
-
-/** 課題/イベントの難易度ベクトルを正規化する（旧データは主系統だけ） */
-export function axesOf(e: { domain: DomainKey; difficulty: number; axes?: Partial<Axes> | null }): Axes {
-  const a = e.axes ?? {};
-  const out: Axes = { read: clampLevel(a.read ?? 0), write: clampLevel(a.write ?? 0), code: clampLevel(a.code ?? 0) };
-  if (out.read + out.write + out.code === 0) out[AXIS_OF[e.domain]] = clampLevel(e.difficulty);
-  return out;
-}
-
-function clampLevel(n: number): number {
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return Math.min(MAX_LEVEL, Math.max(1, Math.round(n)));
-}
-
-export function baseScore(success: boolean, hintCount: number): number {
-  if (!success) return SCORING.failureBase;
-  const table = SCORING.successBase;
-  return table[Math.min(hintCount, table.length - 1)];
-}
-
-/** 難易度重み（1 → 0.7 … 10 → 1.3）。subskill の集計に使う */
-export function difficultyWeight(difficulty: number): number {
-  const d = Math.min(MAX_LEVEL, Math.max(1, difficulty));
-  return 0.7 + ((d - 1) / (MAX_LEVEL - 1)) * 0.6;
-}
-
-export function recencyWeight(createdAt: Date, now: Date): number {
-  const ageDays = Math.max(0, (now.getTime() - createdAt.getTime()) / 86_400_000);
-  return Math.pow(0.5, ageDays / SCORING.recencyHalfLifeDays);
-}
-
-export function confidenceFor(evidenceCount: number): Confidence {
-  if (evidenceCount < SCORING.confidence.medium) return "low";
-  if (evidenceCount < SCORING.confidence.high) return "medium";
-  return "high";
-}
+export type { Axes, DomainScore, ScorableEvent } from "./scoring.core";
+export {
+  AXIS_OF,
+  DOMAIN_OF_AXIS,
+  MAX_LEVEL,
+  axesOf,
+  baseScore,
+  clampDifficulty,
+  confidenceFor,
+  difficultyWeight,
+  formatScore,
+  recencyWeight,
+  round1,
+} from "./scoring.core";
 
 // ---- 到達レベル ----
 
@@ -215,22 +167,10 @@ export function computeLevels(events: ScorableEvent[], now: Date = new Date()): 
   return evidence((e, axes) => bottleneckAxis(axes, levels1, AXIS_OF[e.domain]));
 }
 
-function weightedMean(items: { value: number; weight: number }[]): number {
-  let num = 0;
-  let den = 0;
-  for (const it of items) {
-    num += it.value * it.weight;
-    den += it.weight;
-  }
-  return den === 0 ? 0 : num / den;
-}
+// ---- 系統ごとのスコア ----
 
-export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], now: Date = new Date()): DomainScore {
-  const axis = AXIS_OF[domain];
-  const own = events.filter((e) => axesOf(e)[axis] > 0);
-  const levels = computeLevels(events, now)[axis];
-
-  // subskill（観点別の証拠バー）: 主系統のイベントのタグから
+/** subskill（観点別の証拠バー 0..100）。主系統のイベントのタグから重み付き平均で出す */
+function subskillScores(domain: DomainKey, own: ScorableEvent[], axis: keyof Axes, now: Date): Record<string, number> {
   const perSkill: Record<string, { value: number; weight: number }[]> = {};
   for (const e of own) {
     const d = axesOf(e)[axis];
@@ -243,6 +183,14 @@ export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], n
     const items = perSkill[skill];
     if (items && items.length > 0) subskills[skill] = Math.round(weightedMean(items) * 100);
   }
+  return subskills;
+}
+
+export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], now: Date = new Date()): DomainScore {
+  const axis = AXIS_OF[domain];
+  const own = events.filter((e) => axesOf(e)[axis] > 0);
+  const levels = computeLevels(events, now)[axis];
+  const subskills = subskillScores(domain, own, axis, now);
 
   const evidenceCount = own.length;
   const score = evidenceCount === 0 ? 0 : Math.min(100, round1(levels.level * 10 + levels.progress * 10));
@@ -264,18 +212,18 @@ export function computeDomainScore(domain: DomainKey, events: ScorableEvent[], n
   };
 }
 
-/** 履歴なしの初期難易度 */
+export function allDomainScores(events: ScorableEvent[], now: Date = new Date()): Record<DomainKey, DomainScore> {
+  return Object.fromEntries(DOMAINS.map((d) => [d, computeDomainScore(d, events, now)])) as Record<DomainKey, DomainScore>;
+}
+
+// ---- 次に出す難易度 ----
+
 /** 履歴が無いときの推薦難易度。最初は低めから始め、正解ごとに 1 つずつ上がる */
 export const INITIAL_DIFFICULTY = 2;
 
 /** 文字列 → [0,1) の決定論的な擬似乱数（FNV-1a。出題のゆらぎ用で暗号用途ではない） */
 export function seededUnit(seed: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h / 0x100000000;
+  return unitOf(seed);
 }
 
 /**
@@ -293,7 +241,7 @@ export function adaptiveTarget(recommended: number, evidenceCount: number, seed:
         ? [[-1, 0.25], [0, 0.75], [1, 1]]
         : [[-1, 0.12], [0, 0.88], [1, 1]];
   const offset = table.find(([, p]) => u < p)?.[0] ?? 0;
-  return Math.min(MAX_LEVEL, Math.max(1, recommended + offset));
+  return clampDifficulty(recommended + offset);
 }
 
 /**
@@ -320,9 +268,5 @@ export function recommendDifficulty(domain: DomainKey, events: ScorableEvent[], 
   } else if (latest && !latest.success) {
     target = Math.max(target, axesOf(latest)[axis] - recentFails);
   }
-  return Math.min(MAX_LEVEL, Math.max(1, target));
-}
-
-export function allDomainScores(events: ScorableEvent[], now: Date = new Date()): Record<DomainKey, DomainScore> {
-  return Object.fromEntries(DOMAINS.map((d) => [d, computeDomainScore(d, events, now)])) as Record<DomainKey, DomainScore>;
+  return clampDifficulty(target);
 }
