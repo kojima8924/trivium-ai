@@ -55,12 +55,17 @@ async function main() {
   const ng: string[] = [];
   const check = (name: string, cond: boolean, detail: string) => (cond ? ok : ng).push(`${name}: ${detail}`);
 
-  // 1. 作問
+  // 1. 「論理パズルを出して」= 課題の依頼。ストックに該当があれば即出題、無ければ作問（どちらでも成功）
   let before = await count();
   console.log("1. 「論理パズルを出して」 →", await send(text("論理パズルを出して")));
-  await sleep(20_000); // after() の作問（gpt-5.5）を待つ
+  await sleep(45_000); // 作問に回った場合の after()（gpt-5.6-sol・effort medium は実測 23s 前後）を待つ
   let after = await count();
-  check("作問に到達", after.chat === before.chat && after.gen === before.gen + 1, `chat ${before.chat}→${after.chat}, gen ${before.gen}→${after.gen}`);
+  let st0 = await state();
+  check(
+    "課題の依頼に到達（出題 or 作問）",
+    after.chat === before.chat && (after.gen === before.gen + 1 || st0.pendingTask?.domain === "CODE"),
+    `chat ${before.chat}→${after.chat}, gen ${before.gen}→${after.gen}, pending=${st0.pendingTask?.taskId ?? "-"}`,
+  );
 
   // 2. READで1問
   console.log("2. 「READで1問」 →", await send(text("READで1問")));
