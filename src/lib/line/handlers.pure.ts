@@ -28,10 +28,12 @@ export type Route =
   | { route: "unlink_confirm" }
   | { route: "quiz" }
   | { route: "generate" }
-  | { route: "pass" };
+  | { route: "pass" }
+  /** 教材のおすすめ（案内役が能力に合わせて選ぶ） */
+  | { route: "materials" };
 
 const TASK_INTENTS = new Set(["quiz", "generate", "domain"]);
-const COMMAND_INTENTS = new Set(["quiz", "generate", "pass"]);
+const COMMAND_INTENTS = new Set(["quiz", "generate", "pass", "materials"]);
 
 export function routeMessage(i: RouteInput): Route {
   const { intent, linked } = i;
@@ -42,7 +44,8 @@ export function routeMessage(i: RouteInput): Route {
   if (intent.kind === "unlink") return linked ? { route: "unlink_confirm" } : { route: "rule" };
   // (2) 「〜と話す」の続き。短いコマンドはコマンドを優先し、宛先メモは消す
   if (linked && i.askedAgent) {
-    if (!(COMMAND_INTENTS.has(intent.kind) && i.isShort)) {
+    // 教材の依頼は長文でもコマンド扱い（「〜と話す」中でも案内役の推薦に回す）
+    if (!(COMMAND_INTENTS.has(intent.kind) && (i.isShort || intent.kind === "materials"))) {
       return { route: "chat", agent: i.askedAgent, offerQuiz: TASK_INTENTS.has(intent.kind), consumeAsk: true };
     }
   }
@@ -50,6 +53,8 @@ export function routeMessage(i: RouteInput): Route {
   if (intent.kind === "quiz") return { route: "quiz" };
   if (intent.kind === "generate") return { route: "generate" };
   if (intent.kind === "pass") return { route: "pass" };
+  // 教材のおすすめ: 連携済みなら能力に合わせて選ぶ。未連携は案内（ルールベース）
+  if (intent.kind === "materials") return linked ? { route: "materials" } : { route: "rule" };
   // (4) 既知の意図: 未連携、または短いコマンドはルールベース（長い自由文は会話へ）
   if (intent.kind !== "unknown" && (!linked || i.isShort)) return { route: "rule" };
   // (5) 残り

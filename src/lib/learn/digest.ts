@@ -9,12 +9,10 @@ import { loadPersonas } from "@/lib/persona";
 import { pushFlex, pushTo } from "@/lib/line/push";
 import { loadEvents } from "@/lib/profile";
 import { computeXp, dayKey, xpForEvent } from "@/lib/xp";
-import { computeLevels } from "@/lib/scoring";
-import { pickRecommendation, recommendationLine, weakestAxis } from "@/lib/recommend";
+import { recommendationLine } from "@/lib/recommend";
+import { dailyMaterialPick } from "@/lib/materials/daily";
 import { XP } from "@/config/trivium.config";
 import { agentReply, buildMissionFlex } from "@/lib/line/flex";
-
-const AXIS_KEY = { READ: "read", WRITE: "write", CODE: "code" } as const;
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -87,18 +85,8 @@ export async function notifyDailyDigestIfComplete(userId: string, now: Date = ne
     const todayKey = dayKey(now);
     const todayXp = all.filter((e) => dayKey(e.createdAt) === todayKey).reduce((a, e) => a + xpForEvent(e).total, 0);
     const streakBonus = Math.min(XP.streakBonusMax, xp.streak * XP.streakBonusPerDay);
-    const levels = computeLevels(all, now);
-    const rec = pickRecommendation(
-      weakestAxis(
-        DOMAINS.map((d) => ({
-          domain: d,
-          score: Math.min(100, Math.round(levels[AXIS_KEY[d]].level * 10)),
-          evidenceCount: all.filter((e) => e.domain === d).length,
-        })),
-      ),
-      [],
-      day,
-    );
+    // 今日の 1 冊: 能力プロフィール（弱い系統・小分類）に合わせて教材カタログから 1 件（同じ日は同じ 1 件）
+    const rec = await dailyMaterialPick(userId, day, now);
 
     const text = [
       `今日の3問、おつかれさまでした。`,

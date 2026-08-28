@@ -38,6 +38,13 @@ export const env = {
     anthropicTimeoutMs: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 25000),
   },
 
+  /** 教材推薦の Dify ナレッジ（未設定ならローカルのカタログだけで推薦する） */
+  materials: {
+    difyDatasetApiKey: process.env.DIFY_DATASET_API_KEY ?? "",
+    difyMaterialsDatasetId: process.env.DIFY_MATERIALS_DATASET_ID ?? "",
+    difyBaseUrl: process.env.DIFY_BASE_URL ?? "https://api.dify.ai",
+  },
+
   line: {
     channelSecret: process.env.LINE_CHANNEL_SECRET ?? "",
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",

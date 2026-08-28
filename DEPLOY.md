@@ -311,7 +311,15 @@ End ノードの出力変数名は **`result`** で、LLM の出力（JSON 文�
 
 Studio → **Create from Blank → Workflow** で 5.2 の変数を Start に作り、domain は IF/ELSE（`workflow` is `domain`）→ LLM 2 つ → End（出力変数 `result` に LLM の `text`）、leader は `time` ツール → LLM → End、generate は IF/ELSE（`use_search` is `true`）→（code → HTTP → code →）LLM → End と繋ぎます。LLM の System には `{{#start.policy#}}` と「出力は JSON のみ・コードフェンス無し・キーは 5.3 のとおり」を明記し、User に各入力変数を見出し付きで並べてください。可能なら Dify の **JSON Schema 出力**を有効にします。
 
-### 5.6 動作確認
+### 5.6 教材ナレッジ（ADVISOR の教材推薦）
+
+1. アプリ内の教材カタログ `src/lib/materials/catalog.ts`（定番書・公式サイト 60 件超）を `npx tsx scripts/dify/export_materials.mts` で `dify/materials/*.md` に書き出す（1 教材 1 ファイル。手動アップロードなら `--single` で `ALL.md`）
+2. Dify → **ナレッジ → API** でナレッジ用 API キーを発行し、`.env` に `DIFY_DATASET_API_KEY`（と必要なら `DIFY_BASE_URL`）を設定
+3. `npx tsx scripts/dify/upload_materials.mts --dry-run` で内容を確認 → `--dry-run` を外して投入（Dataset `trivium-materials` を自動作成し、id を表示。以後は `DIFY_MATERIALS_DATASET_ID` に入れると同じ Dataset を上書き更新）
+4. Coolify の環境変数にも `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` / `DIFY_BASE_URL` を登録して Restart。未設定でもアプリ内カタログだけで推薦は動く（Dify は「ナレッジ検索のスコア」を加える追加情報源）
+5. カタログを更新したら 1 と 3 をやり直す（既存ドキュメントは教材 id で照合して上書き）
+
+### 5.7 動作確認
 
 Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock: ...` が出ていれば Dify 側の設定（変数名・key・出力形式・モデル）を見直してください。`/api/health` の `ai.lastUsed` が `dify` なら直近の呼び出しが Dify で成功しています。`ai.lastError` に直近の失敗理由（鍵は伏字）が出ます。
 

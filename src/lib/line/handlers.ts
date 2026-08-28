@@ -20,6 +20,7 @@ import { detectAddressedAgent } from "@/lib/persona.pure";
 import { TODAY_ACTION, appUrlBase, noPendingTaskReply, staleTaskReply } from "./actions";
 import { agentQuickReplies, askPrompt, chatReply, chatWithAgent } from "./chat";
 import { routeMessage } from "./handlers.pure";
+import { handleMaterials } from "./materials";
 import {
   buildPostbackReply,
   buildReply,
@@ -131,6 +132,13 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
       return;
     case "pass":
       await handlePass(lineUserId, replyToken, lu, lu.state.pendingTask?.taskId ?? "", scheduleAfter);
+      return;
+    case "materials":
+      if (intent.kind === "materials") {
+        const userId = await requireLinked(lu, replyToken);
+        if (!userId) return;
+        await handleMaterials(lineUserId, replyToken, { userId, state: lu.state }, { domain: intent.domain, text: intent.text, freeOnly: intent.freeOnly, kind: intent.kind_ ?? null }, scheduleAfter);
+      }
       return;
     case "rule":
       await handleRuleBasedMessage(lineUserId, replyToken, text, intent, lu);
@@ -274,6 +282,21 @@ async function handlePostback(lineUserId: string, replyToken: string, data: stri
   }
   if (action === "help") {
     await handleRuleBasedMessage(lineUserId, replyToken, "使い方", { kind: "help" }, lu);
+    return;
+  }
+  if (action === "materials") {
+    // 「他の候補」「READ の教材」「無料だけ」（postback）
+    const userId = await requireLinked(lu, replyToken);
+    if (!userId) return;
+    const raw = params.get("domain") ?? "";
+    const domain: DomainKey | null = parseDomain(raw) ?? domainOf(raw);
+    await handleMaterials(
+      lineUserId,
+      replyToken,
+      { userId, state: lu.state },
+      { domain, text: params.get("q") ?? "", freeOnly: params.get("free") === "1" || undefined, kind: null, more: params.get("more") === "1" },
+      scheduleAfter,
+    );
     return;
   }
   if (action === "ask") {

@@ -7,6 +7,7 @@ import type { LineState } from "./state";
 import { agentReply } from "./flex";
 import { formatScore } from "@/lib/scoring";
 import { LINE, PERSONA_DEFAULTS } from "@/config/trivium.config";
+import type { MaterialKind } from "@/lib/materials/types";
 
 // ---- 出力型（@line/bot-sdk の messagingApi.Message と互換な最小サブセット） ----
 
@@ -55,6 +56,8 @@ export type Intent =
   | { kind: "unlink" }
   /** 出題中の課題をパス（テキストの「パス」「スキップ」） */
   | { kind: "pass" }
+  /** 教材（本・サイト・動画）のおすすめ。ADVISOR が能力プロフィールに合わせて選ぶ */
+  | { kind: "materials"; domain: DomainKey | null; text: string; freeOnly?: boolean; kind_?: MaterialKind | null }
   | { kind: "today" }
   | { kind: "history" }
   | { kind: "profile" }
@@ -101,6 +104,28 @@ function isQuestionLike(text: string): boolean {
   return /[?？]\s*$/.test(text) || /(教えて|説明|とは|って(何|なに|どの|どんな|どう)|どのくらい|どんな|なんですか|ですか)/.test(text);
 }
 
+/** 「おすすめの本」「Python の教材を探して」「何を読めばいい？」→ materials 意図。該当しなければ null */
+export function parseMaterialsIntent(text: string): Extract<Intent, { kind: "materials" }> | null {
+  const lower = text.toLowerCase();
+  if (/^(今日の|きょうの)?(おすすめ|オススメ)[!！。]?$/.test(text) || /^今日の/.test(text)) return null;
+  const materialWord = /(教材|参考書|問題集|入門書|本を|本は|本が|本で|おすすめの本|良い本|いい本|書籍|サイト|動画|講座|読むべき|読めば|読んだら|勉強法|学び方|学習法|何で勉強|どう勉強|何を読|なにを読|教えて.*本|本.*教えて)/;
+  if (!materialWord.test(text)) return null;
+  // 出題・作問の依頼語と混ざるものは出題側に任せる（「読解の問題を出して」）
+  if (/(出して|作って|作問|1問|一問|出題)/.test(text) && !/(本|教材|参考書|サイト|動画|講座)/.test(text)) return null;
+  const domain = domainInText(text);
+  const freeOnly = /(無料|タダ|ただで|フリー|お金をかけ)/.test(text);
+  const kind_: MaterialKind | null = /(本|書籍|参考書|問題集|入門書)/.test(text) && !/(サイト|動画|講座)/.test(text)
+    ? "book"
+    : /(サイト|web|ウェブ)/i.test(lower)
+      ? "web"
+      : /(動画|youtube)/i.test(lower)
+        ? "video"
+        : /(講座|コース)/.test(text)
+          ? "course"
+          : null;
+  return { kind: "materials", domain, text: text.slice(0, 200), freeOnly: freeOnly || undefined, kind_ };
+}
+
 export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
@@ -116,6 +141,9 @@ export function classifyIntent(raw: string): Intent {
   }
   // 出題中の課題をパス（ボタンを閉じてしまったときのテキスト版）
   if (/^(パス|ぱす|pass|スキップ|skip|飛ばして|とばして|パスして|パスで|スキップして)[!！。]?$/i.test(text)) return { kind: "pass" };
+  // 教材のおすすめ（会話寄りの意図。疑問文でも拾う）。「今日のおすすめ」は従来どおり today
+  const materials = parseMaterialsIntent(text);
+  if (materials) return materials;
 
   // 難易度指定（「LOGICで難易度8」「難易度8」「logic 8」）は用意済みストックから即出題（quiz。±1 に無ければ handler 側で作問に切替）。
   // 「作って」「作問」など明示語があるときだけ LLM 作問（generate）。疑問文（「難易度8ってどのくらい？」）は会話へ

@@ -23,6 +23,8 @@ export type LineState = {
   preferredDifficultyAt?: string;
   /** LINE で「パス」した課題（記録は付けず、しばらく再出題しない。直近 50 件） */
   passedTaskIds?: string[];
+  /** 案内役が勧めた教材 id（直近 20 件。「他の候補」で除外し、同じものを繰り返さない） */
+  recommendedMaterialIds?: string[];
 };
 
 export function emptyCounts(): Record<DomainKey, number> {
@@ -56,6 +58,9 @@ export function parseLineState(json: unknown): LineState {
   }
   if (Array.isArray(o.passedTaskIds)) {
     state.passedTaskIds = o.passedTaskIds.filter((x): x is string => typeof x === "string").slice(-50);
+  }
+  if (Array.isArray(o.recommendedMaterialIds)) {
+    state.recommendedMaterialIds = o.recommendedMaterialIds.filter((x): x is string => typeof x === "string").slice(-20);
   }
   if (o.pendingTask && typeof o.pendingTask === "object" && !Array.isArray(o.pendingTask)) {
     const t = o.pendingTask as Record<string, unknown>;
@@ -135,6 +140,12 @@ export function activePreferredDifficulty(state: LineState, domain: DomainKey | 
 export function withPassedTask(state: LineState, taskId: string): LineState {
   const ids = [...(state.passedTaskIds ?? []).filter((id) => id !== taskId), taskId].slice(-50);
   return { ...state, passedTaskIds: ids };
+}
+
+/** 勧めた教材を記録する（純粋関数。直近 20 件） */
+export function withRecommendedMaterials(state: LineState, ids: string[]): LineState {
+  const prev = (state.recommendedMaterialIds ?? []).filter((id) => !ids.includes(id));
+  return { ...state, recommendedMaterialIds: [...prev, ...ids].slice(-20) };
 }
 
 /** 出題中の課題を記録/解除する（純粋関数） */

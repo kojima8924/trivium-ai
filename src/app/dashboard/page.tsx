@@ -15,6 +15,7 @@ import { AchievementList } from "@/components/dashboard/AchievementList";
 import { XpCard } from "@/components/dashboard/XpCard";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { ShareProfile } from "@/components/ShareProfile";
+import { dashboardMaterials } from "@/lib/materials/daily";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,8 @@ export default async function DashboardPage() {
   if (!userId) redirect("/login?next=/dashboard");
 
   const data = await getDashboardData(userId);
+  // おすすめ教材（決定論。失敗しても Dashboard は出す）
+  const materials = await dashboardMaterials(userId).catch(() => []);
   // 相対時刻はサーバ側で確定させる（クライアントで再計算しない＝hydration がずれない）
   const now = await renderNow();
   const scores = Object.fromEntries(data.domains.map((d) => [d.domain, d.score])) as Record<DomainKey, number>;
@@ -56,6 +59,7 @@ export default async function DashboardPage() {
         recommendation={data.leader?.recommendation ?? null}
         recommendedDomain={data.leader?.recommendedDomain ?? null}
         totalEvents={data.totalEvents}
+        materials={materials}
       />
 
       {/* 2. 三角形プロフィール */}

@@ -11,6 +11,10 @@ Dify Cloud / self-hosted の **Studio → Import DSL file** でそのまま取�
 
 3 本とも **End ノードの出力変数は `result`**（LLM が返す JSON 文字列）。アプリ側の `src/lib/ai/dify.ts` が `result` を JSON として解釈し、zod schema で検証します（choice なのに 4 択でない等は例外 → Mock にフォールバック）。
 
+## 教材ナレッジ（`materials/`）
+
+`materials/*.md` は `src/lib/materials/catalog.ts`（教材カタログ）から `scripts/dify/export_materials.mts` が書き出した Dify ナレッジ用の Markdown（1 教材 1 ファイル、生成物なので手で編集しない）。`scripts/dify/upload_materials.mts` が Dataset API で Dataset `trivium-materials` に投入する（手順は DEPLOY.md 5.6）。アプリ側は `DIFY_DATASET_API_KEY` / `DIFY_MATERIALS_DATASET_ID` があるときだけナレッジ検索を推薦スコアに加え、無ければカタログだけで動く。
+
 ## 生成と検証
 
 DSL は手で編集せず、`build_dsl.py` から生成します（プロンプト・変数・ノード構成を 1 か所に集約するため）。

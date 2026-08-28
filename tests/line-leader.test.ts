@@ -322,3 +322,15 @@ test("意図分類: 『パス』『スキップ』は pass", () => {
   assert.deepEqual(classifyIntent("飛ばして"), { kind: "pass" });
   assert.notEqual(classifyIntent("パスワードを忘れた").kind, "pass");
 });
+
+test("意図分類: 教材のおすすめ（materials）。疑問文でも拾い、「今日のおすすめ」は today のまま", () => {
+  assert.deepEqual(classifyIntent("おすすめの本を教えて"), { kind: "materials", domain: null, text: "おすすめの本を教えて", freeOnly: undefined, kind_: "book" });
+  assert.equal(classifyIntent("Pythonの教材を探してほしい").kind, "materials");
+  assert.equal((classifyIntent("LOGICの無料サイトある？") as { domain: string | null }).domain, "CODE");
+  assert.equal((classifyIntent("LOGICの無料サイトある？") as { freeOnly?: boolean }).freeOnly, true);
+  assert.equal((classifyIntent("読解を鍛えるには何を読めばいい？") as { domain: string | null }).domain, "READ");
+  assert.equal(classifyIntent("勉強法を教えて").kind, "materials");
+  assert.equal(classifyIntent("今日のおすすめ").kind, "today");
+  assert.equal(classifyIntent("おすすめ").kind, "today");
+  assert.notEqual(classifyIntent("読解の問題を出して").kind, "materials");
+});

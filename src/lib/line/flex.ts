@@ -353,6 +353,97 @@ ${opts.footer}` : `${name}: ${body}`;
   };
 }
 
+// ---- 教材のおすすめ（案内役の吹き出し＋候補ごとのボタン） ----
+
+export type MaterialsBubbleItem = {
+  title: string;
+  /** 形式・著者など 1 行（例: 「書籍 / 野矢茂樹」） */
+  meta: string;
+  reason: string;
+  url?: string;
+  free?: boolean;
+};
+
+export type MaterialsBubbleInput = {
+  agent: AgentKey;
+  name: string;
+  imageUrl: string;
+  /** 案内役の導入文（ADVISOR の言い換え、または決定論の文） */
+  intro: string;
+  items: MaterialsBubbleItem[];
+  accent?: string;
+};
+
+/** 「顔アイコン＋導入文」の下に、教材ごとに タイトル / 一言 / 理由 / 開くボタン を並べる */
+export function buildMaterialsBubble(input: MaterialsBubbleInput): messagingApi.FlexBubble {
+  const accent = input.accent ?? characterHex(input.agent);
+  const head: Box = {
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    contents: [
+      {
+        type: "box",
+        layout: "vertical",
+        width: "56px",
+        height: "56px",
+        cornerRadius: "28px",
+        borderWidth: "2px",
+        borderColor: accent,
+        backgroundColor: "#ffffff",
+        flex: 0,
+        contents: [{ type: "image", url: input.imageUrl, size: "full", aspectRatio: "1:1", aspectMode: "cover" }],
+      },
+      {
+        type: "box",
+        layout: "vertical",
+        flex: 1,
+        contents: [text(input.name.slice(0, 20) || " ", { size: "xs", weight: "bold", color: accent }), text(input.intro.trim().slice(0, 900) || " ", { size: "sm", margin: "xs" })],
+      },
+    ],
+  };
+  const items: Component[] = input.items.slice(0, 3).flatMap((it, i) => {
+    const block: Component[] = [
+      separator(),
+      text(`${i + 1}. ${it.title}${it.free ? "（無料）" : ""}`.slice(0, 120), { size: "sm", weight: "bold", margin: "md" }),
+      text(it.meta.slice(0, 80), { size: "xxs", color: MUTED }),
+      text(it.reason.slice(0, 240), { size: "xs", margin: "xs" }),
+    ];
+    if (it.url) {
+      block.push({
+        type: "button",
+        style: "link",
+        height: "sm",
+        action: { type: "uri", label: "開く", uri: it.url },
+      });
+    }
+    return block;
+  });
+  return {
+    type: "bubble",
+    size: "mega",
+    body: { type: "box", layout: "vertical", paddingAll: "12px", spacing: "sm", contents: [head, ...items] },
+  };
+}
+
+/** 教材のおすすめ返信（text にも同じ内容を残す。LINE 以外の経路・ログ用） */
+export function materialsReply(
+  agent: AgentKey,
+  name: string,
+  intro: string,
+  items: MaterialsBubbleItem[],
+  opts: { appUrl: string; quickReplies?: LeaderAction[]; mood?: CharacterMood },
+): LeaderReply {
+  const lines = items.map((it, i) => `${i + 1}. ${it.title}${it.free ? "（無料）" : ""} — ${it.meta}` + "\n" + `   ${it.reason}` + (it.url ? "\n" + `   ${it.url}` : ""));
+  const plain = [`${name}: ${intro}`, ...lines].join("\n\n");
+  return {
+    text: plain,
+    altText: `${name}: おすすめの教材を ${items.length} つ選んだわ`,
+    flex: buildMaterialsBubble({ agent, name, imageUrl: characterImageUrl(agent, opts.appUrl, "face", opts.mood ?? "normal"), intro, items }),
+    quickReplies: opts.quickReplies,
+  };
+}
+
 /** FlexBubble → 送信用メッセージ（altText 必須） */
 export function flexMessage(altText: string, contents: messagingApi.FlexBubble): messagingApi.FlexMessage {
   return { type: "flex", altText: altText.slice(0, 400), contents };
