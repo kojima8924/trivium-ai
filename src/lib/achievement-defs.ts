@@ -58,7 +58,7 @@ export const ACHIEVEMENTS: Record<string, AchievementDef> = {
   first_write: { title: "書きはじめ", description: "WRITE の課題に初めて正解した", emoji: "✍️", tier: "bronze", category: "first" },
   first_logic: { title: "論理はじめ", description: "LOGIC の課題に初めて正解した", emoji: "🧠", tier: "bronze", category: "first" },
   no_hint: { title: "ノーヒント", description: "ヒントなしで正解した", emoji: "💡", tier: "bronze", category: "first" },
-  comeback: { title: "立て直し", description: "誤答のあとヒントで正解にたどり着いた", emoji: "🔁", tier: "bronze", category: "first" },
+  comeback: { title: "立て直し", description: "ヒントを手がかりに、自分で正解にたどり着いた", emoji: "🔁", tier: "bronze", category: "first" },
   trivium: { title: "TRIVIUM", description: "READ / WRITE / LOGIC すべてに取り組んだ", emoji: "🔺", tier: "bronze", category: "first" },
   mission_first: { title: "今日の3問", description: "1 日で 3 系統すべてに取り組んだ（デイリーミッション達成）", emoji: "✅", tier: "bronze", category: "first" },
 

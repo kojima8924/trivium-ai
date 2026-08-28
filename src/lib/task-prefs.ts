@@ -6,7 +6,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
 import { DEFAULT_TASK_PREFS, parseTaskPrefs, type TaskPrefs } from "./task-types";
 
-export const TASK_PREF_KEYS = ["excludedTaskTypes", "excludeComposite"] as const;
+export const TASK_PREF_KEYS = ["excludedTaskTypes", "excludeComposite", "notify"] as const;
 
 /** 保存済みの出題設定（未設定なら既定＝全部出す） */
 export async function loadTaskPrefs(userId: string): Promise<TaskPrefs> {
