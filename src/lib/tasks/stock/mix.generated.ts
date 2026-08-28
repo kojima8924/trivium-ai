@@ -1,5 +1,5 @@
 // 自動生成ファイル（scripts/stock/gen_stock.mts が書き出す）。手で編集しない。
-// MIX: 30 問（difficulty 1〜10・問題タイプ付き）。生成: gpt-5.5 / 検証: Python 実行 + 独立ソルバー gpt-5.5 + レビュー gpt-5.4-mini
+// MIX: 30 問（difficulty 1〜10・問題タイプ付き）。生成: gpt-5.6-sol / 検証: Python 実行 + 独立ソルバー gpt-5.6-sol + レビュー gpt-5.6-luna
 import type { Task } from "../types";
 
 export const MIX_STOCK: Task[] = [
@@ -504,7 +504,7 @@ export const MIX_STOCK: Task[] = [
     }
   },
   {
-    "id": "mix-s5-03",
+    "id": "mix-s5-02",
     "domain": "CODE",
     "difficulty": 5,
     "axes": {
@@ -526,13 +526,13 @@ export const MIX_STOCK: Task[] = [
       "tracing"
     ],
     "choices": [
-      "印刷を水曜に移し、買い出しを火曜に移す。音響確認は月曜16時のままにする。",
       "月曜16時の司会練習と音響確認は同時に実施し、買い出しだけを月曜に移す。",
       "音響確認を水曜に移し、買い出しを月曜の別時間に移す。司会練習と印刷はそのままにする。",
-      "司会練習を火曜に移し、音響確認と買い出しを月曜に置く。印刷は水曜に移す。"
+      "司会練習を火曜に移し、音響確認と買い出しを月曜に置く。印刷は水曜に移す。",
+      "印刷を水曜に移し、買い出しを火曜に移す。音響確認は月曜16時のままにする。"
     ],
     "answerKey": [
-      "2"
+      "1"
     ]
   },
   {

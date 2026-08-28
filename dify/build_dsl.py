@@ -33,6 +33,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---- LLM の既定設定（インポート後に Dify 側で差し替え可能） ----
 MODEL_NAME = "gpt-5.6-luna"  # Dify のモデル一覧にあるもの。実測レイテンシが最も速い（意図判定 1.3s / 評価 2.5s）
+# 作問だけは品質重視の別モデル（trivium-generate 用）
+GENERATE_MODEL_NAME = "gpt-5.6-sol"
+
 MODEL = {
     "provider": "langgenius/openai/openai",
     "name": MODEL_NAME,
@@ -40,6 +43,7 @@ MODEL = {
     # 推論系モデルは temperature を受け付けないことがあるので空にしておく（Dify 側で必要なら追加）
     "completion_params": {},
 }
+GENERATE_MODEL = {**MODEL, "name": GENERATE_MODEL_NAME}
 # Dify Marketplace の OpenAI プラグイン。無ければインポート時に Dify が案内する
 OPENAI_PLUGIN = "langgenius/openai:1.0.1@b513bf843af4619450bdc15f32e995f90ebdeee143b1cccef442a867099b3397"
 
@@ -331,12 +335,12 @@ def start_node(node_id: str, variables: list[tuple[str, str, str, bool]], y: int
     return node(node_id, "start", {"title": "開始", "type": "start", "variables": vs, "selected": False}, x=80, y=y, w=244, h=54 + 26 * len(vs))
 
 
-def llm_node(node_id: str, title: str, system: str, user: str, x: int, y: int) -> dict[str, Any]:
+def llm_node(node_id: str, title: str, system: str, user: str, x: int, y: int, model: dict[str, Any] | None = None) -> dict[str, Any]:
     data = {
         "title": title,
         "type": "llm",
         "selected": False,
-        "model": dict(MODEL),
+        "model": dict(model or MODEL),
         "prompt_template": [
             {"id": f"{node_id}-system", "role": "system", "text": system},
             {"id": f"{node_id}-user", "role": "user", "text": user},
@@ -655,8 +659,8 @@ def build_generate() -> dict[str, Any]:
         x=1440,
         y=120,
     )
-    llm_search = llm_node("llm_generate_search", "作問（検索あり）", SYSTEM_GENERATE, USER_GENERATE_SEARCH, x=1780, y=120)
-    llm_plain = llm_node("llm_generate", "作問", SYSTEM_GENERATE, USER_GENERATE_PLAIN, x=760, y=520)
+    llm_search = llm_node("llm_generate_search", "作問（検索あり）", SYSTEM_GENERATE, USER_GENERATE_SEARCH, x=1780, y=120, model=GENERATE_MODEL)
+    llm_plain = llm_node("llm_generate", "作問", SYSTEM_GENERATE, USER_GENERATE_PLAIN, x=760, y=520, model=GENERATE_MODEL)
     ends = end_node("end", ["llm_generate_search", "llm_generate"], x=2120, y=120)
     nodes = [start, branch, build, http, parse, llm_search, llm_plain, *ends]
     edges = [

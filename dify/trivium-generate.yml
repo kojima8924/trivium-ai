@@ -328,7 +328,7 @@ workflow:
         selected: false
         model:
           provider: langgenius/openai/openai
-          name: gpt-5.6-luna
+          name: gpt-5.6-sol
           mode: chat
           completion_params: &id001 {}
         prompt_template:
@@ -410,7 +410,7 @@ workflow:
         selected: false
         model:
           provider: langgenius/openai/openai
-          name: gpt-5.6-luna
+          name: gpt-5.6-sol
           mode: chat
           completion_params: *id001
         prompt_template:

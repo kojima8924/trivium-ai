@@ -31,7 +31,7 @@ export const env = {
     /** openai | dify | anthropic | mock（未設定なら openai。キーが無ければ自動で mock） */
     provider: (process.env.AI_PROVIDER ?? "openai") as "openai" | "dify" | "anthropic" | "mock",
     openaiApiKey: process.env.OPENAI_API_KEY ?? "",
-    openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
     openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? 25000),
     difyApiBase: process.env.DIFY_API_BASE ?? "https://api.dify.ai/v1",
     difyDomainApiKey: process.env.DIFY_DOMAIN_API_KEY ?? "",

@@ -29,9 +29,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../..");
 const OUT_DIR = path.join(HERE, "out");
 const STOCK_DIR = path.join(ROOT, "src/lib/tasks/stock");
-const GEN_MODEL = "gpt-5.5";
-const SOLVER_MODEL = "gpt-5.5";
-const REVIEW_MODEL = "gpt-5.4-mini";
+// STOCK_BACKEND=openai のときのモデル（既定は Codex CLI なので通常は使わない）
+const GEN_MODEL = "gpt-5.6-sol";
+const SOLVER_MODEL = "gpt-5.6-sol";
+const REVIEW_MODEL = "gpt-5.6-luna";
 /** codex = サブスクの Codex CLI（既定）/ openai = API（残高に注意） */
 const BACKEND = (process.env.STOCK_BACKEND ?? "codex") as "codex" | "openai";
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "";

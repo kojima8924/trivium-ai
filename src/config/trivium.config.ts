@@ -17,21 +17,21 @@ export type AxisKey = "read" | "write" | "logic";
 
 // ---------------------------------------------------------------------
 // 1. AI モデル（役割ごと）。OpenAI のモデル ID を書く。
-//    採点・寸評・会話は速さ重視、作問は品質重視。
+//    採点・寸評・会話・意図判定は速さ重視（実測でいちばん速い gpt-5.6-luna）、作問だけ品質重視。
 // ---------------------------------------------------------------------
 export const MODELS = {
   /** 回答の評価・一段ヒント（速さ重視） */
-  evaluate: "gpt-5.4-mini",
+  evaluate: "gpt-5.6-luna",
   /** 系統ごとの寸評・観察メモの更新 */
-  interpret: "gpt-5.4-mini",
+  interpret: "gpt-5.6-luna",
   /** 案内役（LEADER）の総合寸評 */
-  leader: "gpt-5.4-mini",
+  leader: "gpt-5.6-luna",
   /** LINE の会話（人格ごと。検索ツールを使うことがある） */
-  chat: "gpt-5.4-mini",
+  chat: "gpt-5.6-luna",
   /** LINE の意図判定（返信をブロックするので最速のものを選ぶ。実測 1.3s） */
   intent: "gpt-5.6-luna",
-  /** 作問（品質重視。やや高級なモデル） */
-  generate: "gpt-5.5",
+  /** 作問（品質重視。速さより質。実測では評価用途で 4.0s と遅いが、作問は push で後追い配信なので体感に響かない） */
+  generate: "gpt-5.6-sol",
   /** 推論の深さ: none | minimal | low | medium | high（速さと質のトレードオフ） */
   reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "low", intent: "low" } as const,
 } as const;
