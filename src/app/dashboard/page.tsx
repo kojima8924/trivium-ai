@@ -7,6 +7,7 @@ import { TriviumRadar } from "@/components/RadarChart";
 import { SeedButton } from "@/components/SeedButton";
 import { ResetButton } from "@/components/ResetButton";
 import { NextStep } from "@/components/dashboard/NextStep";
+import { GenerateBox } from "@/components/GenerateBox";
 import { ScoreTiles } from "@/components/dashboard/ScoreTiles";
 import { DomainCard } from "@/components/dashboard/DomainCard";
 import { HistoryList } from "@/components/dashboard/HistoryList";
@@ -66,6 +67,9 @@ export default async function DashboardPage() {
         totalEvents={data.totalEvents}
         materials={materials}
       />
+
+      {/* 1.5 AI 作問（解答画面には置かない。ここで作って学習ページへ飛ぶ） */}
+      <GenerateBox defaultDomain={data.leader?.recommendedDomain ?? "CODE"} />
 
       {/* 2. 三角形プロフィール */}
       <section className="card p-4 sm:p-5" aria-labelledby="radar-heading">

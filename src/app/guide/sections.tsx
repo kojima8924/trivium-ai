@@ -49,7 +49,7 @@ export function AboutSection() {
       </p>
       <p className="font-semibold">AI does not do the work for you. It helps you take the next step.</p>
       <ul className="list-disc space-y-1 pl-5">
-        <li>誤答しても AI は答えを渡しません。<span className="font-semibold">一段だけのヒント</span>（問い返し → 着眼点 → 手がかり。3 回まで）で、自分で辿り着くのを待ちます。</li>
+        <li>誤答しても AI は答えを渡しません。<span className="font-semibold">一段だけのヒント</span>（問い返し → 着眼点 → 手がかり。3 回まで）で、自分で辿り着くのを待ちます。詰まったら解答欄の「💡 ヒント」で回答前にもらうこともできます。</li>
         <li>正誤・ヒント回数・所要時間は<span className="font-semibold">数値の証拠</span>として記録され、能力プロフィール（到達レベル）は決定論で更新されます。AI が担当するのは講評・寸評・観察といった<span className="font-semibold">解釈</span>だけです。</li>
         <li>Web と LINE の両方から使えます。じっくり書く課題は Web で、スキマ時間の 1 問は LINE で。</li>
       </ul>

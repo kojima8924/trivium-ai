@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { DOMAIN_META, parseDomain } from "@/lib/domain";
 import { TaskPlayer } from "@/components/TaskPlayer";
-import { GenerateBox } from "@/components/GenerateBox";
 import { loadPersonas } from "@/lib/persona";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +37,7 @@ export default async function LearnPage({
         </div>
         <p className="mt-0.5 text-xs text-muted">{meta.tagline}</p>
       </div>
-      <GenerateBox domain={domain} />
-      {/* key で課題を切り替える（作問後の ?task=gen-… でも確実に再ロード） */}
+      {/* key で課題を切り替える（Dashboard で作問した ?task=gen-… でも確実に再ロード） */}
       <TaskPlayer key={sp.task ?? "auto"} domain={domain} preferredTaskId={sp.task} personaName={personas[domain].name} leaderName={personas.LEADER.name} />
     </div>
   );

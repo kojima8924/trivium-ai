@@ -1,16 +1,16 @@
 "use client";
 
-// TaskPlayer の状態管理（課題の取得・回答の送信・ヒント・結果）だけを持つフック。
+// TaskPlayer の状態管理（課題の取得・回答の送信・ヒントの要求・結果）だけを持つフック。
 // 表示は TaskBody / FeedbackLog / AnswerInput / ResultCard 側の責務。
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DomainKey } from "@/lib/domain";
+import { MAX_HINTS, type DomainKey } from "@/lib/domain";
 import type { TaskPublic } from "@/lib/tasks/types";
 import type { SubmitResult } from "@/lib/learn/types";
 
 // /api/learn/submit のレスポンス型はサーバと共通（src/lib/learn/types.ts が唯一の定義）
 export type SubmitResponse = SubmitResult;
 
-export type Phase = "loading" | "answering" | "submitting" | "done" | "error";
+export type Phase = "loading" | "answering" | "submitting" | "hinting" | "done" | "error";
 
 /** mark: ○ 正解 / △ 誤答→ヒントで再挑戦 / ✕ ヒント切れ・ギブアップ */
 export type LogEntry = { kind: "feedback" | "hint" | "me"; text: string; mark?: "○" | "△" | "✕" };
@@ -103,5 +103,31 @@ export function useTaskPlayer({ domain, preferredTaskId }: { domain: DomainKey; 
     }
   }
 
-  return { task, phase, answer, setAnswer, hintCount, log, result, toastKeys, setToastKeys, error, load, submit };
+  /**
+   * 回答せずにヒントだけを 1 段もらう（LINE の「ヒント」と同じ /api/learn/hint）。
+   * 回数はサーバが数える。使い切っていればその旨を吹き出しで伝える。
+   */
+  async function hint() {
+    if (!task || phase !== "answering" || hintCount >= MAX_HINTS) return;
+    setPhase("hinting");
+    setError(null);
+    try {
+      const res = await fetch("/api/learn/hint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as { hint: string | null; hintCount: number; hintsRemaining: number };
+      setHintCount(j.hintCount);
+      if (j.hint) setLog((l) => [...l, { kind: "hint", text: j.hint! }]);
+      else setLog((l) => [...l, { kind: "feedback", text: "ヒントは使い切りました。ここまでの手がかりで、もう一度考えてみてください。" }]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPhase("answering");
+    }
+  }
+
+  return { task, phase, answer, setAnswer, hintCount, log, result, toastKeys, setToastKeys, error, load, submit, hint };
 }

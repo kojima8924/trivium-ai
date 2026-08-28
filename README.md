@@ -27,7 +27,7 @@ READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教え�
 
 - **Google ログイン** — 学習状態はサーバ（PostgreSQL）に永続化。別端末でも同じプロフィール
 - **3 系統の課題** — **READ** 要旨・推論・批判的読解 / **WRITE** 構成・明確さ・根拠・推敲 / **LOGIC** 短い Python の読解と、手順・条件・推論のパズル（内部キーは `CODE`）。手書きの課題 **63 問**（単独 51 問 + 2〜3 系統にまたがる複合課題 12 問）に加えて、生成・検証済みのストック **246 問**（READ 70 / WRITE 70 / LOGIC 76 / 複合 30。問題タイプ 15 種＋複合）。難易度は系統ごとに **1（誰でも解ける）〜10（非常に難しい）**、各課題は難易度ベクトル `{ read, write, code }` を持つ
-- **一段ヒント** — 誤答すると AI が問い返し／ヒントを 1 つだけ。3 回まで。完成解は出さない（決定論採点が確定しているときは AI の判定を上書きする安全弁付き）
+- **一段ヒント** — 誤答すると AI が問い返し／ヒントを 1 つだけ。3 回まで。完成解は出さない。回答前でも解答欄の **💡 ヒント** ボタンで一段だけもらえる（LINE の「ヒント」と同じ経路。回数は XP の倍率と証拠の重みに効く）（決定論採点が確定しているときは AI の判定を上書きする安全弁付き）
 - **到達レベルの三角形** — READ / WRITE / LOGIC の到達レベル（Lv.0〜10）と観点別の証拠バー、信頼度。再計算のたびにスナップショットを保存
 - **推移のグラフ** — Dashboard の「これまでの推移」で 3 系統のスコアの折れ線（`ProfileSnapshot` を日ごとに間引き）と、実績を獲得順に並べたタイムラインを表示。記録が 2 点に満たないうちは「まだ計測が足りません」と案内する
 - **三角グラフの SNS 共有** — Dashboard の「三角グラフを共有」で、能力プロフィール（三角形・Lv・XP・キャラ）を 1200×630 の画像にブラウザ側で描き、Web Share API で LINE / X 等へ直接共有（使えない環境では画像保存＋X / LINE の投稿リンク）
@@ -36,7 +36,7 @@ READ / WRITE / LOGIC の短い課題に取り組むと、AI は答えを教え�
 - **4 人格の AI** — READ=ヨミ（黄泉の司書） / WRITE=フミ（赤ペン先輩） / LOGIC=ロゴス（論理の番人） / ADVISOR=ミチ（三叉路の案内人。既定はツンデレ）。ちびキャラは `public/characters/`。`/settings` で名前・口調（12 プリセット）・一人称・補足を変更でき、講評・寸評・LINE の会話に反映
 - **出題する問題タイプの設定** — `/settings` で系統ごとに問題タイプ（READ: 要旨把握／推論／批判的読解／語彙・表現／図表・データ読解、WRITE: 推敲／構成／意見文／要約／書き換え、LOGIC: Python 読解／Python バグ発見／論理パズル／数的推理／手順・アルゴリズム）をチェックボックスで外せる（「Python はいらない」など）。複合問題（2 系統以上）の可否も切替。Web・LINE の出題と AI 作問の両方に効く（`src/lib/task-types.ts`、保存先は `LeaderProfile.preferences`）
 - **系統ごとの観察メモと会話の記憶** — 各人格は担当系統の観察メモ（本人には見せない）を持ち、ADVISOR は 4 つのメモを読んで話す。LINE の会話は人格ごとに直近 10 往復を記憶。現在日時を知っていて、必要なときだけ Web 検索を使う
-- **AI 作問** — 学習ページや LINE で「論理パズルを 1 問」「短い読解を出して」と頼むと、その場で課題を生成（系統・形式・難易度は決定論で推定し、同じ 3 系統で評価）。LINE で「LOGICで難易度8」のように指定すると、その難易度（1〜10）の検証済みストックから即出題（±1 に未回答が無ければ自動で作問。「難易度8で作って」なら常に作問）し、以後の「次」「もう1問」も同じ難易度を保つ
+- **AI 作問** — Dashboard の「AI に問題を作ってもらう」（系統を選んで自由文）や LINE で「論理パズルを作って」と頼むと、その場で課題を生成して学習ページへ（系統・形式・難易度は決定論で推定し、同じ 3 系統で評価）。LINE で「LOGICで難易度8」のように指定すると、その難易度（1〜10）の検証済みストックから即出題（±1 に未回答が無ければ自動で作問。「難易度8で作って」なら常に作問）し、以後の「次」「もう1問」も同じ難易度を保つ
 - **教材の推薦（ADVISOR と会話）** — 「おすすめの本は？」「LOGIC を伸ばす教材」と聞くと、到達レベル・弱い小分類・直近の失敗から、定番書・公式サイト・演習サイトのカタログ（`src/lib/materials/catalog.ts`、145 件。実在の定番書・公式サイト・演習サイト。URL は `scripts/dev/materials-url-check.mts` で全件検査できる）と Dify ナレッジ検索（設定時）のスコアで候補を選び、案内役が理由つきで提案
 - **LINE 公式アカウント** — 「今日の学習」で選択式を Quick Reply 出題（選択肢と並んで **💡 ヒント / パス / Webで解く** のボタン。「パス」は記録に残さず次へ、「ヒント」は担当キャラが一段だけ、出題中の質問は担当が課題の文脈で答える（答えは言わない）。Web で解いた問題は LINE 側の回答待ちも自動解除）、出題・寸評・会話は担当キャラのちびアイコン付き吹き出し（Flex）、自由文で作問、名前で呼ぶとその人格が応答、今日の 3 問を解き終えると総評と「今日の 1 冊」を push。署名検証付き Webhook・Rich Menu（上段 READ / WRITE / LOGIC = その場で 1 問、下段 使い方 / Dashboard / PROFILE）。友だち追加時はコンセプトの挨拶に続けて **使い方画像**（`public/line/howto.png`）を配信する
 - **LINE ↔ Web アカウント連携** — LINE で「連携」と送るとワンタイム URL が届き、Google ログイン後に紐づく。以降 LINE の人格は実際の学習記録で答える（「連携解除」でいつでも解除）
@@ -85,7 +85,7 @@ npx tsx scripts/characters/gen_moods.mts             # キャラの表情差分�
 
 | Dashboard（到達レベル・XP・ミッション） | Dashboard（ダーク） | 人格の設定 | 学習ページ（AI 作問） |
 |---|---|---|---|
-| <img src="docs/screenshots/dashboard-mobile.png" width="200" alt="三角形、XP とランク、ミッション、系統ごとの寸評" /> | <img src="docs/screenshots/dashboard-mobile-dark.png" width="200" alt="ダークモードの Dashboard" /> | <img src="docs/screenshots/settings-mobile.png" width="200" alt="4 人格の名前・口調・一人称・補足を編集" /> | <img src="docs/screenshots/learn-logic.png" width="200" alt="LOGIC の学習ページ。上部に AI に問題を作ってもらう欄" /> |
+| <img src="docs/screenshots/dashboard-mobile.png" width="200" alt="三角形、XP とランク、ミッション、系統ごとの寸評" /> | <img src="docs/screenshots/dashboard-mobile-dark.png" width="200" alt="ダークモードの Dashboard" /> | <img src="docs/screenshots/settings-mobile.png" width="200" alt="4 人格の名前・口調・一人称・補足を編集" /> | <img src="docs/screenshots/learn-logic.png" width="200" alt="LOGIC の学習ページ（現在は AI 作問の欄は Dashboard に移動し、解答欄に 💡 ヒントボタンがある）" /> |
 
 ## 数値 = evidence、文章 = AI interpretation
 
@@ -181,6 +181,7 @@ npx tsx scripts/line-howto-image.mts           # 友だち追加時に配る使�
 | `GET /api/health` | DB 疎通と AI provider の状態（直近のエラー要約を含む。鍵は伏字） |
 | `GET /api/learn/next?domain=read\|write\|logic[&task=id]` | 次の課題（正解・ヒント・解説は含まない）。難易度は低めから始めて推薦値の周りをゆらぎつきで選び、弱い観点と出題設定を反映 |
 | `POST /api/learn/submit` | 回答 → 決定論採点 → AI の講評 / 一段ヒント → 決着時に learning event 記録 → 到達レベル・XP・ADVISOR 再計算 |
+| `POST /api/learn/hint` | 回答せずにヒントを 1 段もらう（`{taskId}`。回数はサーバの `TaskAttempt` が正本。使い切れば `hint: null`） |
 | `POST /api/learn/generate` | 自由文の依頼から課題を 1 問生成（`{request, domain?, kind?, difficulty?}`） |
 | `GET /api/profile` | Dashboard と同じプロフィール JSON（到達レベル・XP を含む） |
 | `POST /api/demo/seed` / `POST /api/demo/reset` / `POST /api/demo/warm` | デモ履歴の投入 / 初期状態に戻す（ボタンは確認ステップ付き） / 選択式講評のキャッシュ生成（warm は `ADMIN_EMAILS` の管理者のみ・上限付き） |

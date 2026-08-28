@@ -22,7 +22,7 @@ export function TaskPlayer({
   /** LEADER の名前（結果画面に表示） */
   leaderName?: string;
 }) {
-  const { task, phase, answer, setAnswer, hintCount, log, result, toastKeys, setToastKeys, error, load, submit } = useTaskPlayer({ domain, preferredTaskId });
+  const { task, phase, answer, setAnswer, hintCount, log, result, toastKeys, setToastKeys, error, load, submit, hint } = useTaskPlayer({ domain, preferredTaskId });
 
   if (phase === "loading") return <div className="card p-6 text-sm text-muted">課題を選んでいます…</div>;
   if (phase === "error" || !task)
@@ -36,6 +36,7 @@ export function TaskPlayer({
     );
 
   const busy = phase === "submitting";
+  const hinting = phase === "hinting";
   const done = phase === "done";
 
   return (
@@ -44,7 +45,19 @@ export function TaskPlayer({
 
       <FeedbackLog log={log} domain={domain} personaName={personaName} />
 
-      {!done && <AnswerInput task={task} answer={answer} setAnswer={setAnswer} busy={busy} hintCount={hintCount} error={error} submit={(giveUp) => void submit(giveUp)} />}
+      {!done && (
+        <AnswerInput
+          task={task}
+          answer={answer}
+          setAnswer={setAnswer}
+          busy={busy}
+          hinting={hinting}
+          hintCount={hintCount}
+          error={error}
+          submit={(giveUp) => void submit(giveUp)}
+          requestHint={() => void hint()}
+        />
+      )}
 
       {done && result && (
         <ResultCard result={result} domain={domain} leaderName={leaderName} toastKeys={toastKeys} setToastKeys={setToastKeys} onNext={() => load()} />

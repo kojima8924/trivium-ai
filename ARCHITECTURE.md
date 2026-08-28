@@ -118,7 +118,7 @@ service.ts は上を再輸出するだけの窓口（既存の import を壊さ�
 - **作問**（`src/lib/learn/generate.ts`）: 自由文 → 系統 / 形式 / 難易度 / LOGIC のスタイル（Python か論理パズルか）を決定論で決めてから LLM に作らせ、`GeneratedTask` に保存。通常の学習ループで解ける
 - **人格**（`src/lib/persona.ts`）: 4 人格。prompt にだけ効き、採点には影響しない。`detectAddressedAgent` が「ロゴス、〜」のような呼びかけを判定
 - **講評キャッシュ**（`TaskFeedbackCache`）: 選択式は (task, 回答, ヒント段階, 人格) で保存。`npm run warm-cache` / `POST /api/demo/warm` で事前生成
-- **ヒント回数**は `TaskAttempt`（サーバ側）が正本。クライアントの申告は表示にしか使わない
+- **ヒント回数**は `TaskAttempt`（サーバ側）が正本。クライアントの申告は表示にしか使わない。Web の 💡 ボタンと LINE の「ヒント」は同じ `requestHint`（回答なしで 1 段進める）を通る
 - **リセット**（`POST /api/demo/reset`）: 学習状態を初期化。人格と LINE 連携は残す
 
 ## AI レイヤーの抽象化 — `src/lib/ai/`
@@ -193,7 +193,7 @@ GET では消費しない（プレビュー取得やクローラで無効化さ�
 | `src/lib/line/*` | webhook の振り分け（`intent.ts` → `handlers.ts` → `handlers/{quiz,chat,rule}.ts`）、出題（`quiz*.ts`）、会話、連携、Flex（`flex*.ts`）、定型文（`replies.ts`）、URL、push |
 | `src/lib/http.ts` | クロスサイト POST の拒否とレート制限 |
 | `src/auth.ts` | Auth.js v5（Google OAuth + env でゲートしたデモログイン） |
-| `src/app/api/**` | health / learn（next・submit・generate）/ profile / settings（task-types・notifications）/ demo（seed・reset・warm）/ cron（reminder）/ agent（context）/ line webhook / auth |
+| `src/app/api/**` | health / learn（next・submit・hint・generate）/ profile / settings（task-types・notifications）/ demo（seed・reset・warm）/ cron（reminder）/ agent（context）/ line webhook / auth |
 | `src/app/{dashboard,learn,settings,link,login,guide}` | 画面（`/guide` はログイン不要の使い方ガイド） |
 | `src/components/{task-player,dashboard,share}/*` | 学習ページ（フック `use-task-player.ts` ＋表示コンポーネント）、Dashboard の各カード（推移グラフ・実績タイムラインを含む）、共有画像の描画 |
 | `scripts/*` | seed / warm-cache / preflight / Rich Menu（定義と背景画像）/ 使い方画像 / ブランド素材。`scripts/stock/`（ストック生成・検証。既定は Codex CLI）、`scripts/characters/`（表情差分）、`scripts/dify/`（教材ナレッジの書き出し・投入）。開発用は `scripts/dev/`（README あり） |
