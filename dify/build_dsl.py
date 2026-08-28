@@ -697,7 +697,7 @@ CHAT_ENV_VARS = [
     {
         "id": "trivium-env-api-base",
         "name": "TRIVIUM_API_BASE",
-        "value": "https://trivium.example.com",
+        "value": "https://trivium.153.126.213.251.sslip.io",
         "value_type": "string",
         "selector": ["env", "TRIVIUM_API_BASE"],
         "description": "Trivium アプリの公開 URL。/api/agent/context を呼ぶ。インポート後に実際の URL へ差し替える",

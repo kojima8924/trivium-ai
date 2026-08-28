@@ -461,7 +461,8 @@ export class OpenAIProvider implements LearningAIProvider {
       model: MODELS.generate,
       effort: MODELS.reasoningEffort.generate,
       search: wantsSearch,
-      maxOutputTokens: 2000,
+      // effort=high では推論トークンが多いので上限も上げる（不足すると incomplete で parse に失敗する）
+      maxOutputTokens: 8000,
     });
 
     const hints = [...out.hints, "", "", ""].slice(0, 3) as [string, string, string];

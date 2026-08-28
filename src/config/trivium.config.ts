@@ -32,8 +32,13 @@ export const MODELS = {
   intent: "gpt-5.6-luna",
   /** 作問（品質重視。速さより質。実測では評価用途で 4.0s と遅いが、作問は push で後追い配信なので体感に響かない） */
   generate: "gpt-5.6-sol",
-  /** 推論の深さ: none | minimal | low | medium | high（速さと質のトレードオフ） */
-  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "low", intent: "low" } as const,
+  /**
+   * 推論の深さ: low | medium | high（gpt-5.4/5.6 系は "minimal" 非対応＝400）。
+   * 速さが体感に効く役割は low、作問だけ質優先で medium（実測: low 16s / medium 23s / high 47s。LINE は push で後追いなので medium が上限）。
+   * オフラインのストック生成（scripts/stock/gen_stock.mts）は時間制約が無いので high。
+   * 注意: 推論トークンも max_output_tokens に含まれるので、high にする役割は出力上限も上げる（openai.ts の maxOutputTokens）。
+   */
+  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "medium", intent: "low" } as const,
 } as const;
 
 // ---------------------------------------------------------------------

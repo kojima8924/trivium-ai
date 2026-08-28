@@ -338,8 +338,9 @@ async function generate(s: Slot, attempt: number, recentTitles: string[]): Promi
     fmt("allowed_skill_tags", allowedTags(s)),
     fmt("recent_titles", recentTitles.slice(-40)),
   ].join("\n\n");
-  const heavy = ["python", "debug", "puzzle", "math", "algorithm", "read_code"].includes(s.spec.key);
-  return parse(GEN_MODEL, GEN_ROLE, user, genSchema, "generated_task", heavy ? "medium" : "low", s.difficulty >= 8 ? 12000 : 6000);
+  // 作問は質優先で high（速度より質。検証で落ちた分を作り直すコストの方が大きい）
+  void ["python", "debug", "puzzle", "math", "algorithm", "read_code"];
+  return parse(GEN_MODEL, GEN_ROLE, user, genSchema, "generated_task", "high", s.difficulty >= 8 ? 16000 : 10000);
 }
 
 // ---- 検証 ----

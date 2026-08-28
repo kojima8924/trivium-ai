@@ -28,7 +28,7 @@ workflow:
   environment_variables:
   - id: trivium-env-api-base
     name: TRIVIUM_API_BASE
-    value: https://trivium.example.com
+    value: https://trivium.153.126.213.251.sslip.io
     value_type: string
     selector:
     - env

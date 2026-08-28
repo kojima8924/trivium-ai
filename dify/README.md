@@ -100,3 +100,18 @@ Chatflow（`trivium-chat.yml`）については別関数 `check_chat()` が検�
 - Chatflow の LLM ノードは **System プロンプトだけ**を持ち、学習者の発話と履歴は `memory`（`query_prompt_template` = `{{#sys.query#}}`、window 12）で渡します。user ロールに `{{#sys.query#}}` を重ねると発話が二重に入るためです
 - 4 人格を 1 つの LLM ノードで扱い、「いま話す担当」は会話変数 `last_agent`（assigner で書き込み）で示します。人格ごとに LLM ノードを分けるより、共有文脈と禁止事項の記述が 1 か所で済みます
 - `last_agent` は会話に残るので、次のターンで担当が変わったかどうかも LLM から見えます
+
+## モデルと推論の深さ（effort）
+
+DSL の LLM ノードは `completion_params: {}`（＝プラグイン既定）で出しています。**モデル名と推論の深さは Dify の UI（各 LLM ノード → モデル → パラメータ）で設定してください**。プラグインによってパラメータ名（`reasoning_effort` など）が違うため、DSL には焼き込んでいません。
+
+| アプリ / ノード | モデル | reasoning effort | 理由 |
+|---|---|---|---|
+| `trivium-chat` の「4 人格の応答」「教材のおすすめ」「相談先の判定」 | `gpt-5.6-luna` | **low** | 返信の速さが体感に直結（実測: 意図判定 1.3s / 会話 1.7s） |
+| `trivium-domain`（評価・寸評） | `gpt-5.6-luna` | **low** | 同上（評価 2.6s） |
+| `trivium-leader`（総合寸評） | `gpt-5.6-luna` | **low** | 1 日 1 回・push なので低めで十分 |
+| `trivium-generate`（作問） | `gpt-5.6-sol` | **medium**（質優先なら high） | 実測 low 16s / medium 23s / high 47s。push で後追い配信なので medium まで許容 |
+
+**注意**: 推論トークンも出力上限に含まれます。effort を上げるノードは `max_tokens` も上げてください（作問は 8000 以上）。上限が足りないと出力が途中で切れ、アプリ側の JSON 検証に落ちて Mock にフォールバックします。
+
+アプリ側（Dify を使わない直接呼び出し）の対応する設定は `src/config/trivium.config.ts` の `MODELS` / `MODELS.reasoningEffort` です。
