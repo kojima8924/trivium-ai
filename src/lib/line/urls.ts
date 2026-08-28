@@ -11,3 +11,8 @@ export function learnUrl(appUrl: string, domain: DomainKey, taskId?: string): st
 export function dashboardUrl(appUrl: string): string {
   return `${appUrl.replace(/\/$/, "")}/dashboard`;
 }
+
+/** 使い方画像（public/line/howto.png）の絶対 URL。LINE は HTTPS の絶対 URL しか受け付けない */
+export function howtoImageUrl(appUrl: string): string {
+  return `${appUrl.replace(/\/$/, "")}/line/howto.png?v=1`;
+}

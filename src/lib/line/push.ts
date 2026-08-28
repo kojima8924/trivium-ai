@@ -35,6 +35,19 @@ export function toMessages(r: LeaderReply): messagingApi.Message[] {
     main.quickReply = { items: r.quickReplies.slice(0, 13).map((a) => ({ type: "action", action: toAction(a) })) };
   }
   messages.push(main);
+  // 画像（使い方の図など）。Quick Reply は最後のメッセージに付け直す
+  if (r.image) {
+    const img: messagingApi.ImageMessage = {
+      type: "image",
+      originalContentUrl: r.image.url,
+      previewImageUrl: r.image.previewUrl ?? r.image.url,
+    };
+    if (main.quickReply) {
+      delete main.quickReply;
+      img.quickReply = { items: (r.quickReplies ?? []).slice(0, 13).map((a) => ({ type: "action", action: toAction(a) })) };
+    }
+    messages.push(img);
+  }
   if (r.buttons) {
     messages.push({
       type: "template",

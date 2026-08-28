@@ -25,6 +25,8 @@ export type LeaderReply = {
   flex?: messagingApi.FlexContainer;
   /** flex 送信時の通知文。省略時は text の先頭 */
   altText?: string;
+  /** 画像メッセージ（使い方の図など）。本文の後に 1 枚送る */
+  image?: { url: string; previewUrl?: string };
 };
 
 export type LeaderContext = {

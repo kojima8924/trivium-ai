@@ -362,7 +362,8 @@ Coolify のアプリログに `[ai] evaluate: dify failed, falling back to mock:
 4. LINE Official Account Manager（応答設定）で **応答メッセージ: OFF**、**Webhook: ON**（あいさつメッセージも OFF 推奨。follow 時は Webhook が歓迎文を返す）
 5. Rich Menu を作成（`NEXT_PUBLIC_APP_URL` を公開URLにしてから、ローカルの開発環境で実行）
    ```bash
-   NEXT_PUBLIC_APP_URL=https://<本番URL> npm run line:richmenu  # ← ボタンのリンク先が焼き込まれるので、必ず本番 URL を渡す（.env の localhost のままだと Dashboard ボタンが localhost:3000 になる）
+   NEXT_PUBLIC_APP_URL=https://<本番URL> npm run line:richmenu
+npx tsx scripts/line-howto-image.mts   # 使い方画像（public/line/howto.png）。友だち追加時と「使い方」ボタンで配信する  # ← ボタンのリンク先が焼き込まれるので、必ず本番 URL を渡す（.env の localhost のままだと Dashboard ボタンが localhost:3000 になる）
    ```
    - 2行×3列: 上段 `READ | WRITE | LOGIC`（postback。LINE 上でその系統の選択式を 1 問）、下段 `使い方 | Dashboard | PROFILE`（使い方＝案内と `/guide` へのボタン、Dashboard＝メインサイトへ、PROFILE＝Flex カード）
    - 画像は `public/line/richmenu.png`（`npx tsx scripts/line-richmenu-image.ts` で再生成）。本番に反映するときは `APP_URL=<公開URL> NEXT_PUBLIC_APP_URL=<公開URL> npm run line:richmenu`（新しいメニューを作って既定にする。古いものは LINE API で削除）

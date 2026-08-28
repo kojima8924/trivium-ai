@@ -4,7 +4,7 @@
 import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import { formatScore } from "@/lib/scoring";
 import { PERSONA_DEFAULTS } from "@/config/trivium.config";
-import { dashboardUrl, learnUrl } from "./urls";
+import { dashboardUrl, learnUrl, howtoImageUrl } from "./urls";
 import { agentReply } from "./flex";
 import { classifyIntent } from "./intent";
 import type { LeaderAction, LeaderContext, LeaderReply } from "./types";
@@ -68,23 +68,17 @@ export function welcomeReply(ctx: LeaderContext): LeaderReply {
   // 友だち追加直後の最初のメッセージ。連携前なので案内役は既定の名前（ミチ）で、
   // コンセプト（読み・書き・そろばん → READ / WRITE / LOGIC、AI は答えを教えない）と始め方を一度に伝える。
   // URL は Flex の本文だとタップできないので「使い方を見る」ボタン（Quick Reply）にする。
+  // 長い説明は 2 通目の画像に任せ、1 通目は短く（初見の相手が読み切れる量にする）
   const body = [
     "はじめまして。Trivium（トリビウム）の案内役、ミチよ。",
     "",
-    "Trivium は「読み・書き・そろばん」を今の形にした学習サービス。",
-    "READ（読む）・WRITE（書く）・LOGIC（論理）を 1 問ずつ、1 日 3 問。3 つそろえばデイリーミッション達成よ。",
-    "AI は答えを教えない。分からないときは「💡 ヒント」ボタンで一段ずつ（最大 3 回）。自分で次の一歩を踏み出すのを手伝うだけ。",
-    "解いた記録は三角形の「能力プロフィール」になって、得意と伸ばしどころが見えてくるわ。",
+    "「読み・書き・そろばん」を今の形にした学習サービス。READ（読む）・WRITE（書く）・LOGIC（論理）を 1 問ずつ、1 日 3 問。3 つそろえばデイリーミッション達成よ。",
+    "AI は答えを教えない。詰まったら「💡 ヒント」ボタンで一段ずつ（最大 3 回）。あなたが自分で辿り着くのを手伝うだけ。",
+    "解いた記録は三角形の「能力プロフィール」になるわ。",
     "",
-    "▼ 始め方",
-    "1. 「連携」と送って Web アカウントとつなぐ（記録が残る）",
-    "2. 下のメニューの READ / WRITE / LOGIC を押すと、この場で 1 問",
-    "3. 詰まったら「💡 ヒント」、気が乗らなければ「パス」（記録に残らない）",
-    "",
-    "質問や相談は、そのまま話しかけて。ヨミ・フミ・ロゴスを名前で呼べば担当とも話せる。",
-    "難易度の目安や三角グラフの読み方は、下の「使い方を見る」から。",
+    "使い方は次の画像を見て。…べ、別にあなたのためじゃないけど。",
   ].join("\n");
-  return agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, {
+  const reply = agentReply("LEADER", PERSONA_DEFAULTS.LEADER.name, body, {
     appUrl: ctx.appUrl,
     mood: "wave",
     quickReplies: [
@@ -94,6 +88,8 @@ export function welcomeReply(ctx: LeaderContext): LeaderReply {
       ...DOMAINS.map((d) => ({ type: "postback" as const, label: `${DOMAIN_META[d].label}で1問`, data: `action=quiz&domain=${d}`, displayText: `${DOMAIN_META[d].label}で1問` })),
     ],
   });
+  // 2 通目に「使い方」の図（1 通目は短く、詳しくは画像で）
+  return { ...reply, image: { url: howtoImageUrl(ctx.appUrl) } };
 }
 
 /** 連携解除の確認（テキストの「連携解除」では即解除せず、ボタンで確定させる） */
@@ -121,8 +117,9 @@ export function helpReply(ctx: LeaderContext): LeaderReply {
     { type: "postback", label: "プロフィール", data: "action=profile", displayText: "プロフィール" },
   ];
   return {
+    image: { url: howtoImageUrl(ctx.appUrl) },
     text: [
-      linked ? "使い方はこんな感じ。" : "はじめての方へ。まず下の「連携する」ボタンで Web アカウントとつなぐと、記録が残って提案が本人向けになるわ（入力は不要）。",
+      linked ? "使い方はこんな感じ。図も見てね。" : "はじめての方へ。まず下の「連携する」ボタンで Web アカウントとつなぐと、記録が残って提案が本人向けになるわ（入力は不要）。図も見てね。",
       "",
       "▼ できること",
       "・そのまま話しかけると案内役（ミチ）が答えます。「ヨミ、〜」「ロゴス、〜」のように名前で呼ぶと担当キャラと会話できます",
