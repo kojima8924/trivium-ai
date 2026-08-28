@@ -110,7 +110,7 @@ LINE webhook        ─┘     │
                               決着済み課題の再提出・60 秒以内の二重送信は「練習モード」（記録なし）
 ```
 
-- **課題**（`src/lib/tasks/`）: 手書き 63 問（単独 51 + 複合 12）＋生成・検証済みストック 236 問（`stock/*.generated.ts`。READ 70 / WRITE 70 / LOGIC 70 / 複合 26）。すべての課題に `taskType`（`src/lib/task-types.ts` の 15 種＋ `composite`）が付き、`/settings` の出題設定で除外できる。作問配分用の 7 類型は `TASK_TYPES`（config）
+- **課題**（`src/lib/tasks/`）: 手書き 63 問（単独 51 + 複合 12）＋生成・検証済みストック 246 問（`stock/*.generated.ts`。READ 70 / WRITE 70 / LOGIC 76 / 複合 30）。すべての課題に `taskType`（`src/lib/task-types.ts` の 15 種＋ `composite`）が付き、`/settings` の出題設定で除外できる。作問配分用の 7 類型は `TASK_TYPES`（config）
 - **作問**（`src/lib/learn/generate.ts`）: 自由文 → 系統 / 形式 / 難易度 / LOGIC のスタイル（Python か論理パズルか）を決定論で決めてから LLM に作らせ、`GeneratedTask` に保存。通常の学習ループで解ける
 - **人格**（`src/lib/persona.ts`）: 4 人格。prompt にだけ効き、採点には影響しない。`detectAddressedAgent` が「ロゴス、〜」のような呼びかけを判定
 - **講評キャッシュ**（`TaskFeedbackCache`）: 選択式は (task, 回答, ヒント段階, 人格) で保存。`npm run warm-cache` / `POST /api/demo/warm` で事前生成
