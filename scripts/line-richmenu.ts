@@ -118,6 +118,11 @@ function loadImage(): { buf: Buffer; source: string } {
 async function main() {
   const token = must("LINE_CHANNEL_ACCESS_TOKEN");
   const appUrl = must("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
+  // localhost のままだと、配信済みのリッチメニューから開けない（実際に踏んだ）
+  if (/localhost|127\.0\.0\.1/.test(appUrl)) {
+    console.error(`NEXT_PUBLIC_APP_URL が ${appUrl} です。本番 URL を指定して実行してください（例: NEXT_PUBLIC_APP_URL=https://example.com npm run line:richmenu）`);
+    process.exit(1);
+  }
 
   const client = new messagingApi.MessagingApiClient({ channelAccessToken: token });
   const blob = new messagingApi.MessagingApiBlobClient({ channelAccessToken: token });
