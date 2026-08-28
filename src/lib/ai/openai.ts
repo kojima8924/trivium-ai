@@ -294,8 +294,9 @@ export class OpenAIProvider implements LearningAIProvider {
         fmt("context", `linked=${input.linked} pending_task=${input.pendingTask} personas=${input.personaNames.join("/")}`),
       ].join(String.fromCharCode(10));
       const { parsed } = await this.parse(ROLE_LINE_INTENT, undefined, user, lineIntentSchema, "line_intent", "intent", {
-        model: MODELS.chat,
-        effort: "minimal",
+        model: MODELS.intent,
+        // minimal は gpt-5.4 系・5.6 系とも未対応（400）。low が実質の最小
+        effort: "low",
         maxOutputTokens: 200,
       });
       return {

@@ -28,10 +28,12 @@ export const MODELS = {
   leader: "gpt-5.4-mini",
   /** LINE の会話（人格ごと。検索ツールを使うことがある） */
   chat: "gpt-5.4-mini",
+  /** LINE の意図判定（返信をブロックするので最速のものを選ぶ。実測 1.3s） */
+  intent: "gpt-5.6-luna",
   /** 作問（品質重視。やや高級なモデル） */
   generate: "gpt-5.5",
   /** 推論の深さ: none | minimal | low | medium | high（速さと質のトレードオフ） */
-  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "low" } as const,
+  reasoningEffort: { evaluate: "low", interpret: "low", leader: "low", chat: "low", generate: "low", intent: "low" } as const,
 } as const;
 
 // ---------------------------------------------------------------------

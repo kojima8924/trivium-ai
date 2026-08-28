@@ -190,7 +190,7 @@ workflow:
         selected: false
         model:
           provider: langgenius/openai/openai
-          name: gpt-5.4-mini
+          name: gpt-5.6-luna
           mode: chat
           completion_params: {}
         prompt_template:

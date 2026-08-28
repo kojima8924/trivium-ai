@@ -32,7 +32,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---- LLM の既定設定（インポート後に Dify 側で差し替え可能） ----
-MODEL_NAME = "gpt-5.4-mini"  # アプリ側の直接呼び出し（OPENAI_MODEL の既定）と揃える
+MODEL_NAME = "gpt-5.6-luna"  # Dify のモデル一覧にあるもの。実測レイテンシが最も速い（意図判定 1.3s / 評価 2.5s）
 MODEL = {
     "provider": "langgenius/openai/openai",
     "name": MODEL_NAME,
