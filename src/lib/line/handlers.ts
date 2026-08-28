@@ -152,7 +152,7 @@ async function handleMessage(lineUserId: string, replyToken: string, text: strin
       return;
     case "quiz":
       if (intent.kind === "quiz") {
-        await handleQuiz(lineUserId, replyToken, lu, { domain: intent.domain, difficulty: intent.difficulty, delta: intent.difficultyDelta, scheduleAfter });
+        await handleQuiz(lineUserId, replyToken, lu, { domain: intent.domain, difficulty: intent.difficulty, delta: intent.difficultyDelta, taskType: intent.taskType, scheduleAfter });
       }
       return;
     case "generate":
@@ -242,11 +242,11 @@ async function handleQuiz(
   lineUserId: string,
   replyToken: string,
   lu: LineUser,
-  opts: { domain: DomainKey | null; difficulty?: number; delta?: number; scheduleAfter: AfterScheduler },
+  opts: { domain: DomainKey | null; difficulty?: number; delta?: number; taskType?: string; scheduleAfter: AfterScheduler },
 ): Promise<void> {
   const userId = await requireLinked(lu, replyToken);
   if (!userId) return;
-  const plan = await planQuiz(userId, lu.state, { domain: opts.domain, difficulty: opts.difficulty, delta: opts.delta });
+  const plan = await planQuiz(userId, lu.state, { domain: opts.domain, difficulty: opts.difficulty, delta: opts.delta, taskType: opts.taskType });
   await runQuizPlan(lineUserId, replyToken, { ...lu, userId }, plan, opts.scheduleAfter);
 }
 
@@ -264,7 +264,7 @@ async function runQuizPlan(
     await handleGenerate(lineUserId, replyToken, { ...lu, state: plan.state }, plan.request, scheduleAfter, { domain: plan.domain, difficulty: plan.difficulty });
     return;
   }
-  const reply = await startQuiz(lu.userId, lineUserId, plan.state, plan.domain, { difficulty: plan.target, preface: plan.preface });
+  const reply = await startQuiz(lu.userId, lineUserId, plan.state, plan.domain, { difficulty: plan.target, preface: plan.preface, taskType: plan.taskType });
   await replyTo(replyToken, reply);
 }
 

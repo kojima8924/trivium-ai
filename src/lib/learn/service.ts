@@ -89,7 +89,7 @@ export async function resolveTask(userId: string, taskId: string): Promise<Task 
 export async function nextTask(
   userId: string,
   domain: DomainKey,
-  opts: { preferredTaskId?: string; kind?: Task["kind"]; targetDifficulty?: number; excludeTaskIds?: string[] } = {},
+  opts: { preferredTaskId?: string; kind?: Task["kind"]; targetDifficulty?: number; excludeTaskIds?: string[]; taskType?: string } = {},
 ): Promise<{ task: Task; targetDifficulty: number }> {
   if (opts.preferredTaskId) {
     const t = await resolveTask(userId, opts.preferredTaskId);
@@ -113,6 +113,12 @@ export async function nextTask(
   const allow = (t: Task) => taskAllowedByPrefs(t, prefs);
   let pool = tasksFor(domain);
   if (opts.kind) pool = pool.filter((t) => t.kind === opts.kind);
+  // 本人が問題タイプを指定していれば（「Python やさしめ」など）そのタイプに絞る。空なら無視する
+  if (opts.taskType) {
+    const typed = pool.filter((t) => t.taskType === opts.taskType);
+    if (typed.length > 0) pool = typed;
+    else console.warn(`[learn] no ${domain} task of type ${opts.taskType}; ignoring the type`);
+  }
   const allowedPool = pool.filter(allow);
   if (allowedPool.length > 0) pool = allowedPool;
   else if (pool.length > 0) console.warn(`[learn] task prefs exclude every ${domain}${opts.kind ? `/${opts.kind}` : ""} task; ignoring prefs`);

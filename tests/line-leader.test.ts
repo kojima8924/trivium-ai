@@ -135,7 +135,7 @@ test("意図分類: 短いコマンドは quiz、自由文の依頼は generate"
   assert.deepEqual(classifyIntent("出題して"), { kind: "quiz", domain: null });
   assert.deepEqual(classifyIntent("もう1問"), { kind: "quiz", domain: null });
   assert.deepEqual(classifyIntent("READで1問"), { kind: "quiz", domain: "READ" });
-  assert.deepEqual(classifyIntent("論理 1問"), { kind: "quiz", domain: "CODE" });
+  assert.deepEqual(classifyIntent("論理 1問"), { kind: "quiz", domain: "CODE", taskType: "puzzle" });
   assert.equal(classifyIntent("論理パズルを出して").kind, "generate");
   assert.equal(classifyIntent("短い読解を1問ください").kind, "generate");
   assert.equal(classifyIntent("Pythonの問題を作って").kind, "generate");
@@ -253,7 +253,7 @@ test("難易度指定はストックから即出題（quiz）。「作って」�
   assert.deepEqual(classifyIntent("難易度８で出して"), { kind: "quiz", domain: null, difficulty: 8 });
   assert.deepEqual(classifyIntent("logic 10"), { kind: "quiz", domain: "CODE", difficulty: 10 });
   assert.deepEqual(classifyIntent("READのレベル3を1問"), { kind: "quiz", domain: "READ", difficulty: 3 });
-  assert.deepEqual(classifyIntent("Lv5の論理パズル"), { kind: "quiz", domain: "CODE", difficulty: 5 });
+  assert.deepEqual(classifyIntent("Lv5の論理パズル"), { kind: "quiz", domain: "CODE", difficulty: 5, taskType: "puzzle" });
   assert.deepEqual(classifyIntent("難易度8で作って"), { kind: "generate", request: "難易度8で作って", domain: null, difficulty: 8 });
   assert.deepEqual(classifyIntent("LOGICの難易度6を作問して"), { kind: "generate", request: "LOGICの難易度6を作問して", domain: "CODE", difficulty: 6 });
   assert.equal(classifyIntent("難易度4の新しい問題").kind, "generate");

@@ -140,13 +140,13 @@ function webTaskReply(task: Task, personaName: string): LeaderReply {
  * 返り値の state は保存すべき新しい状態（難易度指定の記録・リセットを含む）。
  */
 export type QuizPlan =
-  | { kind: "start"; domain: DomainKey; target: number | undefined; preface?: string; state: LineState }
+  | { kind: "start"; domain: DomainKey; target: number | undefined; preface?: string; taskType?: string; state: LineState }
   | { kind: "generate"; domain: DomainKey; difficulty: number; request: string; state: LineState };
 
 export async function planQuiz(
   userId: string,
   state0: LineState,
-  opts: { domain: DomainKey | null; difficulty?: number; delta?: number; preface?: string },
+  opts: { domain: DomainKey | null; difficulty?: number; delta?: number; preface?: string; taskType?: string },
 ): Promise<QuizPlan> {
   const domain = opts.domain ?? (await pickQuizDomain(userId, state0));
   let state = state0;
@@ -155,22 +155,22 @@ export async function planQuiz(
     target = opts.difficulty;
     state = withPreferredDifficulty(state, opts.difficulty, opts.domain);
   } else if (opts.delta !== undefined) {
-    const { targetDifficulty: rec } = await nextTask(userId, domain, { kind: "choice", excludeTaskIds: state.passedTaskIds });
+    const { targetDifficulty: rec } = await nextTask(userId, domain, { kind: "choice", excludeTaskIds: state.passedTaskIds, taskType: opts.taskType });
     target = Math.min(10, Math.max(1, rec + opts.delta));
     state = withPreferredDifficulty(state, undefined, null);
   } else {
     target = activePreferredDifficulty(state, domain);
   }
-  if (target !== undefined && !(await staticQuizAvailable(userId, state, domain, target))) {
-    return { kind: "generate", domain, difficulty: target, request: `${DOMAIN_META[domain].label}で難易度${target}の問題`, state };
+  if (target !== undefined && !(await staticQuizAvailable(userId, state, domain, target, opts.taskType))) {
+    return { kind: "generate", domain, difficulty: target, request: `${DOMAIN_META[domain].label}で難易度${target}の${opts.taskType ? `${opts.taskType} の` : ""}問題`, state };
   }
   const preface = opts.preface ?? (opts.delta !== undefined ? (opts.delta < 0 ? "軽めにしました。" : "難しめにしました。") : undefined);
-  return { kind: "start", domain, target, preface, state };
+  return { kind: "start", domain, target, preface, taskType: opts.taskType, state };
 }
 
 /** 指定難易度 ±1 に未回答の選択式課題が用意されているか（無ければ作問に切り替える） */
-async function staticQuizAvailable(userId: string, state: LineState, domain: DomainKey, difficulty: number): Promise<boolean> {
-  const { task } = await nextTask(userId, domain, { kind: "choice", targetDifficulty: difficulty, excludeTaskIds: state.passedTaskIds });
+async function staticQuizAvailable(userId: string, state: LineState, domain: DomainKey, difficulty: number, taskType?: string): Promise<boolean> {
+  const { task } = await nextTask(userId, domain, { kind: "choice", targetDifficulty: difficulty, excludeTaskIds: state.passedTaskIds, taskType });
   const seen = await prisma.learningEvent.count({ where: { userId, taskId: task.id } });
   return seen === 0 && Math.abs(task.difficulty - difficulty) <= 1;
 }
@@ -183,7 +183,7 @@ export async function startQuiz(
   lineUserId: string,
   state: LineState,
   domain: DomainKey,
-  opts: { difficulty?: number; preface?: string } = {},
+  opts: { difficulty?: number; preface?: string; taskType?: string } = {},
 ): Promise<LeaderReply> {
   // 本人が難易度を指定していれば（「難易度8」→「次」）、推薦ではなくその難易度を狙う（同じ系統・3 時間以内だけ）
   const targetDifficulty = opts.difficulty ?? activePreferredDifficulty(state, domain);

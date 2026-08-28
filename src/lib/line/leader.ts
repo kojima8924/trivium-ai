@@ -6,6 +6,7 @@ import { DOMAIN_META, DOMAINS, type DomainKey } from "@/lib/domain";
 import type { LineState } from "./state";
 import { agentReply } from "./flex";
 import { formatScore } from "@/lib/scoring";
+import { inferTaskTypeFromRequest } from "@/lib/learn/generate.pure";
 import { LINE, PERSONA_DEFAULTS } from "@/config/trivium.config";
 import type { MaterialKind } from "@/lib/materials/types";
 
@@ -50,7 +51,7 @@ export type LeaderContext = {
 
 export type Intent =
   | { kind: "domain"; domain: DomainKey }
-  | { kind: "quiz"; domain: DomainKey | null; difficulty?: number; difficultyDelta?: number }
+  | { kind: "quiz"; domain: DomainKey | null; difficulty?: number; difficultyDelta?: number; taskType?: string }
   | { kind: "generate"; request: string; domain?: DomainKey | null; difficulty?: number }
   | { kind: "link" }
   | { kind: "unlink" }
@@ -128,6 +129,13 @@ export function parseMaterialsIntent(text: string): Extract<Intent, { kind: "mat
   return { kind: "materials", domain, text: text.slice(0, 200), freeOnly: freeOnly || undefined, kind_ };
 }
 
+/** 発話から問題タイプ（python / puzzle / summary …）を読み取る。読み取れなければ何も付けない */
+function typeOf(domain: DomainKey | null, text: string): { taskType?: string } {
+  if (!domain) return {};
+  const t = inferTaskTypeFromRequest(domain, text);
+  return t ? { taskType: t } : {};
+}
+
 export function classifyIntent(raw: string): Intent {
   const text = toHalfWidth(raw).trim();
   const lower = text.toLowerCase();
@@ -156,7 +164,7 @@ export function classifyIntent(raw: string): Intent {
     if (/(作って|つくって|作問|生成|新しい問題|新作|オリジナル)/.test(text)) {
       return { kind: "generate", request: text.slice(0, 300), domain, difficulty };
     }
-    return { kind: "quiz", domain, difficulty };
+    return { kind: "quiz", domain, difficulty, ...typeOf(domain, text) };
   }
   // 「writeで軽めに」「やさしいのを1問」「難しめで」→ 推薦難易度から ∓2 した出題（指定難易度の文脈はリセット）。
   // 語形は出題向けのものに限定する（「やさしい人」「軽めの昼食」「難しい話」「簡単な質問」は拾わない）
@@ -166,13 +174,16 @@ export function classifyIntent(raw: string): Intent {
   if (delta !== null && !/(履歴|プロフィール|連携)/.test(text) && !isQuestionLike(text)) {
     const domain = domainInText(text);
     if (domain || /(問題|1問|一問|出題|クイズ|やりたい|お願い|ちょうだい|で$|に$|の$)/.test(text)) {
-      return { kind: "quiz", domain, difficultyDelta: delta };
+      return { kind: "quiz", domain, difficultyDelta: delta, ...typeOf(domain, text) };
     }
   }
   // LINE 上の出題（短いコマンド）。「READで1問」のように domain 付きも可
   const quizCmd = /^(出題|問題|1問|一問|クイズ|次の問題|もう1問|もう一問|次|もう一回|もう1回|今日の学習|今日の1問|今日の一問|今日の問題)(ください|して|お願い(します)?)?[!！。]?$/;
   const quizWithDomain = text.match(/^(read|write|logic|code|リード|ライト|ロジック|読解|作文|論理)\s*(で|の)?\s*(1問|一問|出題|問題|クイズ)/i);
-  if (quizWithDomain) return { kind: "quiz", domain: domainOf(quizWithDomain[1]) };
+  if (quizWithDomain) {
+    const d = domainOf(quizWithDomain[1]);
+    return { kind: "quiz", domain: d, ...typeOf(d, text) };
+  }
   if (quizCmd.test(text)) return { kind: "quiz", domain: null };
   // 自由文の作問依頼（「論理パズルを出して」「短い読解を1問ください」）: 課題語 ＋（依頼動詞 or 文末が依頼形）の両方が要る。
   // 「仕事で問題が起きて疲れた」「昨日クイズ番組を見た」「お願いがあるんだけど」は会話へ

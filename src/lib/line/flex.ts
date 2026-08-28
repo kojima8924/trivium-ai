@@ -361,6 +361,8 @@ export type MaterialsBubbleItem = {
   meta: string;
   reason: string;
   url?: string;
+  /** ボタンにするリンク（公式ページ / Amazonで探す など。最大 2 件） */
+  links?: { label: string; url: string }[];
   free?: boolean;
 };
 
@@ -409,12 +411,19 @@ export function buildMaterialsBubble(input: MaterialsBubbleInput): messagingApi.
       text(it.meta.slice(0, 80), { size: "xxs", color: MUTED }),
       text(it.reason.slice(0, 240), { size: "xs", margin: "xs" }),
     ];
-    if (it.url) {
+    const links = it.links && it.links.length ? it.links : it.url ? [{ label: "開く", url: it.url }] : [];
+    if (links.length) {
       block.push({
-        type: "button",
-        style: "link",
-        height: "sm",
-        action: { type: "uri", label: "開く", uri: it.url },
+        type: "box",
+        layout: "horizontal",
+        spacing: "sm",
+        margin: "xs",
+        contents: links.slice(0, 2).map((l) => ({
+          type: "button" as const,
+          style: "link" as const,
+          height: "sm" as const,
+          action: { type: "uri" as const, label: l.label.slice(0, 20), uri: l.url },
+        })),
       });
     }
     return block;

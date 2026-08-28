@@ -10,6 +10,7 @@ import { loadPersonas, personaPrompts } from "@/lib/persona";
 import { buildLearnerProfile } from "@/lib/materials/profile";
 import { summarizeLearner } from "@/lib/materials/recommend";
 import { searchMaterials } from "@/lib/materials/search";
+import { materialLinks } from "@/lib/materials/links";
 import type { MaterialKind, MaterialRecommendation } from "@/lib/materials/types";
 import { TODAY_ACTION, dashboardAction } from "./actions";
 import { materialsReply, type MaterialsBubbleItem } from "./flex";
@@ -83,6 +84,7 @@ export async function buildMaterialsPush(userId: string, lineUserId: string, req
     meta: `${KIND_LABEL[r.material.kind]}${r.material.author ? ` / ${r.material.author}` : ""}${r.material.levelMin === r.material.levelMax ? ` / Lv${r.material.levelMin}` : ` / Lv${r.material.levelMin}〜${r.material.levelMax}`}`,
     reason: r.reason,
     url: r.material.url,
+    links: materialLinks(r.material),
     free: r.material.free,
   }));
   const intro = await phraseIntro(userId, profile, recs, req).catch((err) => {
@@ -123,7 +125,8 @@ async function phraseIntro(userId: string, profile: Awaited<ReturnType<typeof bu
     .join("\n");
   const userText = [
     "【教材のおすすめ】学習者に、次の候補 3 つを勧める導入文を書いてください（3〜6 文・日本語・あなたの口調）。",
-    "- 候補以外の教材・書名・サイト名を挙げない。URL は書かない（別途ボタンで示す）",
+    "- 候補以外の教材・書名・サイト名を挙げない。URL は書かない（各教材の下にリンクのボタンが並ぶので、『ボタンで示す』『別途』などの言い訳もしない）",
+    "- 『購入 URL』『リンク』を聞かれても、URL を文中に書かず「下のボタンから」とだけ添える",
     "- 理由は学習者の能力（到達レベル・弱い小分類）に結び付ける。数字は下の要約にあるものだけ使う",
     "- 各候補に 1 文ずつ触れ、最後に「まず 1 つ選んで少しだけ試す」ような次の一歩で締める",
     req.text ? `- 学習者の希望: 「${req.text}」` : "",

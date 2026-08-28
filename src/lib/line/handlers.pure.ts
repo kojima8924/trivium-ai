@@ -10,6 +10,7 @@
 import type { AgentKey } from "@/lib/persona";
 import type { DomainKey } from "@/lib/domain";
 import type { LineIntentGuess } from "@/lib/ai/types";
+import { inferTaskTypeFromRequest } from "@/lib/learn/generate.pure";
 import type { Intent } from "./leader";
 
 export type RouteInput = {
@@ -59,8 +60,11 @@ export function intentFromGuess(guess: LineIntentGuess | null, text: string): In
       return { kind: "hint" };
     case "pass":
       return { kind: "pass" };
-    case "quiz":
-      return { kind: "quiz", domain: guess.domain, ...(guess.difficulty ? { difficulty: guess.difficulty } : {}) };
+    case "quiz": {
+      // 「論理パズルを1問」「数的推理で」など、問題タイプの希望も拾って出題に反映する
+      const taskType = guess.domain ? inferTaskTypeFromRequest(guess.domain, text) : null;
+      return { kind: "quiz", domain: guess.domain, ...(guess.difficulty ? { difficulty: guess.difficulty } : {}), ...(taskType ? { taskType } : {}) };
+    }
     case "generate":
       return { kind: "generate", request: text.slice(0, 300), domain: guess.domain, ...(guess.difficulty ? { difficulty: guess.difficulty } : {}) };
     case "materials":
