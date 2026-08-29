@@ -91,7 +91,7 @@ model LearningEvent {
   userId     String
   domain     Domain
   taskId     String
-  difficulty Int // 1..5
+  difficulty Int // 1..10
   answer     String
   success    Boolean
   hintCount  Int      @default(0)

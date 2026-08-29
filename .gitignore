@@ -48,3 +48,7 @@ next-env.d.ts
 .scratch/
 scripts/stock/out/
 scripts/dify/out/
+
+# python
+__pycache__/
+*.pyc

@@ -233,10 +233,10 @@ npx tsx scripts/line-howto-image.mts           # 友だち追加時に配る使�
 
 ## 24 時間でどう作ったか
 
-- 2026-08-27 21:00 に空のリポジトリから開始。feature 単位のコミットは **99 本**（`git log --oneline | wc -l`）
+- 2026-08-27 21:00 に空のリポジトリから開始し、翌 18:00 までの **21 時間**で feature 単位のコミット **105 本**（この 2 日間ぶんの実測。以後の更新は別途）
 - Claude Code を使い、土台（schema・採点・AI 抽象層・認証）を先に固めてから、UI / LINE / Dify / テスト / デプロイ / 問題コンテンツ / ゲーミフィケーション / 人格と記憶を**並列のサブエージェントと Codex CLI に分担**。ファイル所有を分けて衝突を避け、統合とレビューは 1 か所で行った。問題ストックの大量生成・検証はサブスクの Codex CLI に任せ、OpenAI API は本番の実行時だけに使う
 - 統合後に**多角レビュー**（正確性・セキュリティ・フレームワーク API・デプロイ・UX・ドキュメント）と敵対的検証を回し、実在した問題だけを修正 — 例: 全角入力で正解判定が落ちる、`/login?next=` のオープンリダイレクト、ヒント回数の自己申告による水増し、ヒント文に完成解が混ざっていた問題
-- テストは **218 件**（`node:test`。採点・XP・実績・意図判定・LINE の振り分け・ストックの品質ゲート・教材推薦・履歴・通知条件）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**し、main への push で GHCR にイメージを公開。Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）
+- テストは **226 件**（`node:test`。採点・XP・実績・意図判定・LINE の振り分け・ストックの品質ゲート・教材推薦・履歴・通知条件）。CI は typecheck / lint / test / build に加えて **Docker イメージを実ビルドして起動し `/api/health` まで確認**し、main への push で GHCR にイメージを公開。Coolify（さくら VPS）はそれを pull するだけ（VPS 上ではビルドしない）
 - 製品化に向けた課題は [Issues](https://github.com/kojima8924/trivium-ai/issues) に整理（LINE の三角形画像 [#2](https://github.com/kojima8924/trivium-ai/issues/2)、評価軸の一般化 [#3](https://github.com/kojima8924/trivium-ai/issues/3)、作問ナレッジの蓄積と RAG [#4](https://github.com/kojima8924/trivium-ai/issues/4)、出題スケジュール [#5](https://github.com/kojima8924/trivium-ai/issues/5)、答えやすさの設定 [#6](https://github.com/kojima8924/trivium-ai/issues/6)、複合課題の失敗帰属 [#9](https://github.com/kojima8924/trivium-ai/issues/9) など）。時系列グラフ [#1](https://github.com/kojima8924/trivium-ai/issues/1) は実装済み
 
 ## セキュリティ方針
