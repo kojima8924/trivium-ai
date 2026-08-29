@@ -65,7 +65,9 @@ export async function notifyDailyDigestIfComplete(userId: string, now: Date = ne
       const key = d === "READ" ? "read" : d === "WRITE" ? "write" : "code";
       const a = first[key];
       const b = last[key];
-      return b === a ? `${b}` : `${a} → ${b}（${b > a ? "+" : ""}${b - a}）`;
+      // 差分は浮動小数の誤差が出る（76.3 → 87.9 が +11.600000000000009 になる）ので丸めてから出す
+      const diff = Math.round((b - a) * 10) / 10;
+      return b === a ? `${b}` : `${a} → ${b}（${diff > 0 ? "+" : ""}${diff.toFixed(1)}）`;
     };
 
     // 今日の各領域の最新の決着（domain ごとに最後の1件）
